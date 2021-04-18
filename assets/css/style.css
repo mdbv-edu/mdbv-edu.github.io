@@ -553,12 +553,26 @@ section {
 
 .about .content {
   font-size: 15px;
+  text-align: center;
+  padding: 10px 30px;
 }
 
 .about .content h3 {
   font-weight: 700;
-  font-size: 24px;
-  color: #3c4133;
+  font-size: 30px;
+  color: #589c56;
+}
+
+.about .content2 {
+  font-size: 15px;
+  text-align: left;
+  padding: 10px 30px;
+}
+
+.about .content2 h3 {
+  font-weight: 700;
+  font-size: 30px;
+  color: #589c56;
 }
 
 .about .content ul {
@@ -736,7 +750,7 @@ section {
 
 .services .icon {
   position: absolute;
-  left: -20px;
+  left: 0px;
   top: calc(50% - 30px);
 }
 
@@ -1325,8 +1339,8 @@ section {
   color: #717a60;
 }
 
-.contact .info .email, .contact .info .phone {
-  margin-top: 40px;
+.contact .info .email, .contact .info .phone, .contact .info .address {
+  margin-bottom: 20px;
 }
 
 .contact .info .email:hover i, .contact .info .address:hover i, .contact .info .phone:hover i {
