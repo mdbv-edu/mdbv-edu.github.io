@@ -2187,3 +2187,20 @@ section {
   font-size: 13px;
   color: #fff;
 }
+
+.md-table {
+  font-family: arial, sans-serif;
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.md-table td, th {
+  border: 1px solid #dddddd;
+  text-align: left;
+  padding: 5px;
+  font-size: 12px;
+}
+
+.md-table tr:nth-child(even) {
+  background-color: #dddddd;
+}
