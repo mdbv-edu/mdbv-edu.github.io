@@ -1618,7 +1618,7 @@ function showToast(msg) {
 /* ============================================================
    PORTAL ROUTING
 ============================================================ */
-function loginUser() {
+async function loginUser() {
   const input = document.getElementById('loginUsername').value.trim();
   const pwd = document.getElementById('loginPassword').value;
   if (!input || !pwd) {
@@ -1631,8 +1631,28 @@ function loginUser() {
   if (btn) { btn.disabled = true; btn.dataset.original = btn.textContent; btn.textContent = 'Signing in...'; }
   document.getElementById('loginError').classList.add('hidden');
 
-  // Detect: if the input contains '@', treat it as a real email; otherwise append @murtidevi.local
-  const email = input.includes('@') ? input : (input + '@murtidevi.local');
+  // Determine the email to use:
+  // 1. If input contains '@', it's an email - use directly
+  // 2. Otherwise, look up username in usernameMap collection to get the real email
+  // 3. If not in usernameMap, fall back to <username>@murtidevi.local (legacy .local accounts)
+  let email;
+  if (input.includes('@')) {
+    email = input;
+  } else {
+    try {
+      const mapSnap = await window.fb.getDoc(window.fb.doc(window.fbDb, 'usernameMap', input.toLowerCase()));
+      if (mapSnap.exists() && mapSnap.data().email) {
+        email = mapSnap.data().email;
+      } else {
+        // Legacy fallback for .local accounts not yet migrated
+        email = input + '@murtidevi.local';
+      }
+    } catch(e) {
+      // If lookup fails (e.g. permission), use legacy fallback
+      console.warn('Username lookup failed, using legacy fallback:', e.message);
+      email = input + '@murtidevi.local';
+    }
+  }
 
   window.fb.signInWithEmailAndPassword(window.fbAuth, email, pwd)
     .then(async (cred) => {
