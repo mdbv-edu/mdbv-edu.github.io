@@ -264,6 +264,35 @@
   /* Admin/Principal tab active */
   .tab-active { background: var(--burgundy) !important; color: var(--cream) !important; }
 </style>
+<!-- Firebase SDK -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
+    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+  import { getFirestore, collection, getDocs, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, writeBatch, query, where }
+    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyAbeR9I-titir_yV4gurjdSJAPSsMfsDio",
+    authDomain: "murti-devi-school.firebaseapp.com",
+    projectId: "murti-devi-school",
+    storageBucket: "murti-devi-school.firebasestorage.app",
+    messagingSenderId: "79578977785",
+    appId: "1:79578977785:web:e331ed3c740420fa2d5928"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  window.fbAuth = getAuth(app);
+  window.fbDb = getFirestore(app);
+  window.fb = {
+    signInWithEmailAndPassword, signOut, onAuthStateChanged,
+    collection, getDocs, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, writeBatch, query, where
+  };
+  window.fbReady = true;
+  // Notify the main script that Firebase is loaded
+  document.dispatchEvent(new CustomEvent('firebaseReady'));
+</script>
+
 </head>
 <body>
 
@@ -415,14 +444,8 @@
       </button>
     </div>
     <div class="mt-6 pt-5 border-t border-line">
-      <div class="text-xs text-ink-soft mb-2 font-semibold uppercase tracking-wider">Demo Credentials</div>
-      <div class="text-xs text-ink-soft grid grid-cols-2 gap-x-3 gap-y-1">
-        <div>owner / owner123</div>
-        <div>admin / admin123</div>
-        <div>principal / principal123</div>
-        <div>teacher / teacher123</div>
-        <div>parent / parent123</div>
-        <div>accountant / acc123</div>
+      <div class="text-xs text-ink-soft text-center">
+        <i class="fas fa-shield-halved mr-1"></i> Authorised access only. Contact admin for credentials.
       </div>
     </div>
   </div>
@@ -497,6 +520,19 @@ function exitPortal() {
   // user stays logged in — they can come back via portal button showing active session
 }
 function portalLogout() {
+  // Detach listeners
+  _activeListeners.forEach(unsub => { try { unsub(); } catch(e){} });
+  _activeListeners = [];
+  _dataLoaded = false;
+  // Clear cache
+  Object.keys(_cache).forEach(k => {
+    if (Array.isArray(_cache[k])) _cache[k] = [];
+    else if (typeof _cache[k] === 'object') _cache[k] = {};
+  });
+  // Sign out of Firebase
+  if (window.fbAuth) {
+    window.fb.signOut(window.fbAuth).catch(e => console.warn('Signout error:', e));
+  }
   currentUser = null;
   document.getElementById('portal').style.display = 'none';
   document.getElementById('public-site').style.display = 'block';
@@ -1255,118 +1291,203 @@ function submitContactForm() {
   const email = document.getElementById('cEmail').value.trim();
   const msg = document.getElementById('cMessage').value.trim();
   if (!name || !email || !msg) { showToast('Please fill in name, email and message.'); return; }
-  // Store locally for demo (admin can review later if you wire it up)
-  const enquiries = JSON.parse(localStorage.getItem('enquiries') || '[]');
-  enquiries.push({ id: Date.now(), name, phone, email, subject: document.getElementById('cSubject').value, message: msg, date: new Date().toISOString() });
-  localStorage.setItem('enquiries', JSON.stringify(enquiries));
-  ['cName','cPhone','cEmail','cMessage'].forEach(i => document.getElementById(i).value = '');
-  showToast('Thank you! We will get back to you within 48 hours.');
+  // Save enquiry to Firestore (rules allow anonymous creates)
+  if (window.fbDb && window.fb) {
+    const enquiry = { name, phone, email, subject: document.getElementById('cSubject').value, message: msg, date: new Date().toISOString() };
+    window.fb.addDoc(window.fb.collection(window.fbDb, 'enquiries'), enquiry)
+      .then(() => {
+        ['cName','cPhone','cEmail','cMessage'].forEach(i => document.getElementById(i).value = '');
+        showToast('Thank you! We will get back to you within 48 hours.');
+      })
+      .catch(err => {
+        console.error('Enquiry save failed:', err);
+        showToast('Could not send. Please try again or call us.');
+      });
+  } else {
+    showToast('Please try again in a moment.');
+  }
 }
 
 
 /* ============================================================
-   PORTAL — DATABASE & HELPERS (from school_app.html)
+   FIREBASE-BACKED DATA LAYER
+   Strategy: Load all data once on login into in-memory cache.
+   Reads are sync (memory). Writes go to Firestore + update memory.
+   Real-time listeners keep memory in sync across devices.
 ============================================================ */
-function initDB() {
-  if (!localStorage.getItem('users')) {
-    const users = [
-      { id: 1, username: 'owner', password: 'owner123', role: 'owner', name: 'Mr. Vinod Kumar Giri (Owner)' },
-      { id: 2, username: 'admin', password: 'admin123', role: 'admin', name: 'Rajesh Kumar (Admin)' },
-      { id: 3, username: 'teacher', password: 'teacher123', role: 'teacher', name: 'Priya Sharma (Teacher)' },
-      { id: 4, username: 'parent', password: 'parent123', role: 'parent', name: 'Suman Lata (Parent)' },
-      { id: 5, username: 'accountant', password: 'acc123', role: 'accountant', name: 'Manoj Gupta (Accountant)' },
-      { id: 6, username: 'principal', password: 'principal123', role: 'principal', name: 'Dr. Anita Singh (Principal)' }
-    ];
-    localStorage.setItem('users', JSON.stringify(users));
+
+// In-memory cache - replaces localStorage for portal data
+const _cache = {
+  students: [],
+  feeTransactions: [],
+  homeworks: [],
+  complaints: [],
+  teachers: [],
+  examMarks: [],
+  attendanceRecords: {},  // object keyed by studentId
+  payrollSlips: [],
+  inventory: [],
+  vehicles: [],
+  routeMovements: [],
+  maintenance: [],
+  expenses: [],
+  bankAccounts: [],
+  bankTransactions: [],
+  calendar: [],
+  documents: [],
+  chatMessages: [],
+  compliance: [],
+  schoolInfra: { girlsToilets: 8, functionalComputers: 45, ramps: true, library: true, incinerator: true },
+  udiseReport: { lastSubmitted: '2025-12-10', ackNo: 'UD2025UP1234' },
+  busTracking: { route1: { lat: 28.95, lng: 77.62, lastUpdate: '2026-04-23 08:15 AM', status: 'On Time' } },
+  userProfiles: []  // all userProfiles for chat user list
+};
+let _dataLoaded = false;
+let _activeListeners = [];
+
+// Collections that use array-of-docs pattern
+const ARRAY_COLLECTIONS = ['students','feeTransactions','homeworks','complaints','teachers','examMarks',
+  'payrollSlips','inventory','vehicles','routeMovements','maintenance','expenses','bankAccounts',
+  'bankTransactions','calendar','documents','chatMessages','compliance','userProfiles'];
+
+// Singleton documents (saved as single doc in their collection)
+const SINGLETON_COLLECTIONS = ['schoolInfra','udiseReport','attendanceRecords'];
+
+async function loadAllDataFromFirestore() {
+  if (!window.fbDb) {
+    console.error('Firebase not ready');
+    return;
   }
-  if (!localStorage.getItem('students')) {
-    localStorage.setItem('students', JSON.stringify([
-      { id: 101, name: 'Aaradhya Singh', class: '10', section: 'A', rollNo: 1, feeBalance: 12500, parentId: 4, caste: 'General', bpl: false, cwsn: false, aadhaar: 'XXXX-XXXX-1234' },
-      { id: 102, name: 'Divyanshi Verma', class: '10', section: 'A', rollNo: 2, feeBalance: 5000, parentId: 4, caste: 'OBC', bpl: true, cwsn: false, aadhaar: 'XXXX-XXXX-5678' },
-      { id: 103, name: 'Kavya Chaudhary', class: '12', section: 'B', rollNo: 5, feeBalance: 21000, parentId: 4, caste: 'SC', bpl: false, cwsn: false, aadhaar: 'XXXX-XXXX-9101' },
-      { id: 104, name: 'Riya Sharma', class: '9', section: 'A', rollNo: 3, feeBalance: 8000, parentId: 4, caste: 'General', bpl: false, cwsn: false, aadhaar: 'XXXX-XXXX-1122' }
-    ]));
+  console.log('Loading data from Firestore...');
+  // Detach old listeners
+  _activeListeners.forEach(unsub => { try { unsub(); } catch(e){} });
+  _activeListeners = [];
+
+  // Set up real-time listeners for each array collection
+  ARRAY_COLLECTIONS.forEach(coll => {
+    const colRef = window.fb.collection(window.fbDb, coll);
+    const unsub = window.fb.onSnapshot(colRef, snapshot => {
+      _cache[coll] = snapshot.docs.map(d => ({ _docId: d.id, ...d.data() }));
+      // Re-render if user is logged in (debounced)
+      if (currentUser && _dataLoaded) _scheduleRerender();
+    }, err => console.warn('Listener error on '+coll+':', err.message));
+    _activeListeners.push(unsub);
+  });
+
+  // Load singleton docs
+  for (const coll of SINGLETON_COLLECTIONS) {
+    try {
+      const docRef = window.fb.doc(window.fbDb, coll, 'main');
+      const snap = await window.fb.getDoc(docRef);
+      if (snap.exists()) {
+        if (coll === 'attendanceRecords') {
+          _cache[coll] = snap.data().records || {};
+        } else {
+          _cache[coll] = { ...snap.data() };
+        }
+      }
+    } catch(e) { console.warn('Could not load '+coll+':', e.message); }
   }
-  if (!localStorage.getItem('feeTransactions')) {
-    localStorage.setItem('feeTransactions', JSON.stringify([
-      { id: 1001, studentId: 101, amount: 5000, date: '2026-04-05', mode: 'online', status: 'paid', receiptNo: 'RCP001' },
-      { id: 1002, studentId: 102, amount: 2000, date: '2026-03-28', mode: 'cash', status: 'paid', receiptNo: 'RCP002' }
-    ]));
-  }
-  if (!localStorage.getItem('homeworks')) {
-    localStorage.setItem('homeworks', JSON.stringify([
-      { id: 1, className: '10', subject: 'Mathematics', description: 'Solve ex 4.1', dueDate: '2026-04-10', teacher: 'Priya Sharma', submitted: [] }
-    ]));
-  }
-  if (!localStorage.getItem('complaints')) localStorage.setItem('complaints', '[]');
-  if (!localStorage.getItem('busTracking')) {
-    localStorage.setItem('busTracking', JSON.stringify({ route1: { lat: 28.95, lng: 77.62, lastUpdate: '2026-04-23 08:15 AM', status: 'On Time' } }));
-  }
-  if (!localStorage.getItem('teachers')) {
-    localStorage.setItem('teachers', JSON.stringify([
-      { id: 1, name: 'Priya Sharma', subject: 'Maths', qualification: 'M.Sc B.Ed', udiseTeacherId: 'UP098765', trainingDate: '2025-06-10', salary: 45000, bankAccount: 'XXXX1234' },
-      { id: 2, name: 'Neha Gupta', subject: 'Science', qualification: 'M.Sc B.Ed', udiseTeacherId: 'UP098764', trainingDate: '2025-07-15', salary: 42000, bankAccount: 'XXXX5678' }
-    ]));
-  }
-  if (!localStorage.getItem('schoolInfra')) {
-    localStorage.setItem('schoolInfra', JSON.stringify({ girlsToilets: 8, functionalComputers: 45, ramps: true, library: true, incinerator: true, lastUpdated: '2026-04-01' }));
-  }
-  if (!localStorage.getItem('udiseReport')) {
-    localStorage.setItem('udiseReport', JSON.stringify({ lastSubmitted: '2025-12-10', ackNo: 'UD2025UP1234' }));
-  }
-  if (!localStorage.getItem('examMarks')) localStorage.setItem('examMarks', JSON.stringify([]));
-  if (!localStorage.getItem('payrollSlips')) localStorage.setItem('payrollSlips', JSON.stringify([]));
-  if (!localStorage.getItem('attendanceRecords')) {
-    let records = {};
-    const students = JSON.parse(localStorage.getItem('students'));
-    students.forEach(s => { records[s.id] = {}; });
-    localStorage.setItem('attendanceRecords', JSON.stringify(records));
-  }
-  if (!localStorage.getItem('inventory')) localStorage.setItem('inventory', JSON.stringify([
-    { id: 1, name: 'Whiteboard Markers', category: 'Stationery', quantity: 50, unit: 'box', location: 'Store Room' }
-  ]));
-  if (!localStorage.getItem('vehicles')) localStorage.setItem('vehicles', JSON.stringify([
-    { id: 1, vehicleNo: 'UP15 AB 1234', type: 'Bus', capacity: 50, driver: 'Ramesh', route: 'Binauli-Baghpat', status: 'Active' }
-  ]));
-  if (!localStorage.getItem('routeMovements')) localStorage.setItem('routeMovements', JSON.stringify([
-    { id: 1, vehicleId: 1, date: '2026-04-24', departure: '07:30', arrival: '08:00', status: 'On Time' }
-  ]));
-  if (!localStorage.getItem('maintenance')) localStorage.setItem('maintenance', JSON.stringify([
-    { id: 1, vehicleId: 1, date: '2026-04-10', type: 'Oil Change', cost: 3500, nextDue: '2026-07-10' }
-  ]));
-  if (!localStorage.getItem('expenses')) localStorage.setItem('expenses', JSON.stringify([
-    { id: 1, date: '2026-04-23', category: 'Stationery', description: 'Printer paper', amount: 1200, mode: 'Cash' }
-  ]));
-  if (!localStorage.getItem('bankAccounts')) localStorage.setItem('bankAccounts', JSON.stringify([
-    { id: 1, bankName: 'State Bank of India', accountNo: '1234567890', branch: 'Binauli', ifsc: 'SBIN0012345', balance: 450000 }
-  ]));
-  if (!localStorage.getItem('bankTransactions')) localStorage.setItem('bankTransactions', JSON.stringify([]));
-  if (!localStorage.getItem('calendar')) localStorage.setItem('calendar', JSON.stringify([
-    { id: 1, title: 'CBSE Pre-Board Exam', date: '2026-05-10', description: 'Class 10 & 12', type: 'Exam' }
-  ]));
-  if (!localStorage.getItem('documents')) localStorage.setItem('documents', JSON.stringify([]));
+
+  // Wait briefly for first snapshot of each collection
+  await new Promise(r => setTimeout(r, 800));
+  _dataLoaded = true;
+  console.log('Data loaded from Firestore');
 }
 
-function get(store) { return JSON.parse(localStorage.getItem(store)) || []; }
-function set(store, data) { localStorage.setItem(store, JSON.stringify(data)); }
-function getStudents() { return get('students'); }
-function getFeeTransactions() { return get('feeTransactions'); }
-function getHomeworks() { return get('homeworks'); }
-function getComplaints() { return get('complaints'); }
-function getTeachers() { return get('teachers'); }
-function getSchoolInfra() { return JSON.parse(localStorage.getItem('schoolInfra')) || {}; }
-function getExamMarks() { return get('examMarks'); }
-function getAttendanceRecords() { return JSON.parse(localStorage.getItem('attendanceRecords')) || {}; }
-function getPayrollSlips() { return get('payrollSlips'); }
+let _rerenderTimer = null;
+function _scheduleRerender() {
+  if (_rerenderTimer) clearTimeout(_rerenderTimer);
+  _rerenderTimer = setTimeout(() => {
+    if (currentUser && document.getElementById('app')) {
+      try { renderPortal(); } catch(e) { console.warn('Re-render error:', e); }
+    }
+  }, 250);
+}
+
+// Bulk write a JS array to a Firestore collection (used by saveX functions)
+async function _syncArrayToFirestore(collName, newArray) {
+  if (!window.fbDb) return;
+  const colRef = window.fb.collection(window.fbDb, collName);
+  const existingSnap = await window.fb.getDocs(colRef);
+  const existingDocs = {};
+  existingSnap.forEach(d => existingDocs[d.id] = true);
+
+  const batch = window.fb.writeBatch(window.fbDb);
+  const newIds = new Set();
+
+  for (const item of newArray) {
+    const docId = String(item._docId || item.id || Date.now()+'_'+Math.random().toString(36).slice(2,9));
+    newIds.add(docId);
+    const cleanItem = { ...item };
+    delete cleanItem._docId;
+    batch.set(window.fb.doc(window.fbDb, collName, docId), cleanItem);
+  }
+  // Delete docs not in new array
+  for (const id of Object.keys(existingDocs)) {
+    if (!newIds.has(id)) batch.delete(window.fb.doc(window.fbDb, collName, id));
+  }
+  try {
+    await batch.commit();
+    // Update local cache immediately
+    _cache[collName] = newArray.map(item => ({ ...item, _docId: String(item._docId || item.id) }));
+  } catch(e) {
+    console.error('Failed to save '+collName+':', e);
+    showToast('Save failed: ' + e.message);
+  }
+}
+
+async function _syncSingletonToFirestore(collName, data) {
+  if (!window.fbDb) return;
+  try {
+    if (collName === 'attendanceRecords') {
+      await window.fb.setDoc(window.fb.doc(window.fbDb, collName, 'main'), { records: data });
+    } else {
+      await window.fb.setDoc(window.fb.doc(window.fbDb, collName, 'main'), data);
+    }
+    _cache[collName] = data;
+  } catch(e) {
+    console.error('Failed to save singleton '+collName+':', e);
+    showToast('Save failed: ' + e.message);
+  }
+}
+
+// initDB now does nothing (kept for compatibility - data loaded after login)
+function initDB() { /* deferred to post-login */ }
+
+// Read helpers - return from cache (synchronous)
+function get(store) { return _cache[store] || []; }
+function set(store, data) {
+  _cache[store] = data;
+  if (ARRAY_COLLECTIONS.includes(store)) _syncArrayToFirestore(store, data);
+  else if (SINGLETON_COLLECTIONS.includes(store)) _syncSingletonToFirestore(store, data);
+}
+function getStudents() { return _cache.students; }
+function getFeeTransactions() { return _cache.feeTransactions; }
+function getHomeworks() { return _cache.homeworks; }
+function getComplaints() { return _cache.complaints; }
+function getTeachers() { return _cache.teachers; }
+function getSchoolInfra() { return _cache.schoolInfra || {}; }
+function getExamMarks() { return _cache.examMarks; }
+function getAttendanceRecords() { return _cache.attendanceRecords || {}; }
+function getPayrollSlips() { return _cache.payrollSlips; }
+function getChatMessages() { return _cache.chatMessages; }
+function getCompliance() { return _cache.compliance; }
+function getUsers() {
+  // Return userProfiles in user-list shape (id, name, role, username, etc.) for chat
+  return _cache.userProfiles.map(p => ({ id: p._docId, ...p }));
+}
 function saveStudents(data) { set('students', data); }
 function saveFeeTransactions(data) { set('feeTransactions', data); }
 function saveHomeworks(data) { set('homeworks', data); }
 function saveComplaints(data) { set('complaints', data); }
 function saveTeachers(data) { set('teachers', data); }
-function saveSchoolInfra(data) { localStorage.setItem('schoolInfra', JSON.stringify(data)); }
+function saveSchoolInfra(data) { set('schoolInfra', data); }
 function saveExamMarks(data) { set('examMarks', data); }
-function saveAttendanceRecords(data) { localStorage.setItem('attendanceRecords', JSON.stringify(data)); }
+function saveAttendanceRecords(data) { set('attendanceRecords', data); }
 function savePayrollSlips(data) { set('payrollSlips', data); }
+function saveChatMessages(data) { set('chatMessages', data); }
+function saveCompliance(data) { set('compliance', data); }
 
 function showToast(msg) {
   const t = document.createElement('div');
@@ -1382,15 +1503,43 @@ function showToast(msg) {
 function loginUser() {
   const uname = document.getElementById('loginUsername').value.trim();
   const pwd = document.getElementById('loginPassword').value;
-  const users = JSON.parse(localStorage.getItem('users'));
-  const user = users.find(u => u.username === uname && u.password === pwd);
-  if (user) {
-    currentUser = user;
-    closeLoginModal();
-    enterPortal();
-  } else {
+  if (!uname || !pwd) {
     document.getElementById('loginError').classList.remove('hidden');
+    document.getElementById('loginError').textContent = 'Please enter username and password.';
+    return;
   }
+  // Show loading state
+  const btn = document.getElementById('loginSubmitBtn');
+  if (btn) { btn.disabled = true; btn.dataset.original = btn.textContent; btn.textContent = 'Signing in...'; }
+  document.getElementById('loginError').classList.add('hidden');
+
+  const email = uname + '@murtidevi.local';
+  window.fb.signInWithEmailAndPassword(window.fbAuth, email, pwd)
+    .then(async (cred) => {
+      // Look up user profile
+      const profileSnap = await window.fb.getDoc(window.fb.doc(window.fbDb, 'userProfiles', cred.user.uid));
+      if (!profileSnap.exists()) {
+        await window.fb.signOut(window.fbAuth);
+        throw new Error('No profile found for this user. Contact admin.');
+      }
+      const profile = profileSnap.data();
+      currentUser = { id: cred.user.uid, uid: cred.user.uid, ...profile };
+      // Load all app data from Firestore
+      showToast('Loading data...');
+      await loadAllDataFromFirestore();
+      if (btn) { btn.disabled = false; btn.textContent = btn.dataset.original || 'Sign in'; }
+      closeLoginModal();
+      enterPortal();
+    })
+    .catch(err => {
+      if (btn) { btn.disabled = false; btn.textContent = btn.dataset.original || 'Sign in'; }
+      document.getElementById('loginError').classList.remove('hidden');
+      const msg = (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found')
+        ? 'Invalid username or password.'
+        : (err.message || 'Login failed.');
+      document.getElementById('loginError').textContent = msg;
+      console.error('Login error:', err);
+    });
 }
 
 function enterPortal() {
@@ -1435,7 +1584,7 @@ function renderOwnerDashboard() {
   const totalOutstanding = students.reduce((s,st)=>s+st.feeBalance, 0);
   const pendingComplaints = getComplaints().filter(c=>c.status!=='resolved').length;
   const infra = getSchoolInfra();
-  const udiseStatus = JSON.parse(localStorage.getItem('udiseReport'));
+  const udiseStatus = _cache.udiseReport || { lastSubmitted: 'N/A', ackNo: '' };
   return `
   <div class="p-6 md:p-8 max-w-7xl mx-auto">
     <div class="flex justify-between items-start mb-8">
@@ -1467,6 +1616,10 @@ function renderOwnerDashboard() {
       <button id="exportUdisBtn" class="mt-5 bg-blue-600 text-white px-5 py-2 rounded-lg text-sm hover:bg-blue-700">
         <i class="fas fa-download mr-1"></i> Export UDISE+ CSV
       </button>
+      ${(_cache.students.length === 0 && _cache.teachers.length === 0) ? `
+      <button id="seedDbBtn" class="mt-5 ml-2 bg-emerald-600 text-white px-5 py-2 rounded-lg text-sm hover:bg-emerald-700">
+        <i class="fas fa-database mr-1"></i> Seed Database (First-time setup)
+      </button>` : ''}
     </div>
 
     <div class="grid md:grid-cols-2 gap-5 mb-6">
@@ -1499,8 +1652,9 @@ function renderOwnerDashboard() {
 function attachOwnerEvents() {
   document.getElementById('exportUdisBtn')?.addEventListener('click', exportUdisCSV);
   document.getElementById('viewComplaintsBtn')?.addEventListener('click', () => alert(JSON.stringify(getComplaints(), null, 2)));
-  document.getElementById('busTrackingBtn')?.addEventListener('click', () => { const bus = JSON.parse(localStorage.getItem('busTracking')); alert(`Bus Location: ${bus.route1.lat},${bus.route1.lng} | Status: ${bus.route1.status}`); });
+  document.getElementById('busTrackingBtn')?.addEventListener('click', () => { const bus = _cache.busTracking; alert(`Bus Location: ${bus.route1.lat},${bus.route1.lng} | Status: ${bus.route1.status}`); });
   document.getElementById('sosMock')?.addEventListener('click', () => { alert('🚨 SOS sent to all parents & staff (Mock)'); showToast('Emergency broadcast sent'); });
+  document.getElementById('seedDbBtn')?.addEventListener('click', seedDatabase);
   document.getElementById('generatePayrollBtn')?.addEventListener('click', () => {
     const teachers = getTeachers();
     const monthYear = new Date().toISOString().slice(0,7);
@@ -1519,6 +1673,85 @@ function attachOwnerEvents() {
     }).join('') || '<div class="text-gray-500">No exam marks entered yet.</div>';
   }
 }
+
+async function seedDatabase() {
+  if (!confirm('This will populate the database with initial sample data (students, teachers, compliance items, etc.). Run this only once on first setup. Continue?')) return;
+  const btn = document.getElementById('seedDbBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Seeding...'; }
+
+  try {
+    const seed = {
+      students: [
+        { id: 101, name: 'Aaradhya Singh', class: '10', section: 'A', rollNo: 1, feeBalance: 12500, parentId: 4, parentName: 'Suman Lata', parentPhone: '9876543210', caste: 'General', bpl: false, cwsn: false, aadhaar: 'XXXX-XXXX-1234', gender: 'Female', dob: '2010-03-15', bloodGroup: 'O+', address: 'Binauli, Baghpat', admissionDate: '2023-04-01', admissionNo: 'MDB2023001' },
+        { id: 102, name: 'Divyanshi Verma', class: '10', section: 'A', rollNo: 2, feeBalance: 5000, parentId: 4, parentName: 'Rekha Verma', parentPhone: '9876543211', caste: 'OBC', bpl: true, cwsn: false, aadhaar: 'XXXX-XXXX-5678', gender: 'Female', dob: '2010-05-22', bloodGroup: 'A+', address: 'Baghpat', admissionDate: '2023-04-01', admissionNo: 'MDB2023002' },
+        { id: 103, name: 'Kavya Chaudhary', class: '12', section: 'B', rollNo: 5, feeBalance: 21000, parentId: 4, parentName: 'Anita Chaudhary', parentPhone: '9876543212', caste: 'SC', bpl: false, cwsn: false, aadhaar: 'XXXX-XXXX-9101', gender: 'Female', dob: '2008-08-09', bloodGroup: 'B+', address: 'Baraut', admissionDate: '2021-04-01', admissionNo: 'MDB2021015' },
+        { id: 104, name: 'Riya Sharma', class: '9', section: 'A', rollNo: 3, feeBalance: 8000, parentId: 4, parentName: 'Sunita Sharma', parentPhone: '9876543213', caste: 'General', bpl: false, cwsn: false, aadhaar: 'XXXX-XXXX-1122', gender: 'Female', dob: '2011-11-30', bloodGroup: 'AB+', address: 'Binauli', admissionDate: '2024-04-01', admissionNo: 'MDB2024007' },
+        { id: 105, name: 'Anushka Tomar', class: '11', section: 'A', rollNo: 4, feeBalance: 0, parentId: 4, parentName: 'Ramesh Tomar', parentPhone: '9876543214', caste: 'General', bpl: false, cwsn: true, aadhaar: 'XXXX-XXXX-2211', gender: 'Female', dob: '2009-02-18', bloodGroup: 'O-', address: 'Baghpat', admissionDate: '2022-04-01', admissionNo: 'MDB2022010' }
+      ],
+      teachers: [
+        { id: 1, name: 'Priya Sharma', subject: 'Mathematics', qualification: 'M.Sc B.Ed', udiseTeacherId: 'UP098765', trainingDate: '2025-06-10', salary: 45000, bankAccount: 'XXXX1234', phone: '9876500001' },
+        { id: 2, name: 'Neha Gupta', subject: 'Science', qualification: 'M.Sc B.Ed', udiseTeacherId: 'UP098764', trainingDate: '2025-07-15', salary: 42000, bankAccount: 'XXXX5678', phone: '9876500002' }
+      ],
+      feeTransactions: [
+        { id: 1001, studentId: 101, amount: 5000, date: '2026-04-05', mode: 'online', status: 'paid', receiptNo: 'RCP001' },
+        { id: 1002, studentId: 102, amount: 2000, date: '2026-03-28', mode: 'cash', status: 'paid', receiptNo: 'RCP002' }
+      ],
+      homeworks: [
+        { id: 1, className: '10', subject: 'Mathematics', description: 'Solve exercise 4.1', dueDate: '2026-04-30', teacher: 'Priya Sharma (Teacher)', submitted: [] },
+        { id: 2, className: '10', subject: 'Science', description: 'Light chapter Q1-Q5', dueDate: '2026-04-28', teacher: 'Neha Gupta (Teacher)', submitted: [] }
+      ],
+      examMarks: [
+        { id: 1, studentId: 101, examName: 'Unit Test 1', subject: 'Mathematics', marks: 42, maxMarks: 50, date: '2026-03-10' },
+        { id: 2, studentId: 101, examName: 'Unit Test 1', subject: 'Science', marks: 45, maxMarks: 50, date: '2026-03-12' }
+      ],
+      inventory: [{ id: 1, name: 'Whiteboard Markers', category: 'Stationery', quantity: 50, unit: 'box', location: 'Store Room' }],
+      vehicles: [{ id: 1, vehicleNo: 'UP15 AB 1234', type: 'Bus', capacity: 50, driver: 'Ramesh', route: 'Binauli-Baghpat', status: 'Active' }],
+      routeMovements: [{ id: 1, vehicleId: 1, date: '2026-04-24', departure: '07:30', arrival: '08:00', status: 'On Time' }],
+      maintenance: [{ id: 1, vehicleId: 1, date: '2026-04-10', type: 'Oil Change', cost: 3500, nextDue: '2026-07-10' }],
+      expenses: [{ id: 1, date: '2026-04-23', category: 'Stationery', description: 'Printer paper', amount: 1200, mode: 'Cash' }],
+      bankAccounts: [{ id: 1, bankName: 'State Bank of India', accountNo: '1234567890', branch: 'Binauli', ifsc: 'SBIN0012345', balance: 450000 }],
+      calendar: [{ id: 1, title: 'CBSE Pre-Board Exam', date: '2026-05-10', description: 'Class 10 & 12', type: 'Exam' }],
+      compliance: [
+        { id: 'udise', name: 'UDISE+ Reporting', desc: 'Annual school data submission to MoE', enabled: true, status: 'compliant', validUntil: '2026-12-31', docRef: 'UD2025UP1234', notes: '', category: 'Statutory' },
+        { id: 'rte', name: 'RTE 25% Reservation', desc: 'Right to Education quota compliance', enabled: true, status: 'compliant', validUntil: '2027-03-31', docRef: 'RTE/UP/2025', notes: '', category: 'Statutory' },
+        { id: 'cbse', name: 'CBSE Affiliation', desc: 'Primary regulatory affiliation', enabled: true, status: 'compliant', validUntil: '2029-03-31', docRef: 'CBSE/2022/3530012', notes: '', category: 'Statutory' },
+        { id: 'pocso', name: 'POCSO Committee', desc: 'Child sexual offences prevention cell', enabled: true, status: 'compliant', validUntil: '2026-08-15', docRef: 'POCSO/INT/01', notes: 'Monthly meeting minutes maintained', category: 'Safety' },
+        { id: 'antirag', name: 'Anti-Ragging Committee', desc: 'CBSE mandated committee for harassment', enabled: true, status: 'compliant', validUntil: '2026-06-30', docRef: 'ARC/2025', notes: '', category: 'Safety' },
+        { id: 'posh', name: 'POSH (Internal Committee)', desc: 'Sexual Harassment at Workplace Act', enabled: true, status: 'pending', validUntil: '2026-05-15', docRef: 'POSH/2025', notes: 'External member nomination pending', category: 'Safety' },
+        { id: 'cctv', name: 'CCTV Monitoring', desc: 'Coverage of entry/exit/corridors', enabled: true, status: 'compliant', validUntil: '2026-12-31', docRef: 'CCTV/LOG', notes: '24 cameras active', category: 'Safety' },
+        { id: 'girlssafe', name: 'Girls Safety Norms', desc: 'Balika Suraksha: incinerators, counsellor', enabled: true, status: 'compliant', validUntil: '2026-12-31', docRef: 'BS/2025', notes: '', category: 'Safety' },
+        { id: 'firstaid', name: 'First Aid and Medical Room', desc: 'Dedicated medical room + nurse', enabled: true, status: 'compliant', validUntil: '2026-12-31', docRef: 'MR/2025', notes: '', category: 'Safety' },
+        { id: 'evac', name: 'Emergency Evacuation Plan', desc: 'Mock drill every 6 months', enabled: true, status: 'pending', validUntil: '2026-05-30', docRef: '', notes: 'Next drill: May 20', category: 'Safety' },
+        { id: 'fire', name: 'Fire Safety Certificate', desc: 'NOC from fire department', enabled: true, status: 'compliant', validUntil: '2027-01-20', docRef: 'FIRE/BGP/2026/102', notes: '', category: 'Infrastructure' },
+        { id: 'building', name: 'Building Safety Certificate', desc: 'Structural stability certificate', enabled: true, status: 'compliant', validUntil: '2028-03-31', docRef: 'BSC/BGP/2024', notes: '', category: 'Infrastructure' },
+        { id: 'water', name: 'Drinking Water and Sanitation', desc: 'RO + segregated toilets', enabled: true, status: 'compliant', validUntil: '2026-12-31', docRef: '', notes: '', category: 'Infrastructure' },
+        { id: 'nishtha', name: 'Teacher Training (NISHTHA)', desc: 'Govt mandated teacher capacity building', enabled: true, status: 'compliant', validUntil: '2026-09-30', docRef: 'NISHTHA/2025', notes: '', category: 'Academic' },
+        { id: 'library', name: 'Library Access (RTE)', desc: 'Minimum library norms under RTE Act', enabled: true, status: 'compliant', validUntil: '2026-12-31', docRef: '', notes: '2500+ books', category: 'Academic' },
+        { id: 'smc', name: 'School Management Committee', desc: 'Parent-Teacher-Community governance', enabled: true, status: 'compliant', validUntil: '2026-10-31', docRef: 'SMC/2025', notes: 'Quarterly meetings', category: 'Governance' }
+      ]
+    };
+
+    // Sync each collection
+    for (const [coll, data] of Object.entries(seed)) {
+      await _syncArrayToFirestore(coll, data);
+    }
+    // Singletons
+    await _syncSingletonToFirestore('schoolInfra', { girlsToilets: 8, functionalComputers: 45, ramps: true, library: true, incinerator: true, lastUpdated: '2026-04-01' });
+    await _syncSingletonToFirestore('udiseReport', { lastSubmitted: '2025-12-10', ackNo: 'UD2025UP1234' });
+    // Initialize attendance records
+    const attRec = {};
+    seed.students.forEach(s => { attRec[s.id] = { '2026-04-20': 'P', '2026-04-21': 'P', '2026-04-22': 'A', '2026-04-23': 'P' }; });
+    await _syncSingletonToFirestore('attendanceRecords', attRec);
+
+    showToast('Database seeded successfully!');
+    setTimeout(() => renderPortal(), 800);
+  } catch(e) {
+    console.error('Seed failed:', e);
+    alert('Seed failed: ' + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = 'Seed Database (First-time setup)'; }
+  }
+}
+
 
 function exportUdisCSV() {
   const students = getStudents();
@@ -2315,13 +2548,36 @@ function attachAccountantEvents() {
 initDB();
 showPage('home');
 
-// Login button
-document.getElementById('loginSubmitBtn').addEventListener('click', loginUser);
-// Enter key submits login
-document.getElementById('loginPassword').addEventListener('keydown', e => { if (e.key === 'Enter') loginUser(); });
-document.getElementById('loginUsername').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('loginPassword').focus(); });
-// Close modal on overlay click
-document.getElementById('loginModal').addEventListener('click', e => { if (e.target.id === 'loginModal') closeLoginModal(); });
+// Wait for Firebase SDK to load before binding login (it loads as ES module)
+function _bindAfterFirebase() {
+  // Login button
+  document.getElementById('loginSubmitBtn').addEventListener('click', loginUser);
+  // Enter key submits login
+  document.getElementById('loginPassword').addEventListener('keydown', e => { if (e.key === 'Enter') loginUser(); });
+  document.getElementById('loginUsername').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('loginPassword').focus(); });
+  // Close modal on overlay click
+  document.getElementById('loginModal').addEventListener('click', e => { if (e.target.id === 'loginModal') closeLoginModal(); });
+
+  // Auto-restore session if user was previously logged in (browser refresh)
+  if (window.fbAuth) {
+    window.fb.onAuthStateChanged(window.fbAuth, async (user) => {
+      if (user && !currentUser) {
+        try {
+          const profileSnap = await window.fb.getDoc(window.fb.doc(window.fbDb, 'userProfiles', user.uid));
+          if (profileSnap.exists()) {
+            currentUser = { id: user.uid, uid: user.uid, ...profileSnap.data() };
+            await loadAllDataFromFirestore();
+            closeLoginModal();
+            enterPortal();
+          }
+        } catch(e) { console.warn('Session restore failed:', e); }
+      }
+    });
+  }
+}
+if (window.fbReady) _bindAfterFirebase();
+else document.addEventListener('firebaseReady', _bindAfterFirebase);
+
 
 </script>
 </body>
