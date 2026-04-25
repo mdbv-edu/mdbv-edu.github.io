@@ -431,12 +431,15 @@
     </div>
     <div class="space-y-5">
       <div>
-        <label class="text-xs font-semibold uppercase tracking-wider text-ink-soft">Username</label>
-        <input type="text" id="loginUsername" class="form-input mt-1" placeholder="Enter your username">
+        <label class="text-xs font-semibold uppercase tracking-wider text-ink-soft">Username or Email</label>
+        <input type="text" id="loginUsername" class="form-input mt-1" placeholder="e.g. admin or your.email@gmail.com" autocomplete="username">
       </div>
       <div>
-        <label class="text-xs font-semibold uppercase tracking-wider text-ink-soft">Password</label>
-        <input type="password" id="loginPassword" class="form-input mt-1" placeholder="Enter your password">
+        <div class="flex justify-between items-baseline">
+          <label class="text-xs font-semibold uppercase tracking-wider text-ink-soft">Password</label>
+          <button type="button" onclick="openForgotPasswordModal()" class="text-xs text-burgundy hover:underline">Forgot password?</button>
+        </div>
+        <input type="password" id="loginPassword" class="form-input mt-1" placeholder="Enter your password" autocomplete="current-password">
       </div>
       <div id="loginError" class="text-sm text-burgundy hidden"><i class="fas fa-exclamation-circle mr-1"></i> Invalid credentials. Please try again.</div>
       <button id="loginSubmitBtn" class="btn-primary w-full justify-center mt-2">
@@ -446,6 +449,33 @@
     <div class="mt-6 pt-5 border-t border-line">
       <div class="text-xs text-ink-soft text-center">
         <i class="fas fa-shield-halved mr-1"></i> Authorised access only. Contact admin for credentials.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========================= FORGOT PASSWORD MODAL ========================= -->
+<div id="forgotPasswordModal" class="fixed inset-0 bg-black bg-opacity-60 items-center justify-center z-50" style="display:none">
+  <div class="bg-cream rounded-2xl shadow-2xl max-w-md w-full mx-4 p-8 relative">
+    <button onclick="closeForgotPasswordModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600 text-xl">×</button>
+    <div class="text-center mb-5">
+      <div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-burgundy text-cream mb-3"><i class="fas fa-envelope-open-text"></i></div>
+      <h2 class="font-display text-2xl text-ink">Forgot Password</h2>
+      <p class="text-sm text-ink-soft mt-1">We'll send a reset link to your registered email</p>
+    </div>
+    <div class="space-y-3">
+      <div>
+        <label class="text-xs font-semibold uppercase tracking-wider text-ink-soft">Your Email Address</label>
+        <input type="email" id="fpEmail" class="form-input mt-1" placeholder="your.email@example.com" autocomplete="email">
+        <p class="text-xs text-ink-soft mt-1">Must be the real email registered with your account.</p>
+      </div>
+      <div id="fpError" class="text-sm text-burgundy hidden"><i class="fas fa-exclamation-circle mr-1"></i><span></span></div>
+      <div id="fpSuccess" class="text-sm text-green-700 hidden"><i class="fas fa-check-circle mr-1"></i><span></span></div>
+      <button id="fpSubmitBtn" onclick="submitForgotPassword()" class="btn-primary w-full justify-center mt-2">
+        <i class="fas fa-paper-plane"></i> Send Reset Link
+      </button>
+      <div class="text-xs text-ink-soft text-center mt-3 p-3 bg-gray-50 rounded-lg">
+        <i class="fas fa-info-circle mr-1"></i> If your account uses a username (no real email), please contact the school administrator to reset your password.
       </div>
     </div>
   </div>
@@ -1589,11 +1619,11 @@ function showToast(msg) {
    PORTAL ROUTING
 ============================================================ */
 function loginUser() {
-  const uname = document.getElementById('loginUsername').value.trim();
+  const input = document.getElementById('loginUsername').value.trim();
   const pwd = document.getElementById('loginPassword').value;
-  if (!uname || !pwd) {
+  if (!input || !pwd) {
     document.getElementById('loginError').classList.remove('hidden');
-    document.getElementById('loginError').textContent = 'Please enter username and password.';
+    document.getElementById('loginError').textContent = 'Please enter username/email and password.';
     return;
   }
   // Show loading state
@@ -1601,7 +1631,9 @@ function loginUser() {
   if (btn) { btn.disabled = true; btn.dataset.original = btn.textContent; btn.textContent = 'Signing in...'; }
   document.getElementById('loginError').classList.add('hidden');
 
-  const email = uname + '@murtidevi.local';
+  // Detect: if the input contains '@', treat it as a real email; otherwise append @murtidevi.local
+  const email = input.includes('@') ? input : (input + '@murtidevi.local');
+
   window.fb.signInWithEmailAndPassword(window.fbAuth, email, pwd)
     .then(async (cred) => {
       // Look up user profile
@@ -1622,12 +1654,53 @@ function loginUser() {
     .catch(err => {
       if (btn) { btn.disabled = false; btn.textContent = btn.dataset.original || 'Sign in'; }
       document.getElementById('loginError').classList.remove('hidden');
-      const msg = (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found')
-        ? 'Invalid username or password.'
+      const msg = (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found' || err.code === 'auth/invalid-email')
+        ? 'Invalid username/email or password.'
         : (err.message || 'Login failed.');
       document.getElementById('loginError').textContent = msg;
       console.error('Login error:', err);
     });
+}
+
+/* ===== Forgot Password ===== */
+function openForgotPasswordModal() {
+  document.getElementById('fpEmail').value = '';
+  document.getElementById('fpError').classList.add('hidden');
+  document.getElementById('fpSuccess').classList.add('hidden');
+  document.getElementById('forgotPasswordModal').style.display = 'flex';
+  setTimeout(() => document.getElementById('fpEmail')?.focus(), 50);
+}
+function closeForgotPasswordModal() {
+  document.getElementById('forgotPasswordModal').style.display = 'none';
+}
+async function submitForgotPassword() {
+  const errEl = document.getElementById('fpError');
+  const okEl = document.getElementById('fpSuccess');
+  const btn = document.getElementById('fpSubmitBtn');
+  errEl.classList.add('hidden'); okEl.classList.add('hidden');
+  const email = document.getElementById('fpEmail').value.trim();
+  const showErr = (msg) => { errEl.querySelector('span').textContent = msg; errEl.classList.remove('hidden'); };
+  if (!email) return showErr('Please enter your email address.');
+  if (!email.includes('@') || email.endsWith('@murtidevi.local')) {
+    return showErr('Please enter a real email address. Username-based accounts cannot reset via email — contact admin.');
+  }
+  btn.disabled = true; const orig = btn.innerHTML; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending...';
+  try {
+    const { sendPasswordResetEmail } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js');
+    await sendPasswordResetEmail(window.fbAuth, email);
+    okEl.querySelector('span').textContent = 'Reset link sent! Check your email inbox (and spam folder). The link will expire in 1 hour.';
+    okEl.classList.remove('hidden');
+    setTimeout(() => closeForgotPasswordModal(), 4500);
+  } catch(e) {
+    console.error('Reset email error:', e);
+    let msg = 'Could not send reset email.';
+    if (e.code === 'auth/user-not-found') msg = 'No account found with this email. Please check and try again, or contact admin.';
+    else if (e.code === 'auth/invalid-email') msg = 'Invalid email format.';
+    else if (e.code === 'auth/too-many-requests') msg = 'Too many attempts. Please wait a few minutes and try again.';
+    showErr(msg);
+  } finally {
+    btn.disabled = false; btn.innerHTML = orig;
+  }
 }
 
 function enterPortal() {
