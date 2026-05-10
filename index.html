@@ -1632,6 +1632,8 @@ function initDB(){
  if(!localStorage.getItem('expenses'))localStorage.setItem('expenses',JSON.stringify([{id:1,date:'2026-04-23',category:'Stationery',description:'Printer paper',amount:1200,mode:'Cash'}]));
  if(!localStorage.getItem('bankAccounts'))localStorage.setItem('bankAccounts',JSON.stringify([{id:1,bankName:'State Bank of India',accountNo:'1234567890',branch:'Binauli',ifsc:'SBIN0012345',balance:450000}]));
  if(!localStorage.getItem('bankTransactions'))localStorage.setItem('bankTransactions','[]');
+ if(!localStorage.getItem('correctionRequests'))localStorage.setItem('correctionRequests','[]');
+ if(!localStorage.getItem('accountingAuditLog'))localStorage.setItem('accountingAuditLog','[]');
  if(!localStorage.getItem('calendar'))localStorage.setItem('calendar',JSON.stringify([{id:1,title:'CBSE Pre-Board Exam',date:'2026-05-10',description:'Class 10 & 12',type:'Exam'}]));
  if(!localStorage.getItem('documents'))localStorage.setItem('documents','[]');
  if(!localStorage.getItem('chatMessages'))localStorage.setItem('chatMessages','[]');
@@ -1799,6 +1801,7 @@ function renderAdminPanel(){
   {id:'datamanagement',label:'Data',icon:'database'},
   {id:'compliance',label:'Compliance',icon:'shield-halved'},
   {id:'broadcast',label:'Broadcast',icon:'bullhorn'},
+  {id:'accounts',label:'Accounts',icon:'book-open-reader'},
   {id:'gallery',label:'Gallery',icon:'images'},
   {id:'disclosureDocs',label:'Disclosure PDFs',icon:'file-pdf'},
   {id:'inventory',label:'Inventory',icon:'boxes-stacked'},
@@ -1832,6 +1835,7 @@ function renderAdminTabContent(){
   case 'datamanagement':return renderDataManagement();
   case 'compliance':return renderComplianceTab();
   case 'broadcast':return renderBroadcastTab();
+  case 'accounts':return renderAdminAccountsTab();
   case 'gallery':return renderGalleryAdminTab();
   case 'disclosureDocs':return renderDisclosureDocsTab();
   case 'inventory':return renderInventory();
@@ -3664,6 +3668,25 @@ function renderAccLedger(){
   </div>
 
   <div id="ledSummary" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3"></div>
+  ${currentUser?.role === 'accountant' ? (() => {
+    const myReqs = getCorrectionRequests().filter(r => r.requestedById === currentUser.id).slice(-10).reverse();
+    if (myReqs.length === 0) return '';
+    return `<div class="bg-white border rounded-lg p-4 mb-3">
+     <h3 class="font-semibold mb-2"><i class="fas fa-flag text-amber-600 mr-1"></i>My Correction Requests</h3>
+     <table class="text-xs w-full border">
+      <thead class="bg-gray-100"><tr><th>Date</th><th>Reference</th><th>Requested</th><th>Reason</th><th>Status</th></tr></thead>
+      <tbody>${myReqs.map(r => {
+       const ref = r.txnKind === 'receipt'
+        ? (r.txnSnapshot.receiptNo || '#'+r.txnSnapshot.id)
+        : ('Payment ' + (r.txnSnapshot.category || '') + ' ' + (r.txnSnapshot.vendor || ''));
+       const statusPill = r.status === 'pending' ? '<span class="pill pill-amber">Pending</span>'
+        : r.status === 'approved' ? '<span class="pill pill-green">Approved</span>'
+        : '<span class="pill pill-red">Rejected</span>';
+       return `<tr><td>${new Date(r.requestedAt).toLocaleDateString('en-IN')}</td><td class="font-mono text-xs">${ref}</td><td>${r.requestType}</td><td>${(r.reason||'').slice(0,60)}</td><td>${statusPill}${r.reviewNotes ? '<br><span class="text-xs text-gray-500">'+r.reviewNotes+'</span>' : ''}</td></tr>`;
+      }).join('')}</tbody>
+     </table>
+    </div>`;
+   })() : ''}
   <div id="ledTable" class="bg-white border rounded-lg p-4"></div>
  </div>`;
 }
@@ -3729,8 +3752,15 @@ function _renderLedgerResults(){
 
  document.getElementById('ledTable').innerHTML = `
   <div class="overflow-x-auto"><table class="border text-sm w-full">
-   <thead class="bg-gray-100"><tr><th>Date</th><th>Type</th><th>Party</th><th>Head/Category</th><th>Mode</th><th>Reference</th><th class="text-right">Amount</th></tr></thead>
-   <tbody>${rows.length === 0 ? '<tr><td colspan="7" class="text-center text-gray-500 py-4">No transactions in this period</td></tr>' : rows.map(r => {
+   <thead class="bg-gray-100"><tr><th>Date</th><th>Type</th><th>Party</th><th>Head/Category</th><th>Mode</th><th>Reference</th><th class="text-right">Amount</th><th>Action</th></tr></thead>
+   <tbody>${rows.length === 0 ? '<tr><td colspan="8" class="text-center text-gray-500 py-4">No transactions in this period</td></tr>' : rows.map(r => {
+     // Look up if a pending correction request exists for this transaction
+     const pending = getCorrectionRequests().find(cr => cr.txnId === r.id && cr.txnKind === r._kind && cr.status === 'pending');
+     const actionBtn = currentUser?.role === 'admin'
+      ? `<button class="ledEditBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${r.id}" data-kind="${r._kind}" title="Edit"><i class="fas fa-edit"></i></button> <button class="ledDelBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${r.id}" data-kind="${r._kind}" title="Delete"><i class="fas fa-trash"></i></button>`
+      : pending
+       ? `<span class="pill pill-amber text-xs" title="Correction requested — awaiting owner review"><i class="fas fa-hourglass-half mr-1"></i>Requested</span>`
+       : `<button class="ledRequestBtn bg-amber-500 hover:bg-amber-600 text-white px-2 py-1 rounded text-xs" data-id="${r.id}" data-kind="${r._kind}" title="Request correction"><i class="fas fa-flag mr-1"></i>Request Fix</button>`;
      if (r._kind === 'receipt') {
       const s = students.find(x => x.id === r.studentId);
       return `<tr class="hover:bg-emerald-50">
@@ -3741,6 +3771,7 @@ function _renderLedgerResults(){
        <td class="text-xs">${r.mode}</td>
        <td class="text-xs font-mono">${r.receiptNo || ''}${r.chequeNo ? ' Chq:'+r.chequeNo : ''}</td>
        <td class="text-right font-semibold text-emerald-700">+${fmtINR(r.amount)}</td>
+       <td class="whitespace-nowrap">${actionBtn}</td>
       </tr>`;
      } else {
       return `<tr class="hover:bg-rose-50">
@@ -3751,11 +3782,281 @@ function _renderLedgerResults(){
        <td class="text-xs">${r.mode||'-'}</td>
        <td class="text-xs">${r.description||''}${r.chequeNo ? ' Chq:'+r.chequeNo : ''}</td>
        <td class="text-right font-semibold text-rose-700">-${fmtINR(r.amount)}</td>
+       <td class="whitespace-nowrap">${actionBtn}</td>
       </tr>`;
      }
    }).join('')}</tbody>
   </table></div>
  `;
+
+ // Wire up action buttons
+ document.querySelectorAll('.ledRequestBtn').forEach(b => b.addEventListener('click', () => _openCorrectionRequestModal(b.dataset.id, b.dataset.kind)));
+ document.querySelectorAll('.ledEditBtn').forEach(b => b.addEventListener('click', () => _openTxnEditModal(b.dataset.id, b.dataset.kind)));
+ document.querySelectorAll('.ledDelBtn').forEach(b => b.addEventListener('click', () => _deleteTxn(b.dataset.id, b.dataset.kind)));
+}
+
+/* ---------- ACCOUNTANT EVENT HANDLERS ---------- */
+
+/* Helpers for correction requests + audit log + transaction edit/delete */
+function getCorrectionRequests(){ return JSON.parse(localStorage.getItem('correctionRequests') || '[]'); }
+function saveCorrectionRequests(d){ localStorage.setItem('correctionRequests', JSON.stringify(d)); }
+function getAuditLog(){ return JSON.parse(localStorage.getItem('accountingAuditLog') || '[]'); }
+function _logAccountingChange(action, kind, before, after, reason){
+ const log = getAuditLog();
+ log.push({
+  id: Date.now() + Math.random(),
+  action, // 'edit' | 'delete' | 'approve' | 'reject'
+  kind,   // 'receipt' | 'expense' | 'request'
+  before: before ? JSON.parse(JSON.stringify(before)) : null,
+  after:  after  ? JSON.parse(JSON.stringify(after))  : null,
+  reason: reason || '',
+  performedBy: currentUser?.name || '?',
+  performedById: currentUser?.id || 0,
+  performedAt: new Date().toISOString()
+ });
+ localStorage.setItem('accountingAuditLog', JSON.stringify(log));
+}
+
+// Reverse the bank/balance side-effect of a transaction (used on edit or delete)
+function _reverseTxnEffect(t, kind){
+ if (kind === 'receipt') {
+  // If receipt updated student feeBalance, restore it
+  const reducedBalance = ['Tuition Fee','Admission Fee','Annual Fee','Transport','Late Fee'].includes(t.feeHead);
+  if (t.studentId && reducedBalance) {
+   const ss = getStudents();
+   const i = ss.findIndex(x => x.id === t.studentId);
+   if (i > -1) { ss[i].feeBalance = (ss[i].feeBalance || 0) + (t.amount || 0); saveStudents(ss); }
+  }
+  // If non-cash, debit back the bank account
+  if (t.bankAccountId && t.mode !== 'Cash') {
+   const banks = get('bankAccounts');
+   const bi = banks.findIndex(b => b.id === t.bankAccountId);
+   if (bi > -1) { banks[bi].balance = (banks[bi].balance || 0) - (t.amount || 0); set('bankAccounts', banks); }
+  }
+ } else if (kind === 'expense') {
+  // If non-cash, credit back the bank account
+  if (t.bankAccountId && t.mode !== 'Cash') {
+   const banks = get('bankAccounts');
+   const bi = banks.findIndex(b => b.id === t.bankAccountId);
+   if (bi > -1) { banks[bi].balance = (banks[bi].balance || 0) + (t.amount || 0); set('bankAccounts', banks); }
+  }
+ }
+}
+
+// Open the "Request Correction" modal (accountant)
+function _openCorrectionRequestModal(txnId, txnKind){
+ const id = parseInt(txnId);
+ const arr = txnKind === 'receipt' ? getFeeTransactions() : get('expenses');
+ const t = arr.find(x => x.id === id);
+ if (!t) { alert('Transaction not found'); return; }
+ const students = getStudents();
+ const s = students.find(x => x.id === t.studentId);
+ const summary = txnKind === 'receipt'
+  ? `Receipt ${t.receiptNo} · ${s?.name || t.payerName || '-'} · ${t.feeHead || ''} · Rs.${(t.amount||0).toLocaleString('en-IN')} · ${t.mode} · ${t.date}`
+  : `Payment · ${t.category || ''} · ${t.vendor || ''} · Rs.${(t.amount||0).toLocaleString('en-IN')} · ${t.mode || ''} · ${t.date}`;
+
+ // Build/show modal
+ let modal = document.getElementById('correctionRequestModal');
+ if (!modal) {
+  modal = document.createElement('div');
+  modal.id = 'correctionRequestModal';
+  modal.className = 'modal';
+  modal.innerHTML = `<div class="modal-content" style="max-width:560px">
+   <h3 class="text-lg font-bold mb-3"><i class="fas fa-flag text-amber-600 mr-1"></i>Request Correction</h3>
+   <div id="crqSummary" class="bg-gray-50 border-l-4 border-amber-500 p-3 rounded text-xs mb-3 font-mono"></div>
+   <div class="mb-3">
+    <label class="text-xs font-medium">What needs to change? *</label>
+    <select id="crqType">
+     <option value="edit">Edit (change a field — wrong amount/student/head/etc)</option>
+     <option value="delete">Delete (this entry is wrong/duplicate)</option>
+     <option value="void">Void (offset with reverse entry, keep both for audit)</option>
+    </select>
+   </div>
+   <div class="mb-3">
+    <label class="text-xs font-medium">Suggested correction (what should it be?)</label>
+    <textarea id="crqProposed" rows="2" placeholder="e.g. Amount should be Rs.5,000 not Rs.50,000"></textarea>
+   </div>
+   <div class="mb-3">
+    <label class="text-xs font-medium">Reason *</label>
+    <textarea id="crqReason" rows="2" placeholder="e.g. Typo while entering — extra zero added"></textarea>
+   </div>
+   <div class="flex justify-end gap-2 mt-4">
+    <button class="closeModal bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded-lg text-sm">Cancel</button>
+    <button id="crqSubmitBtn" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-paper-plane mr-1"></i>Submit Request</button>
+   </div>
+  </div>`;
+  document.body.appendChild(modal);
+  modal.querySelector('.closeModal').addEventListener('click', () => modal.classList.add('hidden'));
+  document.getElementById('crqSubmitBtn').addEventListener('click', () => {
+   const type = document.getElementById('crqType').value;
+   const proposed = document.getElementById('crqProposed').value.trim();
+   const reason = document.getElementById('crqReason').value.trim();
+   if (!reason) { alert('Please describe the reason'); return; }
+   const reqs = getCorrectionRequests();
+   reqs.push({
+    id: Date.now(),
+    txnId: parseInt(modal.dataset.txnId),
+    txnKind: modal.dataset.txnKind,
+    txnSnapshot: JSON.parse(modal.dataset.txnSnap),
+    requestType: type,
+    proposed, reason,
+    status: 'pending',
+    requestedBy: currentUser.name,
+    requestedById: currentUser.id,
+    requestedAt: new Date().toISOString()
+   });
+   saveCorrectionRequests(reqs);
+   modal.classList.add('hidden');
+   showToast('Correction request submitted to owner');
+   if (typeof renderApp === 'function') renderApp();
+  });
+ }
+ // Populate
+ modal.dataset.txnId = id;
+ modal.dataset.txnKind = txnKind;
+ modal.dataset.txnSnap = JSON.stringify(t);
+ document.getElementById('crqSummary').textContent = summary;
+ document.getElementById('crqProposed').value = '';
+ document.getElementById('crqReason').value = '';
+ document.getElementById('crqType').value = 'edit';
+ modal.classList.remove('hidden');
+}
+
+// Open the transaction edit modal (admin only)
+function _openTxnEditModal(txnId, txnKind){
+ const id = parseInt(txnId);
+ const arr = txnKind === 'receipt' ? getFeeTransactions() : get('expenses');
+ const t = arr.find(x => x.id === id);
+ if (!t) { alert('Transaction not found'); return; }
+ const students = getStudents();
+ const banks = get('bankAccounts');
+
+ let modal = document.getElementById('txnEditModal');
+ if (modal) modal.remove(); // rebuild fresh each time
+ modal = document.createElement('div');
+ modal.id = 'txnEditModal';
+ modal.className = 'modal';
+ modal.innerHTML = `<div class="modal-content" style="max-width:600px">
+  <h3 class="text-lg font-bold mb-3"><i class="fas fa-edit text-blue-600 mr-1"></i>Edit ${txnKind === 'receipt' ? 'Receipt' : 'Payment'}</h3>
+  <div class="bg-amber-50 border-l-4 border-amber-500 p-2 rounded text-xs mb-3"><i class="fas fa-info-circle mr-1"></i>This change will be logged in the audit trail.</div>
+  <div class="grid md:grid-cols-2 gap-3">
+   ${txnKind === 'receipt' ? `
+   <div class="md:col-span-2">
+    <label class="text-xs font-medium">Payer</label>
+    <select id="txeStudent">
+     <option value="0" ${!t.studentId?'selected':''}>Other / Outside payer</option>
+     ${(() => {
+       const byClass = {}; students.forEach(s => { (byClass[s.class]=byClass[s.class]||[]).push(s); });
+       return ALL_CLASSES.filter(c=>byClass[c]).map(cls => `<optgroup label="Class ${cls}">${byClass[cls].sort((a,b)=>(a.rollNo||0)-(b.rollNo||0)).map(s => `<option value="${s.id}" ${t.studentId===s.id?'selected':''}>#${s.rollNo||'-'} ${s.name}</option>`).join('')}</optgroup>`).join('');
+     })()}
+    </select>
+   </div>
+   <div><label class="text-xs font-medium">Payer Name (if Other)</label><input id="txePayerName" value="${(t.payerName||'').replace(/"/g,'&quot;')}"></div>
+   <div><label class="text-xs font-medium">Fee Head</label><select id="txeHead">${FEE_HEADS.map(h=>`<option ${t.feeHead===h?'selected':''}>${h}</option>`).join('')}</select></div>
+   ` : `
+   <div><label class="text-xs font-medium">Category</label><select id="txeCat">${EXPENSE_CATEGORIES.map(c=>`<option ${t.category===c?'selected':''}>${c}</option>`).join('')}</select></div>
+   <div><label class="text-xs font-medium">Vendor</label><input id="txeVendor" value="${(t.vendor||'').replace(/"/g,'&quot;')}"></div>
+   <div class="md:col-span-2"><label class="text-xs font-medium">Description</label><input id="txeDesc" value="${(t.description||'').replace(/"/g,'&quot;')}"></div>
+   `}
+   <div><label class="text-xs font-medium">Amount (Rs.)</label><input type="number" id="txeAmount" value="${t.amount||0}"></div>
+   <div><label class="text-xs font-medium">Mode</label><select id="txeMode">${PAYMENT_MODES.map(m=>`<option ${t.mode===m?'selected':''}>${m}</option>`).join('')}</select></div>
+   <div><label class="text-xs font-medium">Date</label><input type="date" id="txeDate" value="${t.date||''}"></div>
+   <div><label class="text-xs font-medium">Bank Account (if non-cash)</label><select id="txeBank"><option value="">— None —</option>${banks.map(b=>`<option value="${b.id}" ${t.bankAccountId===b.id?'selected':''}>${b.bankName}</option>`).join('')}</select></div>
+   <div class="md:col-span-2">
+    <label class="text-xs font-medium">Reason for change *</label>
+    <input id="txeReason" placeholder="Why are you editing this entry?">
+   </div>
+  </div>
+  <div class="flex justify-end gap-2 mt-4">
+   <button class="closeModal bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded-lg text-sm">Cancel</button>
+   <button id="txeSaveBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-save mr-1"></i>Save Changes</button>
+  </div>
+ </div>`;
+ document.body.appendChild(modal);
+ modal.querySelector('.closeModal').addEventListener('click', () => modal.classList.add('hidden'));
+ document.getElementById('txeSaveBtn').addEventListener('click', () => {
+  const reason = document.getElementById('txeReason').value.trim();
+  if (!reason) { alert('Please enter a reason for this edit'); return; }
+  const before = JSON.parse(JSON.stringify(t));
+  // First reverse the original effect
+  _reverseTxnEffect(before, txnKind);
+
+  // Build updated record
+  const newAmount = parseInt(document.getElementById('txeAmount').value) || 0;
+  const newMode = document.getElementById('txeMode').value;
+  const newDate = document.getElementById('txeDate').value;
+  const newBankId = parseInt(document.getElementById('txeBank').value) || null;
+  let updated;
+  if (txnKind === 'receipt') {
+   const newSid = parseInt(document.getElementById('txeStudent').value) || 0;
+   updated = { ...t,
+    studentId: newSid,
+    payerName: newSid === 0 ? document.getElementById('txePayerName').value.trim() : undefined,
+    feeHead: document.getElementById('txeHead').value,
+    amount: newAmount, mode: newMode, date: newDate,
+    bankAccountId: newBankId || undefined };
+  } else {
+   updated = { ...t,
+    category: document.getElementById('txeCat').value,
+    vendor: document.getElementById('txeVendor').value.trim() || undefined,
+    description: document.getElementById('txeDesc').value.trim() || undefined,
+    amount: newAmount, mode: newMode, date: newDate,
+    bankAccountId: newBankId || undefined };
+  }
+
+  // Now apply the new effect
+  if (txnKind === 'receipt') {
+   const reducesBalance = ['Tuition Fee','Admission Fee','Annual Fee','Transport','Late Fee'].includes(updated.feeHead);
+   if (updated.studentId && reducesBalance) {
+    const ss = getStudents();
+    const i = ss.findIndex(x => x.id === updated.studentId);
+    if (i > -1) { ss[i].feeBalance = Math.max(0, (ss[i].feeBalance || 0) - updated.amount); saveStudents(ss); }
+   }
+   if (newBankId && updated.mode !== 'Cash') {
+    const bb = get('bankAccounts');
+    const bi = bb.findIndex(b => b.id === newBankId);
+    if (bi > -1) { bb[bi].balance = (bb[bi].balance || 0) + updated.amount; set('bankAccounts', bb); }
+   }
+   const tr = getFeeTransactions();
+   const idx = tr.findIndex(x => x.id === id);
+   if (idx > -1) tr[idx] = updated;
+   saveFeeTransactions(tr);
+  } else {
+   if (newBankId && updated.mode !== 'Cash') {
+    const bb = get('bankAccounts');
+    const bi = bb.findIndex(b => b.id === newBankId);
+    if (bi > -1) { bb[bi].balance = (bb[bi].balance || 0) - updated.amount; set('bankAccounts', bb); }
+   }
+   const ee = get('expenses');
+   const idx = ee.findIndex(x => x.id === id);
+   if (idx > -1) ee[idx] = updated;
+   set('expenses', ee);
+  }
+
+  _logAccountingChange('edit', txnKind, before, updated, reason);
+  modal.classList.add('hidden');
+  showToast('Transaction updated and logged');
+  renderApp();
+ });
+ modal.classList.remove('hidden');
+}
+
+// Delete a transaction (admin only) with reason and audit log
+function _deleteTxn(txnId, txnKind){
+ const id = parseInt(txnId);
+ const arr = txnKind === 'receipt' ? getFeeTransactions() : get('expenses');
+ const t = arr.find(x => x.id === id);
+ if (!t) { alert('Transaction not found'); return; }
+ const reason = prompt('Reason for deleting this transaction (required):');
+ if (!reason || !reason.trim()) return;
+ // Reverse effect
+ _reverseTxnEffect(t, txnKind);
+ // Remove from array
+ if (txnKind === 'receipt') saveFeeTransactions(getFeeTransactions().filter(x => x.id !== id));
+ else set('expenses', get('expenses').filter(x => x.id !== id));
+ _logAccountingChange('delete', txnKind, t, null, reason.trim());
+ showToast('Transaction deleted and logged');
+ renderApp();
 }
 
 /* ---------- ACCOUNTANT EVENT HANDLERS ---------- */
@@ -4217,6 +4518,7 @@ function attachActiveAdminTabEvents(){
  else if(activeAdminTab==='users')attachUsersTabEvents();
  else if(activeAdminTab==='backup')attachBackupEvents();
  else if(activeAdminTab==='broadcast')attachBroadcastEvents();
+ else if(activeAdminTab==='accounts')attachAdminAccountsEvents();
  else attachGenericModuleEvents();
  attachUniversalCloseEvents();
 }
@@ -4763,6 +5065,193 @@ function attachStudentEvents(){
 /* ---------- UNIVERSAL MODAL CLOSE ---------- */
 function attachUniversalCloseEvents(){
  document.querySelectorAll('.closeModal').forEach(b=>b.addEventListener('click',e=>{e.target.closest('.modal')?.classList.add('hidden')}));
+}
+
+/* ============================================================
+   ADMIN ACCOUNTS TAB — Owner-only view
+   - Ledger with edit/delete on every transaction (full rights)
+   - Pending correction requests from accountant
+   - Audit log of all changes
+============================================================ */
+
+let activeAdminAccountsSubtab = 'requests';
+
+function renderAdminAccountsTab(){
+ const pending = getCorrectionRequests().filter(r => r.status === 'pending');
+ const subtabs = [
+  {id:'requests', label:'Correction Requests' + (pending.length ? ` (${pending.length})` : ''), icon:'flag'},
+  {id:'ledger',   label:'Full Ledger',         icon:'book'},
+  {id:'audit',    label:'Audit Log',           icon:'clipboard-list'}
+ ];
+ return `<div>
+  <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+   <h2 class="text-lg font-bold"><i class="fas fa-book-open-reader text-purple-600 mr-1"></i>Accounting & Audit</h2>
+  </div>
+  <div class="flex flex-wrap gap-1 border-b pb-2 mb-4 overflow-x-auto">
+   ${subtabs.map(t => `<button class="adm-acc-subtab px-3 py-2 rounded-t-lg text-sm font-medium whitespace-nowrap ${activeAdminAccountsSubtab===t.id?'bg-purple-600 text-white':'bg-gray-100 hover:bg-gray-200 text-gray-700'}" data-sub="${t.id}"><i class="fas fa-${t.icon} mr-1"></i>${t.label}</button>`).join('')}
+  </div>
+  <div id="admAccContent">${
+    activeAdminAccountsSubtab === 'requests' ? _renderAdminCorrectionRequests()
+    : activeAdminAccountsSubtab === 'ledger' ? _renderAdminFullLedger()
+    : _renderAdminAuditLog()
+  }</div>
+ </div>`;
+}
+
+function _renderAdminCorrectionRequests(){
+ const reqs = getCorrectionRequests().slice().sort((a,b) => (b.requestedAt||'').localeCompare(a.requestedAt||''));
+ const students = getStudents();
+ if (reqs.length === 0) return '<div class="bg-white border rounded-lg p-6 text-center text-gray-500"><i class="fas fa-circle-check text-3xl text-emerald-500 mb-2"></i><div>No correction requests yet.</div><div class="text-xs mt-1">When the accountant flags an entry, it appears here for your review.</div></div>';
+ return `<div class="space-y-2">${reqs.map(r => {
+  const t = r.txnSnapshot;
+  const fmt = n => 'Rs.' + (n||0).toLocaleString('en-IN');
+  const summary = r.txnKind === 'receipt'
+   ? `${t.receiptNo || ''} · ${(students.find(s=>s.id===t.studentId)?.name) || t.payerName || '-'} · ${t.feeHead||''} · ${fmt(t.amount)} · ${t.mode} · ${t.date}`
+   : `${t.category||''} · ${t.vendor||''} · ${fmt(t.amount)} · ${t.mode||''} · ${t.date}`;
+  const statusBadge = r.status === 'pending' ? '<span class="pill pill-amber">Pending review</span>'
+   : r.status === 'approved' ? '<span class="pill pill-green">Approved</span>'
+   : '<span class="pill pill-red">Rejected</span>';
+  // Check if the underlying transaction still exists (maybe deleted)
+  const arr = r.txnKind === 'receipt' ? getFeeTransactions() : get('expenses');
+  const stillExists = arr.some(x => x.id === r.txnId);
+  return `<div class="bg-white border rounded-lg p-3 ${r.status==='pending'?'border-amber-300':''}">
+   <div class="flex flex-wrap justify-between items-start gap-2">
+    <div class="flex-1 min-w-0">
+     <div class="flex flex-wrap items-center gap-2 mb-1">
+      <span class="font-semibold">${r.requestType.toUpperCase()} request</span>
+      ${statusBadge}
+      <span class="text-xs text-gray-500">by ${r.requestedBy} · ${new Date(r.requestedAt).toLocaleString('en-IN')}</span>
+     </div>
+     <div class="bg-gray-50 border-l-4 border-${r.txnKind==='receipt'?'emerald':'rose'}-500 p-2 rounded text-xs font-mono mb-1">${summary}</div>
+     <div class="text-sm"><b>Reason:</b> ${r.reason}</div>
+     ${r.proposed ? `<div class="text-sm"><b>Suggested fix:</b> ${r.proposed}</div>` : ''}
+     ${r.reviewNotes ? `<div class="text-xs text-gray-600 mt-1"><b>Owner notes:</b> ${r.reviewNotes}</div>` : ''}
+    </div>
+    ${r.status === 'pending' ? `
+    <div class="flex flex-wrap gap-1">
+     ${stillExists ? `<button class="crqEditBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${r.id}" data-txn="${r.txnId}" data-kind="${r.txnKind}"><i class="fas fa-edit mr-1"></i>Edit Txn</button>
+     <button class="crqDelBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs" data-id="${r.id}" data-txn="${r.txnId}" data-kind="${r.txnKind}"><i class="fas fa-trash mr-1"></i>Delete Txn</button>` : '<span class="text-xs text-gray-500">(transaction removed)</span>'}
+     <button class="crqApproveBtn bg-emerald-500 hover:bg-emerald-600 text-white px-2 py-1 rounded text-xs" data-id="${r.id}"><i class="fas fa-check mr-1"></i>Mark Done</button>
+     <button class="crqRejectBtn bg-gray-500 hover:bg-gray-600 text-white px-2 py-1 rounded text-xs" data-id="${r.id}"><i class="fas fa-xmark mr-1"></i>Reject</button>
+    </div>
+    ` : ''}
+   </div>
+  </div>`;
+ }).join('')}</div>`;
+}
+
+function _renderAdminFullLedger(){
+ // Reuse the same ledger UI as accountant — currentUser.role === 'admin' triggers Edit/Delete buttons
+ const today = new Date();
+ const monthStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0,10);
+ const todayStr = today.toISOString().slice(0,10);
+ return `<div>
+  <div class="bg-white border rounded-lg p-4 mb-4">
+   <h3 class="font-semibold mb-3"><i class="fas fa-filter text-gray-600 mr-1"></i>Filter Transactions</h3>
+   <div class="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3">
+    <div><label class="text-xs font-medium">Type</label><select id="ledType"><option value="all">All</option><option value="receipt">Receipts only</option><option value="expense">Payments only</option></select></div>
+    <div><label class="text-xs font-medium">From</label><input type="date" id="ledFrom" value="${monthStart}"></div>
+    <div><label class="text-xs font-medium">To</label><input type="date" id="ledTo" value="${todayStr}"></div>
+    <div><label class="text-xs font-medium">Quick Range</label><select id="ledQuick"><option value="">Custom</option><option value="today">Today</option><option value="week">This Week</option><option value="month" selected>This Month</option><option value="lastmonth">Last Month</option><option value="year">This Year</option><option value="all">All Time</option></select></div>
+    <div class="flex items-end"><button id="ledExportBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-xs font-medium w-full"><i class="fas fa-file-excel mr-1"></i>Export</button></div>
+   </div>
+  </div>
+  <div id="ledSummary" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3"></div>
+  <div id="ledTable" class="bg-white border rounded-lg p-4"></div>
+ </div>`;
+}
+
+function _renderAdminAuditLog(){
+ const log = getAuditLog().slice().reverse();
+ if (log.length === 0) return '<div class="bg-white border rounded-lg p-6 text-center text-gray-500"><i class="fas fa-clipboard-list text-3xl mb-2"></i><div>No accounting changes logged yet.</div><div class="text-xs mt-1">Edits, deletions, and request decisions will appear here with full before/after detail.</div></div>';
+ const fmt = n => 'Rs.' + (n||0).toLocaleString('en-IN');
+ const fmtTxn = (t, kind) => {
+  if (!t) return '(none)';
+  if (kind === 'receipt') return `${t.receiptNo||''} · ${t.payerName || '#'+(t.studentId||'')} · ${t.feeHead||''} · ${fmt(t.amount)} · ${t.mode} · ${t.date}`;
+  return `${t.category||''} · ${t.vendor||''} · ${fmt(t.amount)} · ${t.mode||''} · ${t.date}`;
+ };
+ return `<div class="bg-white border rounded-lg overflow-hidden">
+  <table class="text-sm w-full">
+   <thead class="bg-gray-100"><tr><th class="text-left p-2">When</th><th class="text-left p-2">By</th><th class="text-left p-2">Action</th><th class="text-left p-2">Before</th><th class="text-left p-2">After</th><th class="text-left p-2">Reason</th></tr></thead>
+   <tbody>${log.map(l => `<tr class="border-t">
+    <td class="p-2 text-xs whitespace-nowrap">${new Date(l.performedAt).toLocaleString('en-IN')}</td>
+    <td class="p-2 text-xs">${l.performedBy}</td>
+    <td class="p-2"><span class="pill pill-${l.action==='edit'?'amber':l.action==='delete'?'red':'gray'}">${l.action}</span> <span class="text-xs text-gray-600">${l.kind}</span></td>
+    <td class="p-2 text-xs font-mono">${fmtTxn(l.before, l.kind)}</td>
+    <td class="p-2 text-xs font-mono">${fmtTxn(l.after, l.kind)}</td>
+    <td class="p-2 text-xs">${l.reason||''}</td>
+   </tr>`).join('')}</tbody>
+  </table>
+ </div>`;
+}
+
+function attachAdminAccountsEvents(){
+ // Subtab navigation
+ document.querySelectorAll('.adm-acc-subtab').forEach(b => b.addEventListener('click', () => {
+  activeAdminAccountsSubtab = b.dataset.sub;
+  refreshAdminTabContent();
+  attachAdminAccountsEvents();
+ }));
+
+ if (activeAdminAccountsSubtab === 'ledger') {
+  // Reuse the ledger event handlers from accountant
+  _attachLedgerEvents();
+ } else if (activeAdminAccountsSubtab === 'requests') {
+  // Approve/reject buttons on requests
+  document.querySelectorAll('.crqEditBtn').forEach(b => b.addEventListener('click', () => {
+   _openTxnEditModal(b.dataset.txn, b.dataset.kind);
+   // After they edit, mark request as approved (handled via Mark Done button)
+  }));
+  document.querySelectorAll('.crqDelBtn').forEach(b => b.addEventListener('click', () => {
+   _deleteTxn(b.dataset.txn, b.dataset.kind);
+   // After deletion, mark request as approved
+   const reqs = getCorrectionRequests();
+   const i = reqs.findIndex(r => r.id === parseInt(b.dataset.id));
+   if (i > -1) {
+    reqs[i].status = 'approved';
+    reqs[i].reviewNotes = 'Transaction deleted';
+    reqs[i].reviewedBy = currentUser.name;
+    reqs[i].reviewedAt = new Date().toISOString();
+    saveCorrectionRequests(reqs);
+    _logAccountingChange('approve', 'request', null, reqs[i], 'Deletion completed');
+   }
+   refreshAdminTabContent();
+   attachAdminAccountsEvents();
+  }));
+  document.querySelectorAll('.crqApproveBtn').forEach(b => b.addEventListener('click', () => {
+   const notes = prompt('Notes for the accountant (optional):') || 'Resolved';
+   const reqs = getCorrectionRequests();
+   const i = reqs.findIndex(r => r.id === parseInt(b.dataset.id));
+   if (i > -1) {
+    reqs[i].status = 'approved';
+    reqs[i].reviewNotes = notes;
+    reqs[i].reviewedBy = currentUser.name;
+    reqs[i].reviewedAt = new Date().toISOString();
+    saveCorrectionRequests(reqs);
+    _logAccountingChange('approve', 'request', null, reqs[i], notes);
+    showToast('Request marked as resolved');
+    refreshAdminTabContent();
+    attachAdminAccountsEvents();
+   }
+  }));
+  document.querySelectorAll('.crqRejectBtn').forEach(b => b.addEventListener('click', () => {
+   const notes = prompt('Reason for rejecting (visible to accountant):');
+   if (!notes) return;
+   const reqs = getCorrectionRequests();
+   const i = reqs.findIndex(r => r.id === parseInt(b.dataset.id));
+   if (i > -1) {
+    reqs[i].status = 'rejected';
+    reqs[i].reviewNotes = notes;
+    reqs[i].reviewedBy = currentUser.name;
+    reqs[i].reviewedAt = new Date().toISOString();
+    saveCorrectionRequests(reqs);
+    _logAccountingChange('reject', 'request', null, reqs[i], notes);
+    showToast('Request rejected');
+    refreshAdminTabContent();
+    attachAdminAccountsEvents();
+   }
+  }));
+ }
 }
 
 /* ============================================================
