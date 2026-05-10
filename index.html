@@ -1846,8 +1846,8 @@ function renderOwnerDashboard(){
    </div>
    <div class="mt-3 text-xs text-rose-800 leading-relaxed">
     <b>Wipe Financial Data Only</b> — clears: receipts, expenses, bank transactions, bank accounts, correction requests, accounting audit log. <b>Keeps:</b> users, students, teachers, marks, attendance, homework.<br>
-    <b>Wipe All Operational Data</b> — adds to the above: exam marks, attendance, homework + submissions, complaints, payroll slips, message log, PTM events, teacher audit log, inventory, vehicles, maintenance, calendar. <b>Keeps:</b> users, students, teachers, school config, compliance template, gallery, disclosure docs.<br>
-    <b>Factory Reset</b> — removes <i>everything</i> including users and students. The app reloads and you'll need to log in with the original SEED_USERS credentials.
+    <b>Wipe All Operational Data</b> — clears the above <i>plus</i> all students, teachers, parent/student login accounts, marks, attendance, homework + submissions, complaints, payroll slips, message log, PTM events, teacher audit log, inventory, vehicles, maintenance, calendar. <b>Keeps:</b> staff logins (Owner / Admin / Principal / Accountant), school config, compliance template, gallery, disclosure docs. <b>Use this to wipe all test data before going live.</b><br>
+    <b>Factory Reset</b> — removes <i>everything</i> including all logins. The app reloads and you'll need to log in with the original SEED_USERS credentials.
    </div>
   </div>
  </div>`;
@@ -5745,10 +5745,12 @@ function attachOwnerEvents(){
 
  // ── DANGER ZONE: data wipe handlers ──
  const FINANCIAL_KEYS = ['feeTransactions','expenses','bankTransactions','bankAccounts','correctionRequests','accountingAuditLog'];
- const OPERATIONAL_KEYS = [...FINANCIAL_KEYS,'examMarks','attendanceRecords','homeworks','homeworkSubmissions','complaints','payrollSlips','messageLog','ptmEvents','teacherAuditLog','inventory','vehicles','routeMovements','maintenance','calendar','documents','chatMessages','busTracking'];
+ // Adds students, teachers + all transactional data. Keeps staff user logins (owner/admin/principal/accountant).
+ const OPERATIONAL_KEYS = [...FINANCIAL_KEYS,'students','teachers','examMarks','attendanceRecords','homeworks','homeworkSubmissions','complaints','payrollSlips','messageLog','ptmEvents','teacherAuditLog','inventory','vehicles','routeMovements','maintenance','calendar','documents','chatMessages','busTracking'];
+ const STAFF_ROLES = ['owner','admin','principal','accountant'];
 
  document.getElementById('wipeFinanceBtn')?.addEventListener('click', () => {
-  if (!confirm('WIPE all financial data?\n\nThis clears:\n• Fee receipts (receipts to students)\n• Expenses\n• Bank accounts and bank transactions\n• Correction requests\n• Accounting audit log\n\nKeeps: users, students, teachers, marks, attendance, homework, etc.\n\nThis is PERMANENT. Continue?')) return;
+  if (!confirm('WIPE all financial data?\n\nThis clears:\n• Fee receipts (receipts from students)\n• Expenses\n• Bank accounts and bank transactions\n• Correction requests\n• Accounting audit log\n\nKeeps: users, students, teachers, marks, attendance, homework, etc.\n\nThis is PERMANENT. Continue?')) return;
   if (!confirm('Are you absolutely sure? This cannot be undone.')) return;
   FINANCIAL_KEYS.forEach(k => localStorage.removeItem(k));
   // Clear lastReceiptId banner state too
@@ -5758,11 +5760,17 @@ function attachOwnerEvents(){
  });
 
  document.getElementById('wipeOperationalBtn')?.addEventListener('click', () => {
-  if (!confirm('WIPE all operational data?\n\nThis clears all transactional data including marks, attendance, homework, complaints, payroll, broadcasts, PTMs, audit logs, and all financial records.\n\nKeeps: users, students, teachers, school config, compliance template, gallery, disclosure docs.\n\nThis is PERMANENT. Continue?')) return;
-  if (!confirm('Last chance — really clear all operational data?')) return;
+  if (!confirm('WIPE all operational + roster data?\n\nThis clears:\n• All students and teachers\n• All parent/student login accounts (only staff logins are kept)\n• All financial records (receipts, expenses, bank, audit)\n• All marks, attendance, homework, complaints\n• All inventory, vehicles, calendar, payroll\n\nKeeps:\n• Owner / Admin / Principal / Accountant logins\n• School config, compliance template\n• Gallery photos, disclosure PDFs\n\nUse this to clean test data before going live. PERMANENT. Continue?')) return;
+  if (!confirm('Last chance — really clear all operational + roster data?')) return;
   OPERATIONAL_KEYS.forEach(k => localStorage.removeItem(k));
   localStorage.removeItem('_lastReceiptId');
-  alert('All operational data wiped. Page will reload now.');
+  // Filter user accounts: keep only staff (owner/admin/principal/accountant)
+  try {
+   const allUsers = JSON.parse(localStorage.getItem('users') || '[]');
+   const staffOnly = allUsers.filter(u => STAFF_ROLES.includes(u.role));
+   localStorage.setItem('users', JSON.stringify(staffOnly));
+  } catch(e) { /* ignore */ }
+  alert('All operational + roster data wiped. Staff logins preserved. Page will reload.');
   location.reload();
  });
 
