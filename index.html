@@ -1860,10 +1860,11 @@ function renderStudentsTab(){
   </div>
   <div class="text-sm text-gray-600 mb-2">Showing <b>${filt.length}</b> of ${all.length} students</div>
   <div class="overflow-x-auto">
-   <table class="border text-sm"><thead><tr><th>Adm No</th><th>Name</th><th>Class</th><th>Sec</th><th>Roll</th><th>Parent</th><th>Fee Due</th><th>Tags</th><th>Actions</th></tr></thead>
+   <table class="border text-sm"><thead><tr><th>Adm No</th><th>PEN</th><th>Name</th><th>Class</th><th>Sec</th><th>Roll</th><th>Parent</th><th>Fee Due</th><th>Tags</th><th>Actions</th></tr></thead>
    <tbody>
     ${filt.map(s=>`<tr>
      <td class="text-xs text-gray-600">${s.admissionNo||'-'}</td>
+     <td class="text-xs text-gray-600 font-mono">${s.pen||'<span class="text-gray-400">—</span>'}</td>
      <td class="font-medium">${s.name}</td>
      <td>${s.class}</td><td>${s.section}</td><td>${s.rollNo}</td>
      <td class="text-xs">${s.parentName||'-'}<br><span class="text-gray-500">${s.parentPhone||''}</span></td>
@@ -1874,7 +1875,7 @@ function renderStudentsTab(){
       <button class="editStudentBtn text-blue-600 hover:text-blue-800 ml-1" data-id="${s.id}" title="Edit"><i class="fas fa-edit"></i></button>
       <button class="delStudentBtn2 text-red-600 hover:text-red-800 ml-1" data-id="${s.id}" title="Delete"><i class="fas fa-trash"></i></button>
      </td>
-    </tr>`).join('')||'<tr><td colspan="9" class="text-center text-gray-500 py-6">No students match</td></tr>'}
+    </tr>`).join('')||'<tr><td colspan="10" class="text-center text-gray-500 py-6">No students match</td></tr>'}
    </tbody></table>
   </div>
 
@@ -1892,6 +1893,7 @@ function renderStudentsTab(){
     <div><label class="text-xs font-medium">Blood Group</label><select id="stuBlood"><option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>AB+</option><option>AB-</option><option>O+</option><option>O-</option></select></div>
     <div><label class="text-xs font-medium">Caste</label><select id="stuCaste"><option>General</option><option>OBC</option><option>SC</option><option>ST</option></select></div>
     <div><label class="text-xs font-medium">Aadhaar (masked)</label><input id="stuAadhaar" placeholder="XXXX-XXXX-1234"></div>
+    <div><label class="text-xs font-medium">PEN (UDISE+ ID)</label><input id="stuPen" placeholder="11-digit Permanent Education No."></div>
     <div><label class="text-xs font-medium">Parent Name</label><input id="stuParentName"></div>
     <div><label class="text-xs font-medium">Parent Phone</label><input id="stuParentPhone"></div>
     <div class="col-span-2"><label class="text-xs font-medium">Address</label><input id="stuAddress"></div>
@@ -1932,6 +1934,7 @@ function renderStudentProfile(id){
    <div><div class="text-xs text-gray-500">Blood Group</div><div class="font-medium">${s.bloodGroup||'-'}</div></div>
    <div><div class="text-xs text-gray-500">Caste</div><div class="font-medium">${s.caste}</div></div>
    <div><div class="text-xs text-gray-500">Aadhaar</div><div class="font-medium">${s.aadhaar||'-'}</div></div>
+   <div><div class="text-xs text-gray-500">PEN (UDISE+)</div><div class="font-medium font-mono">${s.pen||'-'}</div></div>
    <div><div class="text-xs text-gray-500">BPL / CWSN</div><div class="font-medium">${s.bpl?'BPL':''} ${s.cwsn?'CWSN':''} ${!s.bpl&&!s.cwsn?'-':''}</div></div>
    <div><div class="text-xs text-gray-500">Admission Date</div><div class="font-medium">${fmtDate(s.admissionDate)}</div></div>
    <div class="col-span-2"><div class="text-xs text-gray-500">Parent</div><div class="font-medium">${s.parentName||'-'} - ${s.parentPhone||'-'}</div></div>
@@ -2699,7 +2702,7 @@ function attachStudentsTabEvents(){
  document.getElementById('clearFilters')?.addEventListener('click',()=>{studentFilter={search:'',class:'all',section:'all',category:'all'};refresh()});
  document.getElementById('addStudentBtn')?.addEventListener('click',()=>{
   document.getElementById('studentModalTitle').innerText='Add Student';
-  ['stuId','stuName','stuAdmNo','stuRoll','stuAadhaar','stuParentName','stuParentPhone','stuAddress','stuDob','stuAdmDate'].forEach(i=>{const el=document.getElementById(i);if(el)el.value=''});
+  ['stuId','stuName','stuAdmNo','stuRoll','stuAadhaar','stuPen','stuParentName','stuParentPhone','stuAddress','stuDob','stuAdmDate'].forEach(i=>{const el=document.getElementById(i);if(el)el.value=''});
   document.getElementById('stuFeeBal').value=0;
   document.getElementById('stuBpl').checked=false;document.getElementById('stuCwsn').checked=false;
   document.getElementById('studentModal').classList.remove('hidden');
@@ -2718,6 +2721,7 @@ function attachStudentsTabEvents(){
   document.getElementById('stuBlood').value=s.bloodGroup||'O+';
   document.getElementById('stuCaste').value=s.caste||'General';
   document.getElementById('stuAadhaar').value=s.aadhaar||'';
+  document.getElementById('stuPen').value=s.pen||'';
   document.getElementById('stuParentName').value=s.parentName||'';
   document.getElementById('stuParentPhone').value=s.parentPhone||'';
   document.getElementById('stuAddress').value=s.address||'';
@@ -2742,6 +2746,7 @@ function attachStudentsTabEvents(){
    bloodGroup:document.getElementById('stuBlood').value,
    caste:document.getElementById('stuCaste').value,
    aadhaar:document.getElementById('stuAadhaar').value.trim(),
+   pen:document.getElementById('stuPen').value.trim(),
    parentName:document.getElementById('stuParentName').value.trim(),
    parentPhone:document.getElementById('stuParentPhone').value.trim(),
    parentId:4,
@@ -2771,8 +2776,8 @@ function attachStudentsTabEvents(){
  }));
  document.getElementById('exportStudentsBtn')?.addEventListener('click',()=>{
   const s=getStudents();
-  let h='<table border="1"><tr><th>Adm No</th><th>Name</th><th>Class</th><th>Section</th><th>Roll</th><th>Gender</th><th>DOB</th><th>Blood</th><th>Caste</th><th>BPL</th><th>CWSN</th><th>Aadhaar</th><th>Parent</th><th>Phone</th><th>Address</th><th>Adm Date</th><th>Fee Balance</th></tr>';
-  s.forEach(x=>h+=`<tr><td>${x.admissionNo||''}</td><td>${x.name}</td><td>${x.class}</td><td>${x.section}</td><td>${x.rollNo}</td><td>${x.gender||''}</td><td>${x.dob||''}</td><td>${x.bloodGroup||''}</td><td>${x.caste}</td><td>${x.bpl?'Yes':'No'}</td><td>${x.cwsn?'Yes':'No'}</td><td>${x.aadhaar||''}</td><td>${x.parentName||''}</td><td>${x.parentPhone||''}</td><td>${x.address||''}</td><td>${x.admissionDate||''}</td><td>${x.feeBalance||0}</td></tr>`);
+  let h='<table border="1"><tr><th>Adm No</th><th>PEN (UDISE+)</th><th>Name</th><th>Class</th><th>Section</th><th>Roll</th><th>Gender</th><th>DOB</th><th>Blood</th><th>Caste</th><th>BPL</th><th>CWSN</th><th>Aadhaar</th><th>Parent</th><th>Phone</th><th>Address</th><th>Adm Date</th><th>Fee Balance</th></tr>';
+  s.forEach(x=>h+=`<tr><td>${x.admissionNo||''}</td><td>${x.pen||''}</td><td>${x.name}</td><td>${x.class}</td><td>${x.section}</td><td>${x.rollNo}</td><td>${x.gender||''}</td><td>${x.dob||''}</td><td>${x.bloodGroup||''}</td><td>${x.caste}</td><td>${x.bpl?'Yes':'No'}</td><td>${x.cwsn?'Yes':'No'}</td><td>${x.aadhaar||''}</td><td>${x.parentName||''}</td><td>${x.parentPhone||''}</td><td>${x.address||''}</td><td>${x.admissionDate||''}</td><td>${x.feeBalance||0}</td></tr>`);
   h+='</table>';downloadExcel(h,'Students_Full_'+new Date().toISOString().slice(0,10));
  });
  document.getElementById('promoteStudentsBtn')?.addEventListener('click',()=>{
