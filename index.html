@@ -2505,28 +2505,761 @@ function renderStudentPanel(){
 }
 
 /* ---------- ACCOUNTANT PANEL ---------- */
+/* ============================================================
+   ACCOUNTANT PANEL — full bookkeeping workstation with 4 tabs
+   Tracks: fee receipts (by head), other income, expenses,
+   bank deposits/withdrawals. Provides class-wise fee monitoring,
+   cash & bank position, and filterable ledger.
+============================================================ */
+
+const FEE_HEADS = [
+  'Tuition Fee', 'Admission Fee', 'Annual Fee', 'Books',
+  'Uniform', 'Transport', 'Exam Fee', 'Activity/Event',
+  'Library', 'Late Fee', 'Other'
+];
+const EXPENSE_CATEGORIES = [
+  'Salary', 'Supplies & Stationery', 'Utilities (Electric/Water)',
+  'Internet/Phone', 'Repairs & Maintenance', 'Books Purchase',
+  'Uniform Purchase', 'Event Expenses', 'Transport (Fuel/Service)',
+  'Cleaning', 'Security', 'Rent', 'Tax/Government Fee', 'Other'
+];
+const PAYMENT_MODES = ['Cash', 'Cheque', 'Online (UPI/NEFT/IMPS)', 'Bank Transfer'];
+
+let activeAccountantTab = 'overview';
+
 function renderAccountantPanel(){
- const students=getStudents(),trans=getFeeTransactions();
+ const tabs = [
+  {id:'overview', label:'Overview',  icon:'gauge-high'},
+  {id:'receipts', label:'Receipts',  icon:'hand-holding-dollar'},
+  {id:'payments', label:'Payments',  icon:'money-bill-transfer'},
+  {id:'ledger',   label:'Ledger',    icon:'book'}
+ ];
  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
-  <div class="flex justify-between items-center mb-4">
-   <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-calculator text-green-600 mr-2"></i>Accountant Panel</h1>
+  <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+   <div>
+    <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-calculator text-green-600 mr-2"></i>Accountant Panel</h1>
+    <div class="text-xs text-gray-600 mt-0.5">${currentUser.name} · ${new Date().toLocaleDateString('en-IN', {weekday:'long', day:'numeric', month:'long', year:'numeric'})}</div>
+   </div>
    <button id="logoutAccBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
   </div>
-  <div class="bg-white p-4 rounded-xl shadow-sm mb-4">
-   <h3 class="font-semibold mb-3"><i class="fas fa-money-bill-wave text-green-600 mr-1"></i>Record Fee Payment</h3>
-   <div class="grid md:grid-cols-4 gap-2">
-    <select id="accStudentSelect">${students.map(s=>`<option value="${s.id}">${s.name} - Class ${s.class} - Due Rs.${s.feeBalance}</option>`).join('')}</select>
-    <input id="accAmount" type="number" placeholder="Amount">
-    <select id="accMode"><option>cash</option><option>online</option><option>cheque</option></select>
-    <button id="recordPaymentBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm">Record Payment</button>
+  <div class="flex flex-wrap gap-1 border-b pb-2 mb-4 overflow-x-auto">
+   ${tabs.map(t => `<button class="acc-tab px-3 py-2 rounded-t-lg text-sm font-medium whitespace-nowrap ${activeAccountantTab===t.id?'bg-emerald-600 text-white':'bg-gray-100 hover:bg-gray-200 text-gray-700'}" data-tab="${t.id}"><i class="fas fa-${t.icon} mr-1"></i>${t.label}</button>`).join('')}
+  </div>
+  <div id="accTabContent">${renderAccountantTabContent()}</div>
+ </div>`;
+}
+
+function renderAccountantTabContent(){
+ switch(activeAccountantTab){
+  case 'overview': return renderAccOverview();
+  case 'receipts': return renderAccReceipts();
+  case 'payments': return renderAccPayments();
+  case 'ledger':   return renderAccLedger();
+  default: return renderAccOverview();
+ }
+}
+
+/* ---------- Helpers: derive cash/bank position from transactions ---------- */
+function _calcAccountantStats(){
+ const receipts = getFeeTransactions();
+ const expenses = get('expenses');
+ const banks = get('bankAccounts');
+ const today = new Date().toISOString().slice(0,10);
+ const monthStart = today.slice(0,7); // YYYY-MM
+ // Today's collection
+ const todayIn  = receipts.filter(r => r.date === today).reduce((s,r) => s + (r.amount||0), 0);
+ const todayOut = expenses.filter(e => e.date === today).reduce((s,e) => s + (e.amount||0), 0);
+ // This month's totals
+ const monthIn  = receipts.filter(r => (r.date||'').startsWith(monthStart)).reduce((s,r) => s + (r.amount||0), 0);
+ const monthOut = expenses.filter(e => (e.date||'').startsWith(monthStart)).reduce((s,e) => s + (e.amount||0), 0);
+ // Cash on hand: cash receipts MINUS cash expenses MINUS cash deposited to bank
+ const cashIn   = receipts.filter(r => (r.mode||'').toLowerCase().includes('cash')).reduce((s,r) => s + (r.amount||0), 0);
+ const cashOut  = expenses.filter(e => (e.mode||'').toLowerCase().includes('cash')).reduce((s,e) => s + (e.amount||0), 0);
+ const cashOnHand = cashIn - cashOut;
+ // Bank balance: sum of all account balances
+ const bankTotal = banks.reduce((s,b) => s + (b.balance||0), 0);
+ // Total fee dues outstanding
+ const dues = getStudents().reduce((s,x) => s + Math.max(0, x.feeBalance||0), 0);
+ return { todayIn, todayOut, monthIn, monthOut, cashOnHand, bankTotal, dues, banks };
+}
+
+/* ---------- TAB 1: OVERVIEW ---------- */
+function renderAccOverview(){
+ const stats = _calcAccountantStats();
+ const recentReceipts = getFeeTransactions().slice(-5).reverse();
+ const recentExpenses = get('expenses').slice(-5).reverse();
+ const students = getStudents();
+ const fmtINR = n => 'Rs.' + (n||0).toLocaleString('en-IN');
+
+ return `<div>
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+   <div class="bg-emerald-50 border border-emerald-200 p-3 rounded-lg">
+    <div class="text-xs text-emerald-700 font-semibold uppercase">Today's Receipts</div>
+    <div class="text-2xl font-bold text-emerald-900 mt-1">${fmtINR(stats.todayIn)}</div>
+    <div class="text-xs text-emerald-700 mt-1"><i class="fas fa-arrow-down mr-1"></i>Money in today</div>
+   </div>
+   <div class="bg-rose-50 border border-rose-200 p-3 rounded-lg">
+    <div class="text-xs text-rose-700 font-semibold uppercase">Today's Payments</div>
+    <div class="text-2xl font-bold text-rose-900 mt-1">${fmtINR(stats.todayOut)}</div>
+    <div class="text-xs text-rose-700 mt-1"><i class="fas fa-arrow-up mr-1"></i>Money out today</div>
+   </div>
+   <div class="bg-blue-50 border border-blue-200 p-3 rounded-lg">
+    <div class="text-xs text-blue-700 font-semibold uppercase">Cash on Hand</div>
+    <div class="text-2xl font-bold text-blue-900 mt-1">${fmtINR(stats.cashOnHand)}</div>
+    <div class="text-xs text-blue-700 mt-1"><i class="fas fa-money-bills mr-1"></i>Physical cash</div>
+   </div>
+   <div class="bg-indigo-50 border border-indigo-200 p-3 rounded-lg">
+    <div class="text-xs text-indigo-700 font-semibold uppercase">Bank Balance</div>
+    <div class="text-2xl font-bold text-indigo-900 mt-1">${fmtINR(stats.bankTotal)}</div>
+    <div class="text-xs text-indigo-700 mt-1"><i class="fas fa-building-columns mr-1"></i>${stats.banks.length} account${stats.banks.length===1?'':'s'}</div>
    </div>
   </div>
-  <div class="bg-white p-4 rounded-xl shadow-sm">
-   <h3 class="font-semibold mb-3"><i class="fas fa-list text-gray-600 mr-1"></i>Recent Transactions</h3>
-   <div class="overflow-x-auto"><table class="border text-sm"><thead><tr><th>Receipt</th><th>Student</th><th>Date</th><th>Mode</th><th>Amount</th></tr></thead>
-   <tbody>${trans.slice().reverse().map(t=>{const s=students.find(x=>x.id===t.studentId);return `<tr><td>${t.receiptNo}</td><td>${s?.name||'-'}</td><td>${fmtDate(t.date)}</td><td>${t.mode}</td><td>Rs.${t.amount.toLocaleString('en-IN')}</td></tr>`}).join('')||'<tr><td colspan="5" class="text-center text-gray-500 py-4">No transactions</td></tr>'}</tbody></table></div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-4">
+   <div class="bg-amber-50 border border-amber-200 p-3 rounded-lg">
+    <div class="text-xs text-amber-700 font-semibold uppercase">Monthly Receipts</div>
+    <div class="text-xl font-bold text-amber-900 mt-1">${fmtINR(stats.monthIn)}</div>
+   </div>
+   <div class="bg-purple-50 border border-purple-200 p-3 rounded-lg">
+    <div class="text-xs text-purple-700 font-semibold uppercase">Monthly Payments</div>
+    <div class="text-xl font-bold text-purple-900 mt-1">${fmtINR(stats.monthOut)}</div>
+   </div>
+   <div class="bg-red-50 border border-red-200 p-3 rounded-lg">
+    <div class="text-xs text-red-700 font-semibold uppercase">Total Fee Dues</div>
+    <div class="text-xl font-bold text-red-900 mt-1">${fmtINR(stats.dues)}</div>
+    <div class="text-xs text-red-700 mt-1"><i class="fas fa-exclamation-circle mr-1"></i>Outstanding from students</div>
+   </div>
+  </div>
+
+  <!-- Bank accounts -->
+  ${stats.banks.length > 0 ? `
+  <div class="bg-white border rounded-lg p-4 mb-4">
+   <h3 class="font-semibold mb-2"><i class="fas fa-building-columns text-indigo-600 mr-1"></i>Bank Accounts</h3>
+   <div class="overflow-x-auto"><table class="border text-sm w-full">
+    <thead><tr><th>Bank</th><th>A/C No</th><th>Branch</th><th>IFSC</th><th class="text-right">Balance</th></tr></thead>
+    <tbody>${stats.banks.map(b => `<tr><td>${b.bankName||'-'}</td><td class="font-mono text-xs">${b.accountNo||'-'}</td><td>${b.branch||'-'}</td><td class="font-mono text-xs">${b.ifsc||'-'}</td><td class="text-right font-semibold">${fmtINR(b.balance)}</td></tr>`).join('')}</tbody>
+   </table></div>
+  </div>` : ''}
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+   <div class="bg-white border rounded-lg p-4">
+    <h3 class="font-semibold mb-2"><i class="fas fa-arrow-down text-emerald-600 mr-1"></i>Recent Receipts</h3>
+    ${recentReceipts.length === 0 ? '<div class="text-sm text-gray-500 py-3">No receipts yet</div>' : `
+    <table class="text-sm w-full">
+     <thead class="text-xs text-gray-600"><tr><th class="text-left">Date</th><th class="text-left">From</th><th class="text-left">Head</th><th class="text-right">Amount</th></tr></thead>
+     <tbody>${recentReceipts.map(r => { const s = students.find(x => x.id === r.studentId); return `<tr><td class="text-xs">${fmtDate(r.date)}</td><td class="text-xs">${s?.name || r.payerName || '-'}</td><td class="text-xs">${r.feeHead || 'Tuition'}</td><td class="text-right font-semibold">${fmtINR(r.amount)}</td></tr>`; }).join('')}</tbody>
+    </table>`}
+   </div>
+   <div class="bg-white border rounded-lg p-4">
+    <h3 class="font-semibold mb-2"><i class="fas fa-arrow-up text-rose-600 mr-1"></i>Recent Payments</h3>
+    ${recentExpenses.length === 0 ? '<div class="text-sm text-gray-500 py-3">No payments yet</div>' : `
+    <table class="text-sm w-full">
+     <thead class="text-xs text-gray-600"><tr><th class="text-left">Date</th><th class="text-left">Category</th><th class="text-left">Mode</th><th class="text-right">Amount</th></tr></thead>
+     <tbody>${recentExpenses.map(e => `<tr><td class="text-xs">${fmtDate(e.date)}</td><td class="text-xs">${e.category}</td><td class="text-xs">${e.mode||'-'}</td><td class="text-right font-semibold">${fmtINR(e.amount)}</td></tr>`).join('')}</tbody>
+    </table>`}
+   </div>
   </div>
  </div>`;
+}
+
+/* ---------- TAB 2: RECEIPTS (fee + other income) ---------- */
+function renderAccReceipts(){
+ const students = getStudents();
+ const receipts = getFeeTransactions();
+ const banks = get('bankAccounts');
+ const fmtINR = n => 'Rs.' + (n||0).toLocaleString('en-IN');
+
+ // Class-wise fee monitoring
+ const byClass = {};
+ students.forEach(s => { (byClass[s.class] = byClass[s.class] || []).push(s); });
+ const classOrder = ALL_CLASSES.filter(c => byClass[c]);
+
+ return `<div>
+  <!-- Record receipt form -->
+  <div class="bg-white border rounded-lg p-4 mb-4">
+   <h3 class="font-semibold mb-3"><i class="fas fa-hand-holding-dollar text-emerald-600 mr-1"></i>Record Receipt</h3>
+   <div class="grid md:grid-cols-2 gap-3 mb-3">
+    <div>
+     <label class="text-xs font-medium">Receipt From *</label>
+     <select id="rcptFrom">
+      <option value="">— Choose payer type —</option>
+      <optgroup label="Students">
+       ${students.map(s => `<option value="student:${s.id}">Class ${s.class} · ${s.name}${s.feeBalance > 0 ? ' (Due ' + fmtINR(s.feeBalance) + ')' : ''}</option>`).join('')}
+      </optgroup>
+      <option value="other:">Other (donation / outside payer)</option>
+     </select>
+    </div>
+    <div>
+     <label class="text-xs font-medium">Fee Head *</label>
+     <select id="rcptHead">${FEE_HEADS.map(h => `<option>${h}</option>`).join('')}</select>
+    </div>
+    <div id="rcptOtherNameRow" style="display:none">
+     <label class="text-xs font-medium">Payer Name *</label>
+     <input id="rcptPayerName" placeholder="e.g. donor name">
+    </div>
+    <div>
+     <label class="text-xs font-medium">Amount (Rs.) *</label>
+     <input id="rcptAmount" type="number" placeholder="0">
+    </div>
+    <div>
+     <label class="text-xs font-medium">Mode *</label>
+     <select id="rcptMode">${PAYMENT_MODES.map(m => `<option>${m}</option>`).join('')}</select>
+    </div>
+    <div>
+     <label class="text-xs font-medium">Date</label>
+     <input type="date" id="rcptDate" value="${new Date().toISOString().slice(0,10)}">
+    </div>
+    <div id="rcptChequeRow" style="display:none">
+     <label class="text-xs font-medium">Cheque No</label>
+     <input id="rcptChequeNo" placeholder="e.g. 123456">
+    </div>
+    <div id="rcptBankRow" style="display:none">
+     <label class="text-xs font-medium">Deposited to Bank</label>
+     <select id="rcptBankAcc">${banks.map(b => `<option value="${b.id}">${b.bankName} · ${b.accountNo}</option>`).join('')}</select>
+    </div>
+    <div class="md:col-span-2">
+     <label class="text-xs font-medium">Notes (optional)</label>
+     <input id="rcptNotes" placeholder="any reference details">
+    </div>
+   </div>
+   <button id="rcptSaveBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
+    <i class="fas fa-plus mr-1"></i>Record Receipt
+   </button>
+  </div>
+
+  <!-- Class-wise fee status -->
+  <div class="bg-white border rounded-lg p-4 mb-4">
+   <div class="flex justify-between items-center mb-3">
+    <h3 class="font-semibold"><i class="fas fa-chart-bar text-blue-600 mr-1"></i>Class-wise Fee Status</h3>
+    <button id="rcptExportClassBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs"><i class="fas fa-file-excel mr-1"></i>Export</button>
+   </div>
+   ${classOrder.length === 0 ? '<div class="text-sm text-gray-500 py-3">No students yet</div>' : `
+   <div class="space-y-2">
+    ${classOrder.map(cls => {
+     const list = byClass[cls];
+     const totalDecided = list.reduce((s,x) => s + (x.decidedFees || x.annualFees || 0), 0);
+     const totalPaid = list.reduce((s,x) => s + Math.max(0, (x.decidedFees||x.annualFees||0) - (x.feeBalance||0)), 0);
+     const totalDue = list.reduce((s,x) => s + (x.feeBalance||0), 0);
+     return `
+     <details class="border rounded">
+      <summary class="cursor-pointer px-3 py-2 bg-gray-50 hover:bg-gray-100 flex flex-wrap items-center justify-between gap-2 text-sm">
+       <span class="font-semibold">Class ${cls} <span class="text-gray-500">(${list.length})</span></span>
+       <div class="flex gap-3 text-xs">
+        <span>Decided: <b>${fmtINR(totalDecided)}</b></span>
+        <span class="text-emerald-700">Paid: <b>${fmtINR(totalPaid)}</b></span>
+        <span class="${totalDue>0?'text-red-700':'text-emerald-700'}">Due: <b>${fmtINR(totalDue)}</b></span>
+       </div>
+      </summary>
+      <div class="overflow-x-auto p-2">
+       <table class="text-xs w-full border">
+        <thead class="bg-gray-100"><tr><th>Roll</th><th>Reg. No</th><th>Name</th><th class="text-right">Decided</th><th class="text-right">Paid</th><th class="text-right">Balance</th><th>Status</th></tr></thead>
+        <tbody>${list.sort((a,b) => (a.rollNo||0) - (b.rollNo||0)).map(s => {
+          const decided = s.decidedFees || s.annualFees || 0;
+          const balance = s.feeBalance || 0;
+          const paid = Math.max(0, decided - balance);
+          return `<tr><td>${s.rollNo||'-'}</td><td class="font-mono">${s.registrationNo||s.admissionNo||'-'}</td><td>${s.name}</td><td class="text-right">${fmtINR(decided)}</td><td class="text-right text-emerald-700">${fmtINR(paid)}</td><td class="text-right ${balance>0?'text-red-700 font-semibold':'text-emerald-700'}">${fmtINR(balance)}</td><td>${balance===0?'<span class="pill pill-green">Cleared</span>':balance<decided?'<span class="pill pill-amber">Partial</span>':'<span class="pill pill-red">Pending</span>'}</td></tr>`;
+        }).join('')}</tbody>
+       </table>
+      </div>
+     </details>`;
+    }).join('')}
+   </div>`}
+  </div>
+ </div>`;
+}
+
+/* ---------- TAB 3: PAYMENTS (expenses + bank movements) ---------- */
+function renderAccPayments(){
+ const banks = get('bankAccounts');
+ const fmtINR = n => 'Rs.' + (n||0).toLocaleString('en-IN');
+
+ return `<div>
+  <!-- Record expense form -->
+  <div class="bg-white border rounded-lg p-4 mb-4">
+   <h3 class="font-semibold mb-3"><i class="fas fa-money-bill-transfer text-rose-600 mr-1"></i>Record Payment / Expense</h3>
+   <div class="grid md:grid-cols-2 gap-3 mb-3">
+    <div>
+     <label class="text-xs font-medium">Category *</label>
+     <select id="expCategory">${EXPENSE_CATEGORIES.map(c => `<option>${c}</option>`).join('')}</select>
+    </div>
+    <div>
+     <label class="text-xs font-medium">Vendor / Recipient</label>
+     <input id="expVendor" placeholder="who was paid">
+    </div>
+    <div>
+     <label class="text-xs font-medium">Amount (Rs.) *</label>
+     <input id="expAmount" type="number" placeholder="0">
+    </div>
+    <div>
+     <label class="text-xs font-medium">Mode *</label>
+     <select id="expMode">${PAYMENT_MODES.map(m => `<option>${m}</option>`).join('')}</select>
+    </div>
+    <div>
+     <label class="text-xs font-medium">Date</label>
+     <input type="date" id="expDate" value="${new Date().toISOString().slice(0,10)}">
+    </div>
+    <div id="expChequeRow" style="display:none">
+     <label class="text-xs font-medium">Cheque No</label>
+     <input id="expChequeNo" placeholder="e.g. 123456">
+    </div>
+    <div id="expBankRow" style="display:none">
+     <label class="text-xs font-medium">From Bank Account</label>
+     <select id="expBankAcc">${banks.map(b => `<option value="${b.id}">${b.bankName} · ${b.accountNo}</option>`).join('')}</select>
+    </div>
+    <div class="md:col-span-2">
+     <label class="text-xs font-medium">Description</label>
+     <input id="expDescription" placeholder="what was the payment for">
+    </div>
+   </div>
+   <button id="expSaveBtn" class="bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
+    <i class="fas fa-plus mr-1"></i>Record Payment
+   </button>
+  </div>
+
+  <!-- Bank deposit/withdrawal -->
+  <div class="bg-white border rounded-lg p-4 mb-4">
+   <h3 class="font-semibold mb-3"><i class="fas fa-arrows-rotate text-blue-600 mr-1"></i>Cash ↔ Bank Movement</h3>
+   ${banks.length === 0 ? `<div class="text-sm text-amber-800 bg-amber-50 p-2 rounded">No bank accounts configured. Ask admin to add one in the Bank tab.</div>` : `
+   <div class="grid md:grid-cols-4 gap-3 mb-3">
+    <div>
+     <label class="text-xs font-medium">Action</label>
+     <select id="bnkMoveType">
+      <option value="deposit">Deposit Cash → Bank</option>
+      <option value="withdraw">Withdraw Bank → Cash</option>
+     </select>
+    </div>
+    <div>
+     <label class="text-xs font-medium">Bank Account</label>
+     <select id="bnkMoveAcc">${banks.map(b => `<option value="${b.id}">${b.bankName} (Bal: ${fmtINR(b.balance)})</option>`).join('')}</select>
+    </div>
+    <div>
+     <label class="text-xs font-medium">Amount (Rs.)</label>
+     <input id="bnkMoveAmount" type="number" placeholder="0">
+    </div>
+    <div class="flex items-end">
+     <button id="bnkMoveSaveBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full">
+      <i class="fas fa-save mr-1"></i>Record Movement
+     </button>
+    </div>
+   </div>
+   <div class="text-xs text-gray-500"><i class="fas fa-info-circle mr-1"></i>Bank balance updates automatically. Deposits reduce cash on hand; withdrawals increase it.</div>`}
+  </div>
+ </div>`;
+}
+
+/* ---------- TAB 4: LEDGER (filterable transaction history) ---------- */
+function renderAccLedger(){
+ const students = getStudents();
+ const fmtINR = n => 'Rs.' + (n||0).toLocaleString('en-IN');
+
+ // Default date range: current month
+ const today = new Date();
+ const monthStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0,10);
+ const todayStr = today.toISOString().slice(0,10);
+
+ return `<div>
+  <div class="bg-white border rounded-lg p-4 mb-4">
+   <h3 class="font-semibold mb-3"><i class="fas fa-filter text-gray-600 mr-1"></i>Filter Transactions</h3>
+   <div class="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3">
+    <div>
+     <label class="text-xs font-medium">Type</label>
+     <select id="ledType">
+      <option value="all">All</option>
+      <option value="receipt">Receipts only</option>
+      <option value="expense">Payments only</option>
+     </select>
+    </div>
+    <div>
+     <label class="text-xs font-medium">From</label>
+     <input type="date" id="ledFrom" value="${monthStart}">
+    </div>
+    <div>
+     <label class="text-xs font-medium">To</label>
+     <input type="date" id="ledTo" value="${todayStr}">
+    </div>
+    <div>
+     <label class="text-xs font-medium">Quick Range</label>
+     <select id="ledQuick">
+      <option value="">Custom</option>
+      <option value="today">Today</option>
+      <option value="week">This Week</option>
+      <option value="month" selected>This Month</option>
+      <option value="lastmonth">Last Month</option>
+      <option value="year">This Year (Apr-Mar)</option>
+      <option value="all">All Time</option>
+     </select>
+    </div>
+    <div class="flex items-end">
+     <button id="ledExportBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-xs font-medium w-full"><i class="fas fa-file-excel mr-1"></i>Export</button>
+    </div>
+   </div>
+  </div>
+
+  <div id="ledSummary" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3"></div>
+  <div id="ledTable" class="bg-white border rounded-lg p-4"></div>
+ </div>`;
+}
+
+function _filterLedger(fromDate, toDate, type){
+ const receipts = getFeeTransactions().map(r => ({ ...r, _kind: 'receipt' }));
+ const expenses = get('expenses').map(e => ({ ...e, _kind: 'expense' }));
+ let all = [];
+ if (type === 'all' || type === 'receipt') all = all.concat(receipts);
+ if (type === 'all' || type === 'expense') all = all.concat(expenses);
+ // Date filter
+ all = all.filter(x => {
+  const d = x.date || '';
+  return (!fromDate || d >= fromDate) && (!toDate || d <= toDate);
+ });
+ // Sort newest first
+ all.sort((a,b) => (b.date||'').localeCompare(a.date||'') || (b.id||0) - (a.id||0));
+ return all;
+}
+
+function _renderLedgerResults(){
+ const fromDate = document.getElementById('ledFrom').value;
+ const toDate = document.getElementById('ledTo').value;
+ const type = document.getElementById('ledType').value;
+ const rows = _filterLedger(fromDate, toDate, type);
+ const students = getStudents();
+ const fmtINR = n => 'Rs.' + (n||0).toLocaleString('en-IN');
+
+ const totalIn  = rows.filter(r => r._kind === 'receipt').reduce((s,r) => s + (r.amount||0), 0);
+ const totalOut = rows.filter(r => r._kind === 'expense').reduce((s,r) => s + (r.amount||0), 0);
+ const net = totalIn - totalOut;
+
+ // Day-by-day grouping for summary
+ const byDay = {};
+ rows.forEach(r => {
+  if (!byDay[r.date]) byDay[r.date] = { in:0, out:0 };
+  if (r._kind === 'receipt') byDay[r.date].in += r.amount || 0;
+  else byDay[r.date].out += r.amount || 0;
+ });
+
+ document.getElementById('ledSummary').innerHTML = `
+  <div class="bg-emerald-50 border border-emerald-200 p-3 rounded-lg">
+   <div class="text-xs text-emerald-700 font-semibold uppercase">Receipts</div>
+   <div class="text-xl font-bold text-emerald-900 mt-1">${fmtINR(totalIn)}</div>
+   <div class="text-xs text-emerald-700">${rows.filter(r => r._kind === 'receipt').length} entries</div>
+  </div>
+  <div class="bg-rose-50 border border-rose-200 p-3 rounded-lg">
+   <div class="text-xs text-rose-700 font-semibold uppercase">Payments</div>
+   <div class="text-xl font-bold text-rose-900 mt-1">${fmtINR(totalOut)}</div>
+   <div class="text-xs text-rose-700">${rows.filter(r => r._kind === 'expense').length} entries</div>
+  </div>
+  <div class="bg-blue-50 border border-blue-200 p-3 rounded-lg">
+   <div class="text-xs text-blue-700 font-semibold uppercase">Net</div>
+   <div class="text-xl font-bold ${net>=0?'text-emerald-900':'text-rose-900'} mt-1">${net>=0?'+':''}${fmtINR(net)}</div>
+   <div class="text-xs text-blue-700">${Object.keys(byDay).length} active day${Object.keys(byDay).length===1?'':'s'}</div>
+  </div>
+  <div class="bg-purple-50 border border-purple-200 p-3 rounded-lg">
+   <div class="text-xs text-purple-700 font-semibold uppercase">Period</div>
+   <div class="text-sm font-semibold text-purple-900 mt-1">${fromDate||'—'}</div>
+   <div class="text-sm font-semibold text-purple-900">to ${toDate||'—'}</div>
+  </div>
+ `;
+
+ document.getElementById('ledTable').innerHTML = `
+  <div class="overflow-x-auto"><table class="border text-sm w-full">
+   <thead class="bg-gray-100"><tr><th>Date</th><th>Type</th><th>Party</th><th>Head/Category</th><th>Mode</th><th>Reference</th><th class="text-right">Amount</th></tr></thead>
+   <tbody>${rows.length === 0 ? '<tr><td colspan="7" class="text-center text-gray-500 py-4">No transactions in this period</td></tr>' : rows.map(r => {
+     if (r._kind === 'receipt') {
+      const s = students.find(x => x.id === r.studentId);
+      return `<tr class="hover:bg-emerald-50">
+       <td class="text-xs">${fmtDate(r.date)}</td>
+       <td><span class="pill pill-green">Receipt</span></td>
+       <td>${s?.name || r.payerName || '-'}${s ? ' <span class="text-xs text-gray-500">(Class '+s.class+')</span>' : ''}</td>
+       <td class="text-xs">${r.feeHead || 'Tuition'}</td>
+       <td class="text-xs">${r.mode}</td>
+       <td class="text-xs font-mono">${r.receiptNo || ''}${r.chequeNo ? ' Chq:'+r.chequeNo : ''}</td>
+       <td class="text-right font-semibold text-emerald-700">+${fmtINR(r.amount)}</td>
+      </tr>`;
+     } else {
+      return `<tr class="hover:bg-rose-50">
+       <td class="text-xs">${fmtDate(r.date)}</td>
+       <td><span class="pill pill-red">Payment</span></td>
+       <td>${r.vendor || '-'}</td>
+       <td class="text-xs">${r.category}</td>
+       <td class="text-xs">${r.mode||'-'}</td>
+       <td class="text-xs">${r.description||''}${r.chequeNo ? ' Chq:'+r.chequeNo : ''}</td>
+       <td class="text-right font-semibold text-rose-700">-${fmtINR(r.amount)}</td>
+      </tr>`;
+     }
+   }).join('')}</tbody>
+  </table></div>
+ `;
+}
+
+/* ---------- ACCOUNTANT EVENT HANDLERS ---------- */
+function attachAccountantEvents(){
+ document.getElementById('logoutAccBtn')?.addEventListener('click',()=>{currentUser=null;chatPanelOpen=false;activeChatWith=null;activeAccountantTab='overview';renderApp()});
+ document.querySelectorAll('.acc-tab').forEach(b => b.addEventListener('click', () => {
+  activeAccountantTab = b.dataset.tab;
+  renderApp();
+ }));
+
+ if (activeAccountantTab === 'receipts') _attachReceiptEvents();
+ else if (activeAccountantTab === 'payments') _attachPaymentEvents();
+ else if (activeAccountantTab === 'ledger') _attachLedgerEvents();
+}
+
+function _attachReceiptEvents(){
+ // Toggle student vs other payer fields
+ const fromSel = document.getElementById('rcptFrom');
+ const otherRow = document.getElementById('rcptOtherNameRow');
+ const updateRcptFromUI = () => {
+  if (!fromSel) return;
+  otherRow.style.display = fromSel.value.startsWith('other:') ? '' : 'none';
+ };
+ fromSel?.addEventListener('change', updateRcptFromUI);
+ updateRcptFromUI();
+
+ // Toggle cheque/bank fields based on mode
+ const modeSel = document.getElementById('rcptMode');
+ const chequeRow = document.getElementById('rcptChequeRow');
+ const bankRow = document.getElementById('rcptBankRow');
+ const updateRcptModeUI = () => {
+  if (!modeSel) return;
+  const m = modeSel.value;
+  chequeRow.style.display = m === 'Cheque' ? '' : 'none';
+  bankRow.style.display = (m === 'Cheque' || m.includes('Online') || m === 'Bank Transfer') ? '' : 'none';
+ };
+ modeSel?.addEventListener('change', updateRcptModeUI);
+ updateRcptModeUI();
+
+ // Save receipt
+ document.getElementById('rcptSaveBtn')?.addEventListener('click', () => {
+  const from = document.getElementById('rcptFrom').value;
+  if (!from) { alert('Please select payer'); return; }
+  const amt = parseInt(document.getElementById('rcptAmount').value);
+  if (!amt || amt <= 0) { alert('Enter valid amount'); return; }
+  const head = document.getElementById('rcptHead').value;
+  const mode = document.getElementById('rcptMode').value;
+  const date = document.getElementById('rcptDate').value || new Date().toISOString().slice(0,10);
+  const chequeNo = document.getElementById('rcptChequeNo')?.value.trim();
+  const bankAccId = parseInt(document.getElementById('rcptBankAcc')?.value) || null;
+  const notes = document.getElementById('rcptNotes').value.trim();
+
+  const transaction = {
+   id: Date.now(),
+   amount: amt, mode, date, feeHead: head,
+   receiptNo: 'RCP' + Date.now().toString().slice(-6),
+   status: 'paid',
+   chequeNo: chequeNo || undefined,
+   bankAccountId: bankAccId || undefined,
+   notes: notes || undefined
+  };
+
+  if (from.startsWith('student:')) {
+   const sid = parseInt(from.split(':')[1]);
+   transaction.studentId = sid;
+   // Reduce student's fee balance only for tuition-like heads
+   const reducesBalance = ['Tuition Fee','Admission Fee','Annual Fee','Transport','Late Fee'].includes(head);
+   if (reducesBalance) {
+    const ss = getStudents();
+    const i = ss.findIndex(x => x.id === sid);
+    if (i > -1) { ss[i].feeBalance = Math.max(0, (ss[i].feeBalance||0) - amt); saveStudents(ss); }
+   }
+  } else {
+   const payerName = document.getElementById('rcptPayerName').value.trim();
+   if (!payerName) { alert('Enter payer name'); return; }
+   transaction.studentId = 0;
+   transaction.payerName = payerName;
+  }
+
+  // If non-cash, credit the bank account
+  if (bankAccId && mode !== 'Cash') {
+   const banks = get('bankAccounts');
+   const bi = banks.findIndex(b => b.id === bankAccId);
+   if (bi > -1) { banks[bi].balance = (banks[bi].balance||0) + amt; set('bankAccounts', banks); }
+   const bt = get('bankTransactions');
+   bt.push({ id: Date.now()+1, accountId: bankAccId, amount: amt, date, description: head + ' — ' + (transaction.payerName || (getStudents().find(s=>s.id===transaction.studentId)?.name||'')), type: 'Credit' });
+   set('bankTransactions', bt);
+  }
+
+  const tr = getFeeTransactions();
+  tr.push(transaction);
+  saveFeeTransactions(tr);
+  showToast('Receipt recorded: Rs.' + amt + ' (' + transaction.receiptNo + ')');
+  renderApp();
+ });
+
+ // Export class-wise to Excel
+ document.getElementById('rcptExportClassBtn')?.addEventListener('click', () => {
+  const students = getStudents();
+  const byClass = {};
+  students.forEach(s => { (byClass[s.class] = byClass[s.class] || []).push(s); });
+  let h = '<table border="1"><tr><th>Class</th><th>Roll</th><th>Reg. No</th><th>Name</th><th>Father</th><th>Phone</th><th>Annual</th><th>Decided</th><th>Paid</th><th>Balance</th><th>Status</th></tr>';
+  ALL_CLASSES.filter(c => byClass[c]).forEach(cls => {
+   byClass[cls].sort((a,b) => (a.rollNo||0)-(b.rollNo||0)).forEach(s => {
+    const decided = s.decidedFees || s.annualFees || 0;
+    const balance = s.feeBalance || 0;
+    const paid = Math.max(0, decided - balance);
+    const status = balance===0?'Cleared':balance<decided?'Partial':'Pending';
+    h += `<tr><td>${cls}</td><td>${s.rollNo||''}</td><td>${s.registrationNo||s.admissionNo||''}</td><td>${s.name}</td><td>${s.fatherName||''}</td><td>${s.parentPhone||''}</td><td>${s.annualFees||0}</td><td>${decided}</td><td>${paid}</td><td>${balance}</td><td>${status}</td></tr>`;
+   });
+  });
+  h += '</table>';
+  downloadExcel(h, SCHOOL_INFO.shortName + '_FeeStatus_' + new Date().toISOString().slice(0,10));
+  showToast('Class-wise fee status exported');
+ });
+}
+
+function _attachPaymentEvents(){
+ // Toggle cheque/bank fields based on mode
+ const modeSel = document.getElementById('expMode');
+ const chequeRow = document.getElementById('expChequeRow');
+ const bankRow = document.getElementById('expBankRow');
+ const updateExpModeUI = () => {
+  if (!modeSel) return;
+  const m = modeSel.value;
+  chequeRow.style.display = m === 'Cheque' ? '' : 'none';
+  bankRow.style.display = (m === 'Cheque' || m.includes('Online') || m === 'Bank Transfer') ? '' : 'none';
+ };
+ modeSel?.addEventListener('change', updateExpModeUI);
+ updateExpModeUI();
+
+ // Save expense
+ document.getElementById('expSaveBtn')?.addEventListener('click', () => {
+  const cat = document.getElementById('expCategory').value;
+  const amt = parseInt(document.getElementById('expAmount').value);
+  if (!amt || amt <= 0) { alert('Enter valid amount'); return; }
+  const mode = document.getElementById('expMode').value;
+  const date = document.getElementById('expDate').value || new Date().toISOString().slice(0,10);
+  const vendor = document.getElementById('expVendor').value.trim();
+  const description = document.getElementById('expDescription').value.trim();
+  const chequeNo = document.getElementById('expChequeNo')?.value.trim();
+  const bankAccId = parseInt(document.getElementById('expBankAcc')?.value) || null;
+
+  const expense = {
+   id: Date.now(), date, category: cat, vendor: vendor || undefined,
+   description: description || cat, amount: amt, mode,
+   chequeNo: chequeNo || undefined,
+   bankAccountId: bankAccId || undefined
+  };
+
+  // If non-cash, debit the bank account
+  if (bankAccId && mode !== 'Cash') {
+   const banks = get('bankAccounts');
+   const bi = banks.findIndex(b => b.id === bankAccId);
+   if (bi > -1) {
+    if ((banks[bi].balance || 0) < amt) {
+     if (!confirm('Insufficient balance in ' + banks[bi].bankName + ' (have ' + banks[bi].balance + '). Proceed anyway?')) return;
+    }
+    banks[bi].balance = (banks[bi].balance||0) - amt;
+    set('bankAccounts', banks);
+   }
+   const bt = get('bankTransactions');
+   bt.push({ id: Date.now()+1, accountId: bankAccId, amount: amt, date, description: cat + (vendor ? ' — ' + vendor : ''), type: 'Debit' });
+   set('bankTransactions', bt);
+  }
+
+  const all = get('expenses');
+  all.push(expense);
+  set('expenses', all);
+  showToast('Payment recorded: Rs.' + amt);
+  renderApp();
+ });
+
+ // Bank cash movement (deposit/withdraw)
+ document.getElementById('bnkMoveSaveBtn')?.addEventListener('click', () => {
+  const type = document.getElementById('bnkMoveType').value;
+  const accId = parseInt(document.getElementById('bnkMoveAcc').value);
+  const amt = parseInt(document.getElementById('bnkMoveAmount').value);
+  if (!amt || amt <= 0) { alert('Enter valid amount'); return; }
+  const banks = get('bankAccounts');
+  const bi = banks.findIndex(b => b.id === accId);
+  if (bi < 0) return;
+  const date = new Date().toISOString().slice(0,10);
+
+  if (type === 'deposit') {
+   // Cash → Bank: bank balance increases, cash decreases (recorded as cash expense + bank credit)
+   banks[bi].balance = (banks[bi].balance||0) + amt;
+   set('bankAccounts', banks);
+   const bt = get('bankTransactions');
+   bt.push({ id: Date.now(), accountId: accId, amount: amt, date, description: 'Cash deposit by accountant', type: 'Credit' });
+   set('bankTransactions', bt);
+   // Also record as expense from cash side so cash on hand decreases
+   const exp = get('expenses');
+   exp.push({ id: Date.now()+1, date, category: 'Bank Deposit', vendor: banks[bi].bankName, description: 'Cash deposit to bank', amount: amt, mode: 'Cash', _bankMove: true });
+   set('expenses', exp);
+   showToast('Deposited Rs.' + amt + ' to ' + banks[bi].bankName);
+  } else {
+   // Bank → Cash: bank balance decreases, cash increases
+   if ((banks[bi].balance||0) < amt) {
+    if (!confirm('Insufficient balance in ' + banks[bi].bankName + '. Proceed anyway?')) return;
+   }
+   banks[bi].balance = (banks[bi].balance||0) - amt;
+   set('bankAccounts', banks);
+   const bt = get('bankTransactions');
+   bt.push({ id: Date.now(), accountId: accId, amount: amt, date, description: 'Cash withdrawal by accountant', type: 'Debit' });
+   set('bankTransactions', bt);
+   // Also record as receipt to cash side
+   const tr = getFeeTransactions();
+   tr.push({ id: Date.now()+1, studentId: 0, payerName: 'Bank withdrawal — ' + banks[bi].bankName, amount: amt, mode: 'Cash', date, feeHead: 'Bank Withdrawal', receiptNo: 'BNK' + Date.now().toString().slice(-6), _bankMove: true });
+   saveFeeTransactions(tr);
+   showToast('Withdrew Rs.' + amt + ' from ' + banks[bi].bankName);
+  }
+  renderApp();
+ });
+}
+
+function _attachLedgerEvents(){
+ const refresh = () => _renderLedgerResults();
+ document.getElementById('ledFrom')?.addEventListener('change', refresh);
+ document.getElementById('ledTo')?.addEventListener('change', refresh);
+ document.getElementById('ledType')?.addEventListener('change', refresh);
+
+ // Quick range presets
+ document.getElementById('ledQuick')?.addEventListener('change', e => {
+  const v = e.target.value;
+  if (!v) return;
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0,10);
+  let from = '', to = todayStr;
+  if (v === 'today') { from = todayStr; }
+  else if (v === 'week') {
+   const d = new Date(today); d.setDate(d.getDate() - 6); from = d.toISOString().slice(0,10);
+  }
+  else if (v === 'month') { from = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0,10); }
+  else if (v === 'lastmonth') {
+   from = new Date(today.getFullYear(), today.getMonth()-1, 1).toISOString().slice(0,10);
+   to = new Date(today.getFullYear(), today.getMonth(), 0).toISOString().slice(0,10);
+  }
+  else if (v === 'year') {
+   const yr = today.getMonth() < 3 ? today.getFullYear()-1 : today.getFullYear();
+   from = yr + '-04-01';
+   to = (yr+1) + '-03-31';
+  }
+  else if (v === 'all') { from = ''; to = ''; }
+  document.getElementById('ledFrom').value = from;
+  document.getElementById('ledTo').value = to;
+  refresh();
+ });
+
+ // Initial render
+ refresh();
+
+ // Export
+ document.getElementById('ledExportBtn')?.addEventListener('click', () => {
+  const fromDate = document.getElementById('ledFrom').value;
+  const toDate = document.getElementById('ledTo').value;
+  const type = document.getElementById('ledType').value;
+  const rows = _filterLedger(fromDate, toDate, type);
+  const students = getStudents();
+  let h = '<table border="1"><tr><th>Date</th><th>Type</th><th>Party</th><th>Head/Category</th><th>Mode</th><th>Reference</th><th>Amount</th></tr>';
+  rows.forEach(r => {
+   if (r._kind === 'receipt') {
+    const s = students.find(x => x.id === r.studentId);
+    h += `<tr><td>${r.date}</td><td>Receipt</td><td>${(s?.name || r.payerName || '').replace(/"/g,'""')}</td><td>${r.feeHead||''}</td><td>${r.mode||''}</td><td>${r.receiptNo||''}${r.chequeNo?' Chq:'+r.chequeNo:''}</td><td>${r.amount}</td></tr>`;
+   } else {
+    h += `<tr><td>${r.date}</td><td>Payment</td><td>${(r.vendor||'').replace(/"/g,'""')}</td><td>${r.category||''}</td><td>${r.mode||''}</td><td>${(r.description||'').replace(/"/g,'""')}</td><td>-${r.amount}</td></tr>`;
+   }
+  });
+  h += '</table>';
+  downloadExcel(h, SCHOOL_INFO.shortName + '_Ledger_' + (fromDate||'all') + '_to_' + (toDate||'today'));
+  showToast('Ledger exported (' + rows.length + ' transactions)');
+ });
 }
 
 /* ---------- CHAT WIDGET ---------- */
@@ -3297,20 +4030,6 @@ function attachParentEvents(){
 }
 function attachStudentEvents(){
  document.getElementById('logoutStudentBtn')?.addEventListener('click',()=>{currentUser=null;chatPanelOpen=false;activeChatWith=null;renderApp()});
-}
-function attachAccountantEvents(){
- document.getElementById('logoutAccBtn')?.addEventListener('click',()=>{currentUser=null;chatPanelOpen=false;activeChatWith=null;renderApp()});
- document.getElementById('recordPaymentBtn')?.addEventListener('click',()=>{
-  const sid=parseInt(document.getElementById('accStudentSelect').value);
-  const amt=parseInt(document.getElementById('accAmount').value);
-  const mode=document.getElementById('accMode').value;
-  if(!amt||amt<=0){alert('Enter valid amount');return}
-  const s=getStudents();const i=s.findIndex(x=>x.id===sid);
-  if(i>-1){s[i].feeBalance=Math.max(0,(s[i].feeBalance||0)-amt);saveStudents(s)}
-  const tr=getFeeTransactions();
-  tr.push({id:Date.now(),studentId:sid,amount:amt,date:new Date().toISOString().slice(0,10),mode,status:'paid',receiptNo:'RCP'+Date.now().toString().slice(-6)});
-  saveFeeTransactions(tr);showToast('Payment recorded: Rs.'+amt);renderApp();
- });
 }
 
 /* ---------- UNIVERSAL MODAL CLOSE ---------- */
