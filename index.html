@@ -1640,6 +1640,7 @@ function initDB(){
  if(!localStorage.getItem('messageLog'))localStorage.setItem('messageLog','[]');
  if(!localStorage.getItem('ptmEvents'))localStorage.setItem('ptmEvents','[]');
  if(!localStorage.getItem('homeworkSubmissions'))localStorage.setItem('homeworkSubmissions','[]');
+ if(!localStorage.getItem('teacherAuditLog'))localStorage.setItem('teacherAuditLog','[]');
  if(!localStorage.getItem('calendar'))localStorage.setItem('calendar',JSON.stringify([{id:1,title:'CBSE Pre-Board Exam',date:'2026-05-10',description:'Class 10 & 12',type:'Exam'}]));
  if(!localStorage.getItem('documents'))localStorage.setItem('documents','[]');
  if(!localStorage.getItem('chatMessages'))localStorage.setItem('chatMessages','[]');
@@ -1855,6 +1856,7 @@ function renderAdminPanel(){
   {id:'calendar',label:'Calendar',icon:'calendar-days'},
   {id:'documents',label:'Documents',icon:'folder-open'},
   {id:'reports',label:'Reports',icon:'chart-bar'},
+  {id:'tchaudit',label:'Teacher Audit',icon:'clipboard-list'},
   {id:'backup',label:'Backup',icon:'cloud-arrow-down'}
  ];
  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
@@ -1897,6 +1899,7 @@ function renderAdminTabContent(){
   case 'calendar':return renderCalendar();
   case 'documents':return renderDocuments();
   case 'reports':return renderReports();
+  case 'tchaudit':return renderTchAuditAdminTab();
   case 'backup':return renderBackupTab();
   default:return '<div>Select a tab</div>';
  }
@@ -2142,6 +2145,7 @@ function renderComplianceTab(){
 /* ---------- TEACHERS TAB ---------- */
 function renderTeachersTab(){
  const ts=getTeachers();
+ const auditLog = getTeacherAuditLog().sort((a,b) => (b.at||'').localeCompare(a.at||''));
  return `<div>
   <div class="flex justify-between items-center mb-4">
    <h2 class="text-lg font-bold"><i class="fas fa-chalkboard-teacher text-purple-600 mr-1"></i>Teachers</h2>
@@ -2150,6 +2154,36 @@ function renderTeachersTab(){
   <div class="overflow-x-auto">
    <table class="border text-sm"><thead><tr><th>Name</th><th>Subject</th><th>Qualification</th><th>Emp. ID</th><th>Joined</th><th>Salary</th><th>Phone</th><th>Actions</th></tr></thead>
    <tbody>${ts.map(t=>`<tr><td class="font-medium">${t.name}</td><td>${t.subject||'-'}</td><td>${t.qualification||'-'}</td><td>${t.employeeId || t.udiseTeacherId || '-'}</td><td>${t.trainingDate?fmtDate(t.trainingDate):'-'}</td><td>Rs.${(t.salary||0).toLocaleString('en-IN')}</td><td>${t.phone||'-'}</td><td class="whitespace-nowrap"><button class="editTeacherBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${t.id}" title="Edit"><i class="fas fa-edit"></i></button> <button class="delTeacherBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Delete"><i class="fas fa-trash"></i></button></td></tr>`).join('')}</tbody></table>
+  </div>
+
+  <!-- Teacher Activity Audit Log (admin oversight) -->
+  <div class="bg-white border-2 border-purple-200 rounded-lg p-4 mt-6">
+   <div class="flex flex-wrap justify-between items-center gap-2 mb-3">
+    <div>
+     <h3 class="font-semibold"><i class="fas fa-clipboard-list text-purple-600 mr-1"></i>Teacher Activity Audit Log</h3>
+     <p class="text-xs text-gray-600">All deletions and modifications by teachers in their panel are recorded here. Only Admin can clear entries.</p>
+    </div>
+    <div class="flex gap-2">
+     <select id="tchAuditFilter" class="text-sm" style="width:auto">
+      <option value="">All teachers</option>
+      ${ts.map(t => `<option value="${t.id}">${t.name}</option>`).join('')}
+     </select>
+     ${auditLog.length > 0 ? `<button id="tchAuditClearBtn" class="bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-trash-can mr-1"></i>Clear Log</button>` : ''}
+    </div>
+   </div>
+   <div id="tchAuditTable">
+    ${auditLog.length === 0 ? '<div class="text-sm text-gray-500 py-3 text-center">No teacher actions recorded yet</div>' : `
+     <div class="overflow-x-auto"><table class="text-sm w-full border">
+      <thead class="bg-gray-100"><tr><th class="text-left p-2">When</th><th class="text-left p-2">Teacher</th><th class="text-left p-2">Action</th><th class="text-left p-2">Type</th><th class="text-left p-2">Details</th></tr></thead>
+      <tbody>${auditLog.map(e => `<tr class="border-t" data-tch="${e.byId}">
+        <td class="p-2 text-xs">${new Date(e.at).toLocaleString('en-IN')}</td>
+        <td class="p-2 font-medium">${e.byName}</td>
+        <td class="p-2"><span class="pill pill-${e.action==='delete'?'red':e.action==='edit'?'amber':'blue'}">${e.action}</span></td>
+        <td class="p-2 text-xs">${e.kind}</td>
+        <td class="p-2 text-xs">${(e.itemSummary||'').replace(/</g,'&lt;')}</td>
+       </tr>`).join('')}</tbody>
+     </table></div>`}
+   </div>
   </div>
   <div id="teacherModal" class="hidden modal"><div class="modal-content">
    <h3 class="text-lg font-bold mb-3" id="teacherModalTitle">Add Teacher</h3>
@@ -2455,7 +2489,8 @@ function renderTeacherPanel(){
   {id:'attendance', label:'Attendance', icon:'calendar-check'},
   {id:'homework',   label:'Homework',   icon:'book-open'},
   {id:'marks',      label:'Marks',      icon:'pen-to-square'},
-  {id:'class',      label:'My Class',   icon:'users'}
+  {id:'class',      label:'My Class',   icon:'users'},
+  {id:'audit',      label:'Audit Log',  icon:'clipboard-list'}
  ];
  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
@@ -2479,8 +2514,34 @@ function renderTeacherTabContent(){
   case 'homework':   return renderTchHomework();
   case 'marks':      return renderTchMarks();
   case 'class':      return renderTchClass();
+  case 'audit':      return renderTchAudit();
   default: return renderTchDashboard();
  }
+}
+
+function renderTchAudit(){
+ // Only show this teacher's own actions
+ const log = getTeacherAuditLog()
+  .filter(e => e.byId === currentUser.id)
+  .sort((a,b) => (b.at||'').localeCompare(a.at||''));
+ return `<div>
+  <div class="bg-blue-50 border-l-4 border-blue-500 p-3 rounded mb-4 text-sm text-blue-900">
+   <i class="fas fa-info-circle mr-1"></i>This is your personal action log. Every deletion you make in homework, marks, or attendance is recorded here for self-review and oversight. Only the school admin can clear entries from this log.
+  </div>
+  <div class="bg-white border rounded-lg p-4">
+   <h3 class="font-semibold mb-3"><i class="fas fa-clipboard-list text-purple-600 mr-1"></i>My Action Log <span class="text-xs text-gray-500">(${log.length} ${log.length===1?'entry':'entries'})</span></h3>
+   ${log.length === 0 ? '<div class="text-sm text-gray-500 py-3 text-center"><i class="fas fa-check-circle text-emerald-500 text-2xl mb-2 block"></i>No actions recorded yet — your slate is clean.</div>' : `
+    <div class="overflow-x-auto"><table class="text-sm w-full border">
+     <thead class="bg-gray-100"><tr><th class="text-left p-2">When</th><th class="text-left p-2">Action</th><th class="text-left p-2">Type</th><th class="text-left p-2">Details</th></tr></thead>
+     <tbody>${log.map(e => `<tr class="border-t">
+       <td class="p-2 text-xs">${new Date(e.at).toLocaleString('en-IN')}</td>
+       <td class="p-2"><span class="pill pill-${e.action==='delete'?'red':e.action==='edit'?'amber':'blue'}">${e.action}</span></td>
+       <td class="p-2 text-xs">${e.kind}</td>
+       <td class="p-2 text-xs">${(e.itemSummary||'').replace(/</g,'&lt;')}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>`}
+  </div>
+ </div>`;
 }
 
 /* ---------- TAB 1: DASHBOARD ---------- */
@@ -3060,8 +3121,12 @@ function _attachHomeworkEvents(){
 
  // Delete homework
  document.querySelectorAll('.hwDelBtn').forEach(b => b.addEventListener('click', () => {
-  if (!confirm('Delete this homework?')) return;
-  saveHomeworks(getHomeworks().filter(h => h.id !== parseInt(b.dataset.id)));
+  if (!confirm('Delete this homework?\n\nThis action will be logged in the teacher audit log.')) return;
+  const hwId = parseInt(b.dataset.id);
+  const hw = getHomeworks().find(h => h.id === hwId);
+  if (hw) _logTeacherAction('delete', 'homework', hw);
+  saveHomeworks(getHomeworks().filter(h => h.id !== hwId));
+  showToast('Homework deleted (logged)');
   renderApp();
  }));
 }
@@ -5020,6 +5085,143 @@ function _deleteTxn(txnId, txnKind){
  renderApp();
 }
 
+// Log a teacher action (delete, modify) to the teacher audit log so it can be reviewed.
+// Teachers can VIEW their own log. Only admin/owner can CLEAR entries.
+function _logTeacherAction(action, kind, item, details){
+ const log = JSON.parse(localStorage.getItem('teacherAuditLog') || '[]');
+ log.push({
+  id: Date.now() + Math.random(),
+  action,                 // 'delete', 'edit', 'create'
+  kind,                   // 'homework', 'marks', 'attendance'
+  itemId: item?.id || null,
+  itemSummary: details || _summarizeTeacherItem(kind, item),
+  byId: currentUser?.id || null,
+  byName: currentUser?.name || '?',
+  byRole: currentUser?.role || '?',
+  at: new Date().toISOString()
+ });
+ localStorage.setItem('teacherAuditLog', JSON.stringify(log));
+}
+
+function _summarizeTeacherItem(kind, item){
+ if (!item) return '';
+ if (kind === 'homework') return `${item.subject || '?'} (Class ${item.className || '?'}) — ${(item.description||'').slice(0,60)}${(item.description||'').length>60?'...':''}`;
+ if (kind === 'marks') return `${item.examName || '?'} ${item.subject || '?'} — Student #${item.studentId} — ${item.marks||0}/${item.maxMarks||0}`;
+ if (kind === 'attendance') return `Class ${item.className || '?'} on ${item.date || '?'}`;
+ return JSON.stringify(item).slice(0, 80);
+}
+
+function getTeacherAuditLog(){ return JSON.parse(localStorage.getItem('teacherAuditLog') || '[]'); }
+function saveTeacherAuditLog(d){ localStorage.setItem('teacherAuditLog', JSON.stringify(d)); }
+
+/* ============================================================
+   ADMIN: TEACHER AUDIT LOG VIEWER + CLEAR
+   Only the admin can clear entries — teachers can only view their own.
+============================================================ */
+let tchAuditFilter = { teacherId: 'all', action: 'all' };
+
+function renderTchAuditAdminTab(){
+ const log = getTeacherAuditLog().sort((a,b) => (b.at||'').localeCompare(a.at||''));
+ const teachers = getTeachers();
+ const teacherIds = [...new Set(log.map(e => e.byId).filter(Boolean))];
+ // Filter
+ const filtered = log.filter(e => {
+  if (tchAuditFilter.teacherId !== 'all' && e.byId !== parseInt(tchAuditFilter.teacherId)) return false;
+  if (tchAuditFilter.action !== 'all' && e.action !== tchAuditFilter.action) return false;
+  return true;
+ });
+ // Stats
+ const stats = {
+  total: log.length,
+  byAction: {},
+  byTeacher: {}
+ };
+ log.forEach(e => {
+  stats.byAction[e.action] = (stats.byAction[e.action] || 0) + 1;
+  stats.byTeacher[e.byName] = (stats.byTeacher[e.byName] || 0) + 1;
+ });
+ return `<div>
+  <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+   <h2 class="text-lg font-bold"><i class="fas fa-clipboard-list text-purple-600 mr-1"></i>Teacher Audit Log</h2>
+   <div class="flex gap-2">
+    <button id="tchAuditExportBtn" class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-lg text-sm" title="Export to CSV"><i class="fas fa-file-export mr-1"></i>Export</button>
+    ${log.length > 0 ? `<button id="tchAuditClearAllBtn" class="bg-rose-600 hover:bg-rose-700 text-white px-3 py-2 rounded-lg text-sm"><i class="fas fa-trash-can mr-1"></i>Clear All</button>` : ''}
+   </div>
+  </div>
+
+  <div class="bg-amber-50 border-l-4 border-amber-500 p-3 rounded mb-3 text-sm text-amber-900">
+   <i class="fas fa-shield-halved mr-1"></i>Admin-only privilege: clearing the teacher audit log permanently removes accountability records. Use with care. Teachers cannot edit or remove entries from their own logs.
+  </div>
+
+  <!-- Stats row -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+   <div class="bg-white border rounded p-3">
+    <div class="text-xs text-gray-600 uppercase font-semibold">Total Entries</div>
+    <div class="text-2xl font-bold">${stats.total}</div>
+   </div>
+   <div class="bg-rose-50 border border-rose-200 rounded p-3">
+    <div class="text-xs text-rose-700 uppercase font-semibold">Deletions</div>
+    <div class="text-2xl font-bold text-rose-900">${stats.byAction.delete || 0}</div>
+   </div>
+   <div class="bg-amber-50 border border-amber-200 rounded p-3">
+    <div class="text-xs text-amber-700 uppercase font-semibold">Edits</div>
+    <div class="text-2xl font-bold text-amber-900">${stats.byAction.edit || 0}</div>
+   </div>
+   <div class="bg-purple-50 border border-purple-200 rounded p-3">
+    <div class="text-xs text-purple-700 uppercase font-semibold">Active Teachers</div>
+    <div class="text-2xl font-bold text-purple-900">${Object.keys(stats.byTeacher).length}</div>
+   </div>
+  </div>
+
+  <!-- Filters -->
+  <div class="bg-gray-50 border rounded-lg p-3 mb-3 flex flex-wrap gap-3 items-end">
+   <div>
+    <label class="text-xs font-medium block">Teacher</label>
+    <select id="tchAuditTeacher" class="text-sm">
+     <option value="all">— All teachers —</option>
+     ${teacherIds.map(tid => {
+       const t = teachers.find(x => x.id === tid);
+       const name = t?.name || (log.find(e => e.byId === tid)?.byName || ('Teacher #' + tid));
+       return `<option value="${tid}" ${String(tchAuditFilter.teacherId) === String(tid) ? 'selected' : ''}>${name}</option>`;
+     }).join('')}
+    </select>
+   </div>
+   <div>
+    <label class="text-xs font-medium block">Action</label>
+    <select id="tchAuditAction" class="text-sm">
+     <option value="all" ${tchAuditFilter.action === 'all' ? 'selected' : ''}>— All actions —</option>
+     <option value="delete" ${tchAuditFilter.action === 'delete' ? 'selected' : ''}>Delete only</option>
+     <option value="edit" ${tchAuditFilter.action === 'edit' ? 'selected' : ''}>Edit only</option>
+    </select>
+   </div>
+   <button id="tchAuditFilterBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium">Apply</button>
+   <button id="tchAuditResetBtn" class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-3 py-2 rounded-lg text-sm">Reset</button>
+   <div class="ml-auto text-sm text-gray-600 self-center">Showing ${filtered.length} of ${log.length}</div>
+  </div>
+
+  <!-- Table -->
+  ${filtered.length === 0 ? '<div class="bg-white border rounded p-6 text-center text-gray-500"><i class="fas fa-circle-check text-emerald-500 text-2xl mb-2 block"></i>No entries match the current filter</div>' : `
+   <div class="overflow-x-auto bg-white border rounded-lg"><table class="text-sm w-full">
+    <thead class="bg-gray-100"><tr>
+     <th class="text-left p-2">When</th>
+     <th class="text-left p-2">Teacher</th>
+     <th class="text-left p-2">Action</th>
+     <th class="text-left p-2">Type</th>
+     <th class="text-left p-2">Item</th>
+     <th class="p-2">Action</th>
+    </tr></thead>
+    <tbody>${filtered.map(e => `<tr class="border-t hover:bg-purple-50">
+      <td class="p-2 text-xs whitespace-nowrap">${new Date(e.at).toLocaleString('en-IN')}</td>
+      <td class="p-2"><span class="font-medium">${e.byName}</span></td>
+      <td class="p-2"><span class="pill pill-${e.action==='delete'?'red':e.action==='edit'?'amber':'blue'}">${e.action}</span></td>
+      <td class="p-2 text-xs">${e.kind}</td>
+      <td class="p-2 text-xs">${(e.itemSummary||'').replace(/</g,'&lt;')}</td>
+      <td class="p-2 whitespace-nowrap"><button class="tchAuditDelOneBtn bg-rose-100 hover:bg-rose-200 text-rose-700 px-2 py-1 rounded text-xs" data-id="${e.id}" title="Remove this entry only"><i class="fas fa-times"></i></button></td>
+     </tr>`).join('')}</tbody>
+   </table></div>`}
+ </div>`;
+}
+
 // Log a broadcast message to per-recipient log so parents/students can see what was sent to them
 function _logMessageToRecipients(students, message, channel){
  const log = JSON.parse(localStorage.getItem('messageLog') || '[]');
@@ -5543,8 +5745,67 @@ function attachActiveAdminTabEvents(){
  else if(activeAdminTab==='backup')attachBackupEvents();
  else if(activeAdminTab==='broadcast')attachBroadcastEvents();
  else if(activeAdminTab==='accounts')attachAdminAccountsEvents();
+ else if(activeAdminTab==='tchaudit')attachTchAuditAdminEvents();
  else attachGenericModuleEvents();
  attachUniversalCloseEvents();
+}
+
+function attachTchAuditAdminEvents(){
+ // Apply filter
+ document.getElementById('tchAuditFilterBtn')?.addEventListener('click', () => {
+  tchAuditFilter.teacherId = document.getElementById('tchAuditTeacher').value;
+  tchAuditFilter.action = document.getElementById('tchAuditAction').value;
+  refreshAdminTabContent();
+  attachTchAuditAdminEvents();
+ });
+ // Reset filter
+ document.getElementById('tchAuditResetBtn')?.addEventListener('click', () => {
+  tchAuditFilter = { teacherId: 'all', action: 'all' };
+  refreshAdminTabContent();
+  attachTchAuditAdminEvents();
+ });
+ // Delete one entry
+ document.querySelectorAll('.tchAuditDelOneBtn').forEach(b => b.addEventListener('click', () => {
+  if (!confirm('Remove this audit entry?\n\nThis is permanent and cannot be undone.')) return;
+  const id = parseFloat(b.dataset.id);
+  saveTeacherAuditLog(getTeacherAuditLog().filter(e => e.id !== id));
+  showToast('Entry removed');
+  refreshAdminTabContent();
+  attachTchAuditAdminEvents();
+ }));
+ // Clear all
+ document.getElementById('tchAuditClearAllBtn')?.addEventListener('click', () => {
+  const log = getTeacherAuditLog();
+  if (!confirm(`Clear ALL ${log.length} teacher audit entries?\n\nThis is PERMANENT and cannot be undone. The accountability records will be lost.\n\nProceed?`)) return;
+  if (!confirm('Last chance — really clear all teacher audit entries?')) return;
+  saveTeacherAuditLog([]);
+  showToast('Teacher audit log cleared');
+  refreshAdminTabContent();
+  attachTchAuditAdminEvents();
+ });
+ // Export
+ document.getElementById('tchAuditExportBtn')?.addEventListener('click', () => {
+  const log = getTeacherAuditLog().sort((a,b) => (b.at||'').localeCompare(a.at||''));
+  if (log.length === 0) { showToast('Nothing to export'); return; }
+  const headers = ['When', 'Teacher', 'Role', 'Action', 'Type', 'Item Summary', 'Item ID'];
+  const rows = log.map(e => [
+   new Date(e.at).toLocaleString('en-IN'),
+   e.byName || '',
+   e.byRole || '',
+   e.action || '',
+   e.kind || '',
+   '"' + (e.itemSummary || '').replace(/"/g, '""') + '"',
+   e.itemId || ''
+  ]);
+  const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = SCHOOL_INFO.shortName + '_TeacherAudit_' + new Date().toISOString().slice(0,10) + '.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  showToast(`Exported ${log.length} entries`);
+ });
 }
 
 /* ---------- PRINCIPAL EVENTS ---------- */
@@ -5678,6 +5939,26 @@ function attachProfileTabEvents(){
 /* ---------- TEACHERS TAB EVENTS ---------- */
 function attachTeachersTabEvents(){
  const refresh=()=>{activeAdminTab==='teachers'?refreshAdminTabContent():refreshPrincipalTabContent()};
+
+ // Teacher Activity Audit Log — clear button (admin/owner only)
+ document.getElementById('tchAuditClearBtn')?.addEventListener('click', () => {
+  if (currentUser?.role !== 'admin' && currentUser?.role !== 'owner') {
+   alert('Only Admin or Owner can clear the teacher audit log.');
+   return;
+  }
+  if (!confirm('Clear ALL teacher audit log entries?\n\nThis will permanently remove the activity history. Use this only when records have been reviewed and archived.\n\nThis action itself will NOT be logged.')) return;
+  saveTeacherAuditLog([]);
+  showToast('Teacher audit log cleared');
+  refresh();
+ });
+
+ // Filter audit log by teacher (client-side row hide)
+ document.getElementById('tchAuditFilter')?.addEventListener('change', e => {
+  const filterId = e.target.value;
+  document.querySelectorAll('#tchAuditTable tbody tr').forEach(row => {
+   row.style.display = (!filterId || row.dataset.tch === filterId) ? '' : 'none';
+  });
+ });
 
  // Helper to open modal in either Add or Edit mode
  const openTeacherModal = (existingId) => {
