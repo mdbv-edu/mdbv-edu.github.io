@@ -1634,6 +1634,9 @@ function initDB(){
  if(!localStorage.getItem('bankTransactions'))localStorage.setItem('bankTransactions','[]');
  if(!localStorage.getItem('correctionRequests'))localStorage.setItem('correctionRequests','[]');
  if(!localStorage.getItem('accountingAuditLog'))localStorage.setItem('accountingAuditLog','[]');
+ if(!localStorage.getItem('messageLog'))localStorage.setItem('messageLog','[]');
+ if(!localStorage.getItem('ptmEvents'))localStorage.setItem('ptmEvents','[]');
+ if(!localStorage.getItem('homeworkSubmissions'))localStorage.setItem('homeworkSubmissions','[]');
  if(!localStorage.getItem('calendar'))localStorage.setItem('calendar',JSON.stringify([{id:1,title:'CBSE Pre-Board Exam',date:'2026-05-10',description:'Class 10 & 12',type:'Exam'}]));
  if(!localStorage.getItem('documents'))localStorage.setItem('documents','[]');
  if(!localStorage.getItem('chatMessages'))localStorage.setItem('chatMessages','[]');
@@ -3073,6 +3076,8 @@ function _generateHomeworkBroadcast(hw){
  }).join('');
  container.classList.remove('hidden');
  container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+ // Log each recipient so the parent can see this message in their Messages tab
+ _logMessageToRecipients(parents, message, 'whatsapp');
 }
 
 function _attachMarksEvents(){
@@ -3221,52 +3226,361 @@ function _attachClassEvents(){
 }
 
 /* ---------- PARENT PANEL ---------- */
+/* ============================================================
+   PARENT PANEL — full portal with tabs
+   - Dashboard: child summary cards
+   - Fees & Receipts: payment history with print
+   - Academics: marks, attendance, homework
+   - Messages: log of messages received
+   - PTM: scheduled meetings
+============================================================ */
+
+let activeParentTab = 'dashboard';
+
+// Find children associated with the parent. Tries multiple matching strategies
+// so that auto-generated parent logins (where parentId may not be cleanly linked) still work.
+function _findChildrenForParent(){
+ const all = getStudents();
+ // Strategy 1: explicit parentId match (the original design)
+ let kids = all.filter(s => s.parentId === currentUser.id);
+ if (kids.length > 0) return kids;
+ // Strategy 2: parent username pattern p_<regNo> matches student.registrationNo
+ if (currentUser.username && currentUser.username.startsWith('p_')) {
+  const reg = currentUser.username.slice(2);
+  kids = all.filter(s => s.registrationNo === reg || s.admissionNo === reg);
+  if (kids.length > 0) return kids;
+ }
+ // Strategy 3: phone number match
+ if (currentUser.phone) {
+  const phoneDigits = (currentUser.phone+'').replace(/\D/g,'').slice(-10);
+  kids = all.filter(s => ((s.parentPhone||'').replace(/\D/g,'').slice(-10) === phoneDigits) && phoneDigits.length === 10);
+  if (kids.length > 0) return kids;
+ }
+ // Strategy 4: name match (parent name contains father name)
+ if (currentUser.name) {
+  const lcName = currentUser.name.toLowerCase();
+  kids = all.filter(s => s.fatherName && lcName.includes(s.fatherName.toLowerCase().split(' ')[0]));
+  if (kids.length > 0) return kids;
+ }
+ return [];
+}
+
 function renderParentPanel(){
- const students=getStudents().filter(s=>s.parentId===currentUser.id);
- const em=getExamMarks(),ar=getAttendanceRecords(),hws=getHomeworks();
+ const students = _findChildrenForParent();
+ if (students.length === 0) {
+  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+   <div class="flex justify-between items-center mb-4">
+    <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-person text-indigo-600 mr-2"></i>Parent Dashboard</h1>
+    <button id="logoutParentBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
+   </div>
+   <div class="bg-amber-50 border-l-4 border-amber-500 p-4 rounded">
+    <div class="font-semibold text-amber-900">Your account isn't linked to a student record yet.</div>
+    <div class="text-sm text-amber-800 mt-1">Please contact the school office (${SCHOOL_INFO.phone}) and ask the admin to link your account "${currentUser.username || currentUser.name}" to your daughter's record.</div>
+   </div>
+  </div>`;
+ }
+
+ const tabs = [
+  {id:'dashboard',  label:'Dashboard',     icon:'gauge-high'},
+  {id:'fees',       label:'Fees & Receipts', icon:'rupee-sign'},
+  {id:'academics',  label:'Academics',     icon:'book'},
+  {id:'messages',   label:'Messages',      icon:'envelope'},
+  {id:'ptm',        label:'PTM',           icon:'people-arrows'},
+  {id:'complaint',  label:'Complaint',     icon:'comment-dots'}
+ ];
+
  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
   <div class="flex justify-between items-center mb-4">
-   <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-person text-indigo-600 mr-2"></i>Parent Dashboard</h1>
+   <div>
+    <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-person text-indigo-600 mr-2"></i>Parent Dashboard</h1>
+    <div class="text-xs text-gray-600">Welcome, ${currentUser.name}${students.length === 1 ? ` · Parent of ${students[0].name}` : ` · Parent of ${students.length} children`}</div>
+   </div>
    <button id="logoutParentBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
   </div>
-  <div class="bg-white rounded-xl p-4 shadow-sm mb-4"><p class="text-gray-700">Welcome, <b>${currentUser.name}</b></p></div>
-  <h3 class="font-semibold mb-2">My Children</h3>
-  ${students.map(s=>{
-   const att=ar[s.id]||{};const pr=Object.values(att).filter(v=>v==='P').length;const tot=Object.values(att).length;
-   return `<div class="bg-white p-4 rounded-xl shadow-sm mb-3 border">
-    <div class="flex justify-between items-start"><div>
-     <p class="font-bold">${s.name} <span class="text-sm text-gray-500 font-normal">- Class ${s.class}-${s.section} - Roll ${s.rollNo}</span></p>
-     <p class="text-sm mt-1">Fee Due: ${s.feeBalance>0?`<span class="pill pill-red">Rs.${s.feeBalance.toLocaleString('en-IN')}</span>`:`<span class="pill pill-green">Cleared</span>`}</p>
-     <p class="text-sm">Attendance: <b>${tot?Math.round(pr/tot*100):0}%</b> (${pr}/${tot} days)</p>
-    </div></div>
-    <div class="mt-3 grid md:grid-cols-2 gap-3">
-     <div><div class="text-xs font-semibold text-gray-600 mb-1">Recent Marks</div><ul class="text-sm space-y-0.5">${em.filter(m=>m.studentId===s.id).slice(-5).map(m=>`<li>${m.examName} (${m.subject}): <b>${m.marks}/${m.maxMarks}</b></li>`).join('')||'<li class="text-gray-500">No marks yet</li>'}</ul></div>
-     <div><div class="text-xs font-semibold text-gray-600 mb-1">Attendance (last 5)</div><div class="flex gap-1 flex-wrap">${Object.entries(att).slice(-5).map(([d,v])=>`<span class="pill pill-${v==='P'?'green':'red'}">${d.slice(5)}:${v}</span>`).join('')||'<span class="text-gray-500 text-sm">None</span>'}</div></div>
+  <div class="flex flex-wrap gap-1 border-b pb-2 mb-4 overflow-x-auto">
+   ${tabs.map(t => `<button class="par-tab px-3 py-2 rounded-t-lg text-sm font-medium whitespace-nowrap ${activeParentTab===t.id?'bg-indigo-600 text-white':'bg-gray-100 hover:bg-gray-200 text-gray-700'}" data-tab="${t.id}"><i class="fas fa-${t.icon} mr-1"></i>${t.label}</button>`).join('')}
+  </div>
+  <div id="parTabContent">${renderParentTabContent(students)}</div>
+ </div>`;
+}
+
+function renderParentTabContent(students){
+ switch(activeParentTab){
+  case 'dashboard':  return renderParDashboard(students);
+  case 'fees':       return renderParFees(students);
+  case 'academics':  return renderParAcademics(students);
+  case 'messages':   return renderParMessages(students);
+  case 'ptm':        return renderParPTM(students);
+  case 'complaint':  return renderParComplaint();
+  default: return renderParDashboard(students);
+ }
+}
+
+function renderParDashboard(students){
+ const ar = getAttendanceRecords();
+ const em = getExamMarks();
+ const subs = JSON.parse(localStorage.getItem('homeworkSubmissions')||'[]');
+ const fmtINR = n => 'Rs.' + (n||0).toLocaleString('en-IN');
+ return `<div class="space-y-4">
+  ${students.map(s => {
+   const att = ar[s.id] || {};
+   const pr = Object.values(att).filter(v=>v==='P').length;
+   const lt = Object.values(att).filter(v=>v==='L').length;
+   const tot = Object.values(att).length;
+   const pctAtt = tot ? Math.round((pr+lt*0.5)/tot*100) : 0;
+   const myMarks = em.filter(m => m.studentId === s.id);
+   const avgPct = myMarks.length ? Math.round(myMarks.reduce((a,m)=>a+(m.marks/m.maxMarks*100),0)/myMarks.length) : 0;
+   const hws = getHomeworks().filter(h => String(h.className) === String(s.class));
+   const submittedHwIds = new Set(subs.filter(sub => sub.studentId === s.id).map(sub => sub.homeworkId));
+   const pendingHws = hws.filter(h => !submittedHwIds.has(h.id));
+   return `<div class="bg-white rounded-xl shadow-sm border overflow-hidden">
+    <div class="bg-gradient-to-r from-indigo-500 to-purple-600 p-4 text-white">
+     <div class="flex flex-wrap items-center justify-between gap-2">
+      <div>
+       <div class="text-xl font-bold">${s.name}</div>
+       <div class="text-sm opacity-90">Class ${s.class}${s.section ? '-'+s.section : ''} · Roll ${s.rollNo || '-'} · Adm.No ${s.admissionNo || '-'}</div>
+      </div>
+      <div class="text-right">
+       <div class="text-xs opacity-90">Father</div>
+       <div class="font-semibold">${s.fatherName || '-'}</div>
+      </div>
+     </div>
+    </div>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 p-4">
+     <div class="bg-${pctAtt>=75?'emerald':pctAtt>=50?'amber':'rose'}-50 border border-${pctAtt>=75?'emerald':pctAtt>=50?'amber':'rose'}-200 p-3 rounded">
+      <div class="text-xs text-gray-700 font-semibold uppercase">Attendance</div>
+      <div class="text-2xl font-bold">${pctAtt}%</div>
+      <div class="text-xs text-gray-600">${pr}/${tot} days</div>
+     </div>
+     <div class="bg-indigo-50 border border-indigo-200 p-3 rounded">
+      <div class="text-xs text-indigo-700 font-semibold uppercase">Avg Score</div>
+      <div class="text-2xl font-bold text-indigo-900">${avgPct}%</div>
+      <div class="text-xs text-indigo-700">${myMarks.length} exams</div>
+     </div>
+     <div class="bg-${(s.feeBalance||0)>0?'rose':'emerald'}-50 border border-${(s.feeBalance||0)>0?'rose':'emerald'}-200 p-3 rounded">
+      <div class="text-xs text-gray-700 font-semibold uppercase">Fee Due</div>
+      <div class="text-2xl font-bold">${(s.feeBalance||0)>0 ? fmtINR(s.feeBalance) : 'Cleared'}</div>
+     </div>
+     <div class="bg-amber-50 border border-amber-200 p-3 rounded">
+      <div class="text-xs text-amber-700 font-semibold uppercase">Pending HW</div>
+      <div class="text-2xl font-bold text-amber-900">${pendingHws.length}</div>
+      <div class="text-xs text-amber-700">${hws.length - pendingHws.length} submitted</div>
+     </div>
     </div>
    </div>`;
-  }).join('')||'<div class="text-gray-500">No children associated</div>'}
-  <div class="bg-white p-4 rounded-xl shadow-sm mt-4">
-   <h3 class="font-semibold mb-2"><i class="fas fa-book text-amber-600 mr-1"></i>Homework</h3>
-   <ul class="text-sm space-y-1">${hws.map(h=>`<li>Class ${h.className} - ${h.subject}: ${h.description} <span class="text-gray-500">(Due ${fmtDate(h.dueDate)})</span></li>`).join('')||'<li class="text-gray-500">None</li>'}</ul>
+  }).join('')}
+ </div>`;
+}
+
+function renderParFees(students){
+ const fmtINR = n => 'Rs.' + (n||0).toLocaleString('en-IN');
+ const allTxns = getFeeTransactions();
+ return `<div class="space-y-4">
+  ${students.map(s => {
+   const txns = allTxns.filter(t => t.studentId === s.id).sort((a,b) => (b.date||'').localeCompare(a.date||''));
+   const totalPaid = txns.reduce((sum, t) => sum + (t.amount || 0), 0);
+   const decided = s.decidedFees || s.annualFees || 0;
+   const balance = s.feeBalance || 0;
+   return `<div class="bg-white rounded-xl shadow-sm border p-4">
+    <div class="font-semibold mb-3"><i class="fas fa-rupee-sign text-emerald-600 mr-1"></i>Fee Statement — ${s.name} <span class="text-sm text-gray-500 font-normal">(Class ${s.class}${s.section?'-'+s.section:''})</span></div>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+     <div class="bg-blue-50 border border-blue-200 p-3 rounded">
+      <div class="text-xs text-blue-700 font-semibold uppercase">Annual Fee</div>
+      <div class="text-xl font-bold text-blue-900">${fmtINR(decided)}</div>
+      ${s.decidedFees && s.annualFees && s.decidedFees < s.annualFees ? `<div class="text-xs text-blue-700">Original ${fmtINR(s.annualFees)}<br>Concession ${fmtINR(s.annualFees - s.decidedFees)}</div>` : ''}
+     </div>
+     <div class="bg-emerald-50 border border-emerald-200 p-3 rounded">
+      <div class="text-xs text-emerald-700 font-semibold uppercase">Paid So Far</div>
+      <div class="text-xl font-bold text-emerald-900">${fmtINR(totalPaid)}</div>
+      <div class="text-xs text-emerald-700">${txns.length} transaction${txns.length===1?'':'s'}</div>
+     </div>
+     <div class="bg-${balance>0?'rose':'emerald'}-50 border border-${balance>0?'rose':'emerald'}-200 p-3 rounded">
+      <div class="text-xs text-${balance>0?'rose':'emerald'}-700 font-semibold uppercase">Balance Due</div>
+      <div class="text-xl font-bold text-${balance>0?'rose':'emerald'}-900">${balance > 0 ? fmtINR(balance) : 'Cleared ✓'}</div>
+     </div>
+     <div class="bg-amber-50 border border-amber-200 p-3 rounded">
+      <div class="text-xs text-amber-700 font-semibold uppercase">Transport (monthly)</div>
+      <div class="text-xl font-bold text-amber-900">${s.transportMonthly ? fmtINR(s.transportMonthly) : '-'}</div>
+     </div>
+    </div>
+    ${txns.length === 0 ? '<div class="text-sm text-gray-500 py-3 text-center">No payments recorded yet</div>' : `
+     <h4 class="font-semibold text-sm mb-2">Payment History</h4>
+     <div class="overflow-x-auto"><table class="text-sm w-full border">
+      <thead class="bg-gray-100"><tr><th class="text-left p-2">Date</th><th class="text-left p-2">Receipt</th><th class="text-left p-2">Towards</th><th class="text-left p-2">Mode</th><th class="text-right p-2">Amount</th><th class="p-2">Action</th></tr></thead>
+      <tbody>${txns.map(t => `<tr class="border-t hover:bg-emerald-50">
+        <td class="p-2 text-xs">${fmtDate(t.date)}</td>
+        <td class="p-2 font-mono text-xs">${t.receiptNo || '-'}</td>
+        <td class="p-2">${t.feeHead || 'Tuition'}</td>
+        <td class="p-2 text-xs">${t.mode || '-'}</td>
+        <td class="p-2 text-right font-semibold text-emerald-700">${fmtINR(t.amount)}</td>
+        <td class="p-2"><button class="parPrintReceiptBtn bg-burgundy hover:opacity-80 text-white px-2 py-1 rounded text-xs" style="background:#7a1e2e" data-id="${t.id}"><i class="fas fa-print mr-1"></i>PDF</button></td>
+       </tr>`).join('')}</tbody>
+     </table></div>`}
+   </div>`;
+  }).join('')}
+ </div>`;
+}
+
+function renderParAcademics(students){
+ const ar = getAttendanceRecords();
+ const em = getExamMarks();
+ const allHws = getHomeworks();
+ const subs = JSON.parse(localStorage.getItem('homeworkSubmissions')||'[]');
+ return `<div class="space-y-4">
+  ${students.map(s => {
+   const att = ar[s.id] || {};
+   const recentDates = Object.entries(att).sort((a,b) => b[0].localeCompare(a[0])).slice(0, 21);
+   const pr = Object.values(att).filter(v=>v==='P').length;
+   const ab = Object.values(att).filter(v=>v==='A').length;
+   const lt = Object.values(att).filter(v=>v==='L').length;
+   const tot = Object.values(att).length;
+   const pctAtt = tot ? Math.round((pr+lt*0.5)/tot*100) : 0;
+   const myMarks = em.filter(m => m.studentId === s.id).sort((a,b) => (b.date||'').localeCompare(a.date||''));
+   const myHws = allHws.filter(h => String(h.className) === String(s.class)).sort((a,b) => (b.date||'').localeCompare(a.date||''));
+   const subsByHw = {};
+   subs.filter(sub => sub.studentId === s.id).forEach(sub => { subsByHw[sub.homeworkId] = sub; });
+   return `<div class="bg-white rounded-xl shadow-sm border p-4">
+    <h3 class="font-semibold mb-3"><i class="fas fa-book text-indigo-600 mr-1"></i>${s.name} <span class="text-sm text-gray-500 font-normal">— Class ${s.class}</span></h3>
+
+    <details class="mb-3 border rounded" open>
+     <summary class="cursor-pointer px-3 py-2 bg-gray-50 font-medium text-sm">Attendance · ${pctAtt}% (${pr}P / ${ab}A / ${lt}L of ${tot})</summary>
+     <div class="p-3">
+      ${recentDates.length === 0 ? '<div class="text-sm text-gray-500">No records</div>' : `
+       <div class="flex gap-1 flex-wrap">${recentDates.map(([d,v]) => {
+        const cls = v==='P'?'bg-emerald-100 text-emerald-800':v==='L'?'bg-amber-100 text-amber-800':'bg-rose-100 text-rose-800';
+        return `<div class="px-2 py-1 rounded text-xs ${cls}"><div>${d.slice(5)}</div><div class="font-bold text-center">${v}</div></div>`;
+       }).join('')}</div>
+       <div class="mt-2 text-xs text-gray-600"><b>Legend:</b> <span class="text-emerald-600 font-bold">P</span> Present · <span class="text-rose-600 font-bold">A</span> Absent · <span class="text-amber-600 font-bold">L</span> Late</div>`}
+     </div>
+    </details>
+
+    <details class="mb-3 border rounded" ${myMarks.length ? 'open' : ''}>
+     <summary class="cursor-pointer px-3 py-2 bg-gray-50 font-medium text-sm">Marks (${myMarks.length})</summary>
+     <div class="p-3">
+      ${myMarks.length === 0 ? '<div class="text-sm text-gray-500">No marks recorded yet</div>' : `
+       <table class="text-sm w-full border">
+        <thead class="bg-gray-100"><tr><th class="text-left p-2">Exam</th><th class="text-left p-2">Subject</th><th class="text-left p-2">Score</th><th class="text-left p-2">%</th><th class="text-left p-2">Grade</th></tr></thead>
+        <tbody>${myMarks.map(m => {
+          const pct = (m.marks/m.maxMarks*100);
+          const grade = pct >= 90 ? 'A+' : pct >= 80 ? 'A' : pct >= 70 ? 'B+' : pct >= 60 ? 'B' : pct >= 50 ? 'C' : pct >= 33 ? 'D' : 'F';
+          return `<tr class="border-t"><td class="p-2">${m.examName}</td><td class="p-2">${m.subject}</td><td class="p-2">${m.marks}/${m.maxMarks}</td><td class="p-2"><b>${pct.toFixed(1)}%</b></td><td class="p-2 font-bold">${grade}</td></tr>`;
+        }).join('')}</tbody>
+       </table>`}
+     </div>
+    </details>
+
+    <details class="border rounded">
+     <summary class="cursor-pointer px-3 py-2 bg-gray-50 font-medium text-sm">Homework (${myHws.length})</summary>
+     <div class="p-3 space-y-2">
+      ${myHws.length === 0 ? '<div class="text-sm text-gray-500">No homework assigned</div>' : myHws.map(h => {
+        const sub = subsByHw[h.id];
+        return `<div class="border rounded p-2 ${sub ? 'bg-emerald-50' : ''}">
+         <div class="flex flex-wrap items-center gap-2 mb-1 text-sm">
+          <b>${h.subject}</b>
+          ${sub ? '<span class="pill pill-green">Submitted</span>' : '<span class="pill pill-amber">Pending</span>'}
+          <span class="text-xs text-gray-500">Due ${fmtDate(h.dueDate)}</span>
+         </div>
+         <div class="text-sm text-gray-700">${(h.description||'').replace(/</g,'&lt;')}</div>
+         <div class="text-xs text-gray-500 mt-1">By ${h.teacher || '?'}</div>
+         ${h.attachmentData ? `<a href="${h.attachmentData}" download="${h.attachmentName}" class="inline-block mt-1 text-xs text-blue-600 hover:underline"><i class="fas fa-download mr-1"></i>${h.attachmentName}</a>` : ''}
+        </div>`;
+       }).join('')}
+     </div>
+    </details>
+   </div>`;
+  }).join('')}
+ </div>`;
+}
+
+function renderParMessages(students){
+ const studentIds = new Set(students.map(s => s.id));
+ const log = JSON.parse(localStorage.getItem('messageLog')||'[]')
+  .filter(m => studentIds.has(m.studentId))
+  .sort((a,b) => (b.sentAt||'').localeCompare(a.sentAt||''));
+ return `<div>
+  <div class="bg-blue-50 border-l-4 border-blue-500 p-3 rounded mb-4 text-sm text-blue-900">
+   <i class="fas fa-info-circle mr-1"></i>Complete log of all messages broadcast to your phone via WhatsApp/SMS by the school. Use this if you missed a notice or want to reference an earlier announcement.
   </div>
-  <div class="bg-white p-4 rounded-xl shadow-sm mt-4">
-   <h3 class="font-semibold mb-2"><i class="fas fa-comment-dots text-red-600 mr-1"></i>Submit Anonymous Complaint</h3>
-   <textarea id="complaintTextParent" placeholder="Report any issue confidentially..." rows="3"></textarea>
-   <button id="submitComplaintParent" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-sm mt-2"><i class="fas fa-paper-plane mr-1"></i>Submit</button>
+  <div class="bg-white border rounded-lg p-4">
+   <h3 class="font-semibold mb-3"><i class="fas fa-envelope text-indigo-600 mr-1"></i>Messages received <span class="text-xs text-gray-500">(${log.length} total)</span></h3>
+   ${log.length === 0 ? '<div class="text-sm text-gray-500 py-3 text-center">No messages yet</div>' : `
+    <div class="space-y-2">${log.map(m => {
+     const child = students.find(s => s.id === m.studentId);
+     return `<div class="border rounded p-3">
+      <div class="flex flex-wrap items-center gap-2 mb-1">
+       <span class="pill pill-${m.channel === 'whatsapp' ? 'green' : 'blue'}"><i class="fab fa-${m.channel === 'whatsapp' ? 'whatsapp' : 'sms'} mr-1"></i>${m.channel === 'whatsapp' ? 'WhatsApp' : 'SMS'}</span>
+       ${child && students.length > 1 ? `<span class="pill pill-gray">${child.name}</span>` : ''}
+       <span class="text-xs text-gray-500">${new Date(m.sentAt).toLocaleString('en-IN')}</span>
+       <span class="text-xs text-gray-600">from ${m.sentBy} (${m.sentByRole})</span>
+      </div>
+      <div class="text-sm whitespace-pre-wrap">${(m.message||'').replace(/</g,'&lt;')}</div>
+     </div>`;
+    }).join('')}</div>`}
   </div>
  </div>`;
 }
 
+function renderParPTM(students){
+ const events = JSON.parse(localStorage.getItem('ptmEvents')||'[]').sort((a,b) => (b.date||'').localeCompare(a.date||''));
+ const studentClasses = new Set(students.map(s => s.class));
+ const myEvents = events.filter(e => !e.classes || e.classes.length === 0 || e.classes.some(c => studentClasses.has(c)));
+ const today = new Date().toISOString().slice(0,10);
+ return `<div>
+  <div class="bg-blue-50 border-l-4 border-blue-500 p-3 rounded mb-4 text-sm text-blue-900">
+   <i class="fas fa-people-arrows mr-1"></i>Parent-Teacher Meetings scheduled for your child's class. Your attendance is recorded by the class teacher after the meeting.
+  </div>
+  ${myEvents.length === 0 ? '<div class="bg-white border rounded-lg p-6 text-center text-gray-500"><i class="fas fa-calendar-xmark text-3xl mb-2"></i><div>No PTM scheduled yet</div><div class="text-xs mt-1">When the school schedules a PTM, it will appear here.</div></div>' : `
+   <div class="space-y-2">${myEvents.map(e => {
+     const isPast = e.date < today;
+     const isToday = e.date === today;
+     return `<div class="bg-white border-l-4 ${isPast ? 'border-gray-400' : isToday ? 'border-emerald-500' : 'border-indigo-500'} rounded-lg p-4">
+      <div class="flex flex-wrap items-start justify-between gap-2">
+       <div>
+        <div class="font-semibold">${e.title || 'Parent-Teacher Meeting'}</div>
+        <div class="text-sm text-gray-700">${fmtDate(e.date)}${e.time ? ' at ' + e.time : ''}</div>
+        ${e.description ? `<div class="text-sm text-gray-700 mt-1">${e.description}</div>` : ''}
+        ${e.classes && e.classes.length ? `<div class="text-xs text-gray-500 mt-1">For: Class ${e.classes.join(', ')}</div>` : ''}
+       </div>
+       <span class="pill ${isPast ? 'pill-gray' : isToday ? 'pill-green' : 'pill-blue'}">${isPast ? 'Past' : isToday ? 'Today' : 'Upcoming'}</span>
+      </div>
+      ${students.map(s => {
+        const att = (e.attendance||[]).find(a => a.studentId === s.id);
+        return att ? `<div class="mt-2 pt-2 border-t text-xs">${s.name}: ${att.attended === 'yes' ? '<span class="pill pill-green">Attended</span>' : att.attended === 'no' ? '<span class="pill pill-red">Did not attend</span>' : '<span class="pill pill-amber">Pending</span>'}${att.notes ? ' · ' + att.notes : ''}</div>` : '';
+      }).join('')}
+     </div>`;
+    }).join('')}</div>`}
+ </div>`;
+}
+
+function renderParComplaint(){
+ return `<div class="bg-white border rounded-lg p-4 max-w-2xl">
+  <h3 class="font-semibold mb-2"><i class="fas fa-comment-dots text-red-600 mr-1"></i>Submit Anonymous Complaint</h3>
+  <p class="text-sm text-gray-600 mb-3">Your complaint will not include your name or details — it goes directly to the principal/admin for review.</p>
+  <textarea id="complaintTextParent" placeholder="Report any issue confidentially..." rows="4"></textarea>
+  <button id="submitComplaintParent" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm mt-3"><i class="fas fa-paper-plane mr-1"></i>Submit</button>
+ </div>`;
+}
+
 /* ---------- STUDENT PANEL ---------- */
+/* ============================================================
+   STUDENT PANEL — full portal with tabs
+   - Dashboard: KPIs + recent activity
+   - Homework: download attachments, upload submissions, view submission log
+   - Fees: payment history, print receipts, current dues
+   - Messages: log of all broadcast messages received
+============================================================ */
+
+let activeStudentTab = 'dashboard';
+
 function renderStudentPanel(){
  const s=getStudents().find(x=>x.id===currentUser.studentId);
  if(!s)return `<div class="p-6"><p>Student record not found. Contact admin.</p><button id="logoutStudentBtn" class="bg-red-50 text-red-700 px-3 py-1.5 rounded-lg mt-3">Logout</button></div>`;
- const marks=getExamMarks().filter(m=>m.studentId===s.id);
- const att=getAttendanceRecords()[s.id]||{};
- const hws=getHomeworks().filter(h=>String(h.className)===String(s.class));
- const pr=Object.values(att).filter(v=>v==='P').length;
- const tot=Object.values(att).length;
- const avgPct=marks.length?Math.round(marks.reduce((a,m)=>a+(m.marks/m.maxMarks*100),0)/marks.length):0;
+ const tabs = [
+  {id:'dashboard', label:'Dashboard', icon:'gauge-high'},
+  {id:'homework',  label:'Homework',  icon:'book-open'},
+  {id:'fees',      label:'Fees',      icon:'rupee-sign'},
+  {id:'messages',  label:'Messages',  icon:'envelope'}
+ ];
  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
   <div class="flex justify-between items-center mb-4">
    <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-user-graduate text-indigo-600 mr-2"></i>Student Portal</h1>
@@ -3278,26 +3592,182 @@ function renderStudentPanel(){
     <div><div class="text-2xl font-bold">${s.name}</div><div class="opacity-90 text-sm">Class ${s.class}-${s.section} - Roll ${s.rollNo} - Adm: ${s.admissionNo||'-'}</div></div>
    </div>
   </div>
+  <div class="flex flex-wrap gap-1 border-b pb-2 mb-4 overflow-x-auto">
+   ${tabs.map(t => `<button class="stu-tab px-3 py-2 rounded-t-lg text-sm font-medium whitespace-nowrap ${activeStudentTab===t.id?'bg-indigo-600 text-white':'bg-gray-100 hover:bg-gray-200 text-gray-700'}" data-tab="${t.id}"><i class="fas fa-${t.icon} mr-1"></i>${t.label}</button>`).join('')}
+  </div>
+  <div id="stuTabContent">${renderStudentTabContent(s)}</div>
+ </div>`;
+}
+
+function renderStudentTabContent(s){
+ switch(activeStudentTab){
+  case 'dashboard': return renderStuDashboard(s);
+  case 'homework':  return renderStuHomework(s);
+  case 'fees':      return renderStuFees(s);
+  case 'messages':  return renderStuMessages(s);
+  default: return renderStuDashboard(s);
+ }
+}
+
+function renderStuDashboard(s){
+ const marks=getExamMarks().filter(m=>m.studentId===s.id);
+ const att=getAttendanceRecords()[s.id]||{};
+ const hws=getHomeworks().filter(h=>String(h.className)===String(s.class));
+ const subs=JSON.parse(localStorage.getItem('homeworkSubmissions')||'[]').filter(sub=>sub.studentId===s.id);
+ const submittedHwIds = new Set(subs.map(sub => sub.homeworkId));
+ const pendingHws = hws.filter(h => !submittedHwIds.has(h.id));
+ const pr=Object.values(att).filter(v=>v==='P').length;
+ const lt=Object.values(att).filter(v=>v==='L').length;
+ const tot=Object.values(att).length;
+ const pctAtt=tot?Math.round((pr+lt*0.5)/tot*100):0;
+ const avgPct=marks.length?Math.round(marks.reduce((a,m)=>a+(m.marks/m.maxMarks*100),0)/marks.length):0;
+ return `<div>
   <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-   <div class="bg-white p-4 rounded-lg shadow-sm card-hover"><div class="text-xs text-gray-500">Attendance</div><div class="text-2xl font-bold text-green-700">${tot?Math.round(pr/tot*100):0}%</div><div class="text-xs text-gray-500 mt-1">${pr}/${tot} days</div></div>
+   <div class="bg-white p-4 rounded-lg shadow-sm card-hover"><div class="text-xs text-gray-500">Attendance</div><div class="text-2xl font-bold ${pctAtt>=75?'text-emerald-700':pctAtt>=50?'text-amber-700':'text-rose-700'}">${pctAtt}%</div><div class="text-xs text-gray-500 mt-1">${pr}/${tot} days</div></div>
    <div class="bg-white p-4 rounded-lg shadow-sm card-hover"><div class="text-xs text-gray-500">Average Score</div><div class="text-2xl font-bold text-indigo-700">${avgPct}%</div><div class="text-xs text-gray-500 mt-1">${marks.length} exams</div></div>
    <div class="bg-white p-4 rounded-lg shadow-sm card-hover"><div class="text-xs text-gray-500">Fee Balance</div><div class="text-2xl font-bold ${s.feeBalance>0?'text-red-600':'text-green-600'}">Rs.${(s.feeBalance||0).toLocaleString('en-IN')}</div></div>
-   <div class="bg-white p-4 rounded-lg shadow-sm card-hover"><div class="text-xs text-gray-500">Pending HW</div><div class="text-2xl font-bold text-amber-700">${hws.length}</div></div>
+   <div class="bg-white p-4 rounded-lg shadow-sm card-hover"><div class="text-xs text-gray-500">Pending HW</div><div class="text-2xl font-bold text-amber-700">${pendingHws.length}</div><div class="text-xs text-gray-500 mt-1">${subs.length} submitted</div></div>
   </div>
   <div class="grid md:grid-cols-2 gap-4">
    <div class="bg-white p-4 rounded-xl shadow-sm">
     <h3 class="font-semibold mb-3"><i class="fas fa-chart-line text-indigo-600 mr-1"></i>My Marks</h3>
-    <table class="text-sm"><thead><tr><th>Exam</th><th>Subject</th><th>Score</th><th>%</th></tr></thead>
-    <tbody>${marks.map(m=>`<tr><td>${m.examName}</td><td>${m.subject}</td><td>${m.marks}/${m.maxMarks}</td><td><b>${Math.round((m.marks/m.maxMarks)*100)}%</b></td></tr>`).join('')||'<tr><td colspan="4" class="text-center text-gray-500 py-3">No marks yet</td></tr>'}</tbody></table>
+    <table class="text-sm w-full"><thead class="bg-gray-50"><tr><th class="text-left p-2">Exam</th><th class="text-left p-2">Subject</th><th class="text-left p-2">Score</th><th class="text-left p-2">%</th></tr></thead>
+    <tbody>${marks.map(m=>{
+     const pct = Math.round((m.marks/m.maxMarks)*100);
+     const grade = pct >= 90 ? 'A+' : pct >= 80 ? 'A' : pct >= 70 ? 'B+' : pct >= 60 ? 'B' : pct >= 50 ? 'C' : pct >= 33 ? 'D' : 'F';
+     return `<tr class="border-t"><td class="p-2">${m.examName}</td><td class="p-2">${m.subject}</td><td class="p-2">${m.marks}/${m.maxMarks}</td><td class="p-2"><b>${pct}%</b> <span class="text-xs text-gray-500">(${grade})</span></td></tr>`;
+    }).join('')||'<tr><td colspan="4" class="text-center text-gray-500 py-3">No marks yet</td></tr>'}</tbody></table>
    </div>
    <div class="bg-white p-4 rounded-xl shadow-sm">
-    <h3 class="font-semibold mb-3"><i class="fas fa-book text-amber-600 mr-1"></i>Homework</h3>
-    <ul class="space-y-2 text-sm">${hws.map(h=>`<li class="p-2 bg-gray-50 rounded"><b>${h.subject}</b> - ${h.description}<br><span class="text-xs text-gray-600">Due: ${fmtDate(h.dueDate)} - ${h.teacher}</span></li>`).join('')||'<li class="text-gray-500">No pending homework</li>'}</ul>
+    <h3 class="font-semibold mb-3"><i class="fas fa-calendar-check text-green-600 mr-1"></i>Attendance (last 14 days)</h3>
+    <div class="flex gap-2 flex-wrap">${Object.entries(att).slice(-14).map(([d,v])=>{
+     const cls = v==='P'?'bg-emerald-100 text-emerald-800':v==='L'?'bg-amber-100 text-amber-800':'bg-rose-100 text-rose-800';
+     return `<div class="px-3 py-2 rounded ${cls}"><div class="text-xs">${d.slice(5)}</div><div class="font-bold text-center">${v}</div></div>`;
+    }).join('')||'<div class="text-gray-500">No records</div>'}</div>
+    <div class="mt-3 text-xs text-gray-600"><b>Legend:</b> <span class="text-emerald-600 font-bold">P</span> Present · <span class="text-rose-600 font-bold">A</span> Absent · <span class="text-amber-600 font-bold">L</span> Late</div>
    </div>
   </div>
-  <div class="bg-white p-4 rounded-xl shadow-sm mt-4">
-   <h3 class="font-semibold mb-3"><i class="fas fa-calendar-check text-green-600 mr-1"></i>Attendance (recent)</h3>
-   <div class="flex gap-2 flex-wrap">${Object.entries(att).slice(-14).map(([d,v])=>`<div class="px-3 py-2 rounded ${v==='P'?'bg-green-100 text-green-800':'bg-red-100 text-red-800'}"><div class="text-xs">${d.slice(5)}</div><div class="font-bold">${v}</div></div>`).join('')||'<div class="text-gray-500">No records</div>'}</div>
+ </div>`;
+}
+
+function renderStuHomework(s){
+ const hws=getHomeworks().filter(h=>String(h.className)===String(s.class)).sort((a,b) => (b.date||'').localeCompare(a.date||''));
+ const subs=JSON.parse(localStorage.getItem('homeworkSubmissions')||'[]').filter(sub=>sub.studentId===s.id);
+ const subsByHw = {};
+ subs.forEach(sub => { subsByHw[sub.homeworkId] = sub; });
+ return `<div class="space-y-3">
+  ${hws.length === 0 ? '<div class="bg-white border rounded-lg p-6 text-center text-gray-500"><i class="fas fa-book-open text-3xl mb-2"></i><div>No homework assigned yet</div></div>' : hws.map(h => {
+    const sub = subsByHw[h.id];
+    const isSubmitted = !!sub;
+    const isOverdue = !isSubmitted && h.dueDate && new Date(h.dueDate) < new Date();
+    return `<div class="bg-white border rounded-lg p-4 ${isOverdue ? 'border-rose-300 bg-rose-50' : isSubmitted ? 'border-emerald-300' : ''}">
+     <div class="flex flex-wrap items-start justify-between gap-2 mb-2">
+      <div class="flex-1 min-w-0">
+       <div class="flex flex-wrap items-center gap-2 mb-1">
+        <span class="font-semibold">${h.subject}</span>
+        ${isSubmitted ? '<span class="pill pill-green"><i class="fas fa-circle-check mr-1"></i>Submitted</span>' : isOverdue ? '<span class="pill pill-red"><i class="fas fa-clock mr-1"></i>Overdue</span>' : '<span class="pill pill-amber">Pending</span>'}
+       </div>
+       <div class="text-sm text-gray-700 mb-1">${(h.description||'').replace(/</g,'&lt;')}</div>
+       <div class="text-xs text-gray-500">By ${h.teacher || '?'} · Posted ${h.date ? fmtDate(h.date) : '-'} · Due <b>${h.dueDate ? fmtDate(h.dueDate) : '-'}</b></div>
+      </div>
+      <div class="flex flex-col gap-1">
+       ${h.attachmentData ? `<a href="${h.attachmentData}" download="${h.attachmentName}" class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap"><i class="fas fa-download mr-1"></i>Download ${h.attachmentName}</a>` : ''}
+       ${!isSubmitted ? `<button class="stuUploadBtn bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap" data-hw="${h.id}"><i class="fas fa-upload mr-1"></i>Upload Submission</button>` : ''}
+      </div>
+     </div>
+     ${isSubmitted ? `<div class="mt-2 pt-2 border-t bg-emerald-50 rounded p-2">
+      <div class="text-xs text-emerald-800"><b>Your submission:</b> ${sub.fileName || '(no file)'} · ${new Date(sub.submittedAt).toLocaleString('en-IN')}</div>
+      ${sub.notes ? `<div class="text-xs text-gray-700 mt-1">${sub.notes}</div>` : ''}
+      <div class="mt-1 flex gap-2">
+       ${sub.fileData ? `<a href="${sub.fileData}" download="${sub.fileName}" class="text-xs text-blue-600 hover:underline"><i class="fas fa-download mr-1"></i>Download my submission</a>` : ''}
+       <button class="stuDelSubBtn text-xs text-rose-600 hover:underline" data-sub="${sub.id}"><i class="fas fa-trash mr-1"></i>Remove & resubmit</button>
+      </div>
+     </div>` : ''}
+    </div>`;
+   }).join('')}
+
+  <!-- Upload modal -->
+  <div id="stuUploadModal" class="hidden modal"><div class="modal-content" style="max-width:500px">
+   <h3 class="text-lg font-bold mb-3"><i class="fas fa-upload text-emerald-600 mr-1"></i>Upload Homework Submission</h3>
+   <input type="hidden" id="stuUploadHwId">
+   <div id="stuUploadHwTitle" class="bg-amber-50 border-l-4 border-amber-500 p-3 rounded text-sm mb-3"></div>
+   <div class="mb-3">
+    <label class="text-xs font-medium">Attach File (PDF/Image, max 1 MB)</label>
+    <input type="file" id="stuUploadFile" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx">
+   </div>
+   <div class="mb-3">
+    <label class="text-xs font-medium">Notes for teacher (optional)</label>
+    <textarea id="stuUploadNotes" rows="3" placeholder="Anything you want the teacher to know..."></textarea>
+   </div>
+   <div class="flex justify-end gap-2 mt-4">
+    <button class="closeModal bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded-lg text-sm">Cancel</button>
+    <button id="stuUploadSaveBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-save mr-1"></i>Submit</button>
+   </div>
+  </div></div>
+ </div>`;
+}
+
+function renderStuFees(s){
+ const txns = getFeeTransactions().filter(t => t.studentId === s.id).sort((a,b) => (b.date||'').localeCompare(a.date||''));
+ const totalPaid = txns.reduce((sum, t) => sum + (t.amount || 0), 0);
+ const decided = s.decidedFees || s.annualFees || 0;
+ const fmtINR = n => 'Rs.' + (n||0).toLocaleString('en-IN');
+ return `<div>
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+   <div class="bg-emerald-50 border border-emerald-200 p-4 rounded-lg">
+    <div class="text-xs text-emerald-700 font-semibold uppercase">Total Paid</div>
+    <div class="text-2xl font-bold text-emerald-900 mt-1">${fmtINR(totalPaid)}</div>
+    <div class="text-xs text-emerald-700 mt-1">${txns.length} transaction${txns.length===1?'':'s'}</div>
+   </div>
+   <div class="bg-${s.feeBalance>0?'rose':'emerald'}-50 border border-${s.feeBalance>0?'rose':'emerald'}-200 p-4 rounded-lg">
+    <div class="text-xs text-${s.feeBalance>0?'rose':'emerald'}-700 font-semibold uppercase">Balance Due</div>
+    <div class="text-2xl font-bold text-${s.feeBalance>0?'rose':'emerald'}-900 mt-1">${s.feeBalance > 0 ? fmtINR(s.feeBalance) : 'Cleared ✓'}</div>
+   </div>
+   <div class="bg-blue-50 border border-blue-200 p-4 rounded-lg">
+    <div class="text-xs text-blue-700 font-semibold uppercase">Total Annual</div>
+    <div class="text-2xl font-bold text-blue-900 mt-1">${fmtINR(decided)}</div>
+    ${s.decidedFees && s.annualFees && s.decidedFees < s.annualFees ? `<div class="text-xs text-blue-700 mt-1">Original: ${fmtINR(s.annualFees)} (concession ${fmtINR(s.annualFees - s.decidedFees)})</div>` : ''}
+   </div>
+  </div>
+
+  <div class="bg-white border rounded-lg p-4">
+   <h3 class="font-semibold mb-3"><i class="fas fa-receipt text-indigo-600 mr-1"></i>Payment History</h3>
+   ${txns.length === 0 ? '<div class="text-sm text-gray-500 py-3 text-center">No payments yet</div>' : `
+    <div class="overflow-x-auto"><table class="text-sm w-full border">
+     <thead class="bg-gray-100"><tr><th class="text-left p-2">Date</th><th class="text-left p-2">Receipt No</th><th class="text-left p-2">Towards</th><th class="text-left p-2">Mode</th><th class="text-right p-2">Amount</th><th class="p-2">Action</th></tr></thead>
+     <tbody>${txns.map(t => `<tr class="border-t hover:bg-emerald-50">
+       <td class="p-2 text-xs">${fmtDate(t.date)}</td>
+       <td class="p-2 font-mono text-xs">${t.receiptNo || '-'}</td>
+       <td class="p-2">${t.feeHead || 'Tuition'}</td>
+       <td class="p-2 text-xs">${t.mode || '-'}</td>
+       <td class="p-2 text-right font-semibold text-emerald-700">${fmtINR(t.amount)}</td>
+       <td class="p-2"><button class="stuPrintReceiptBtn bg-burgundy hover:opacity-80 text-white px-2 py-1 rounded text-xs" style="background:#7a1e2e" data-id="${t.id}" title="Download Receipt"><i class="fas fa-print mr-1"></i>Print/PDF</button></td>
+      </tr>`).join('')}</tbody>
+    </table></div>`}
+  </div>
+ </div>`;
+}
+
+function renderStuMessages(s){
+ const log = JSON.parse(localStorage.getItem('messageLog')||'[]')
+  .filter(m => m.studentId === s.id)
+  .sort((a,b) => (b.sentAt||'').localeCompare(a.sentAt||''));
+ return `<div>
+  <div class="bg-blue-50 border-l-4 border-blue-500 p-3 rounded mb-4 text-sm text-blue-900">
+   <i class="fas fa-info-circle mr-1"></i>This shows messages sent to your parent's phone via the school's broadcast system. Your parent receives these on WhatsApp.
+  </div>
+  <div class="bg-white border rounded-lg p-4">
+   <h3 class="font-semibold mb-3"><i class="fas fa-envelope text-indigo-600 mr-1"></i>Messages received <span class="text-xs text-gray-500">(${log.length} total)</span></h3>
+   ${log.length === 0 ? '<div class="text-sm text-gray-500 py-3 text-center">No messages yet</div>' : `
+    <div class="space-y-2">${log.map(m => `
+     <div class="border rounded p-3">
+      <div class="flex flex-wrap items-center gap-2 mb-1">
+       <span class="pill pill-${m.channel === 'whatsapp' ? 'green' : 'blue'}"><i class="fab fa-${m.channel === 'whatsapp' ? 'whatsapp' : 'sms'} mr-1"></i>${m.channel === 'whatsapp' ? 'WhatsApp' : 'SMS'}</span>
+       <span class="text-xs text-gray-500">${new Date(m.sentAt).toLocaleString('en-IN')}</span>
+       <span class="text-xs text-gray-600">from ${m.sentBy} (${m.sentByRole})</span>
+      </div>
+      <div class="text-sm whitespace-pre-wrap">${(m.message||'').replace(/</g,'&lt;')}</div>
+     </div>`).join('')}</div>`}
   </div>
  </div>`;
 }
@@ -4398,6 +4868,33 @@ function _deleteTxn(txnId, txnKind){
  renderApp();
 }
 
+// Log a broadcast message to per-recipient log so parents/students can see what was sent to them
+function _logMessageToRecipients(students, message, channel){
+ const log = JSON.parse(localStorage.getItem('messageLog') || '[]');
+ const sentAt = new Date().toISOString();
+ const sentBy = currentUser?.name || '?';
+ const sentByRole = currentUser?.role || '?';
+ students.forEach(s => {
+  // Personalize the message preview using the same variables broadcast templates use
+  const personal = (message || '')
+   .replaceAll('{parentName}', s.fatherName || s.parentName || 'Parent')
+   .replaceAll('{studentName}', s.name || '')
+   .replaceAll('{className}', s.class || '')
+   .replaceAll('{feeBalance}', String(s.feeBalance || 0))
+   .replaceAll('{schoolName}', SCHOOL_INFO.name);
+  log.push({
+   id: Date.now() + Math.random(),
+   studentId: s.id,
+   studentName: s.name,
+   parentPhone: s.parentPhone || '',
+   message: personal,
+   channel: channel || 'whatsapp',
+   sentBy, sentByRole, sentAt
+  });
+ });
+ localStorage.setItem('messageLog', JSON.stringify(log));
+}
+
 /* ---------- ACCOUNTANT EVENT HANDLERS ---------- */
 function attachAccountantEvents(){
  document.getElementById('logoutAccBtn')?.addEventListener('click',()=>{currentUser=null;chatPanelOpen=false;activeChatWith=null;activeAccountantTab='overview';renderApp()});
@@ -5419,17 +5916,107 @@ function attachGenericModuleEvents(){
 
 /* ---------- TEACHER / PARENT / STUDENT / ACCOUNTANT EVENTS ---------- */
 function attachParentEvents(){
- document.getElementById('logoutParentBtn')?.addEventListener('click',()=>{currentUser=null;chatPanelOpen=false;activeChatWith=null;renderApp()});
- document.getElementById('submitComplaintParent')?.addEventListener('click',()=>{
-  const t=document.getElementById('complaintTextParent').value.trim();
-  if(!t){alert('Please type your complaint');return}
-  const c=getComplaints();
-  c.push({id:Date.now(),text:t,status:'open',date:new Date().toISOString().slice(0,10)});
-  saveComplaints(c);document.getElementById('complaintTextParent').value='';showToast('Complaint submitted anonymously');
- });
+ document.getElementById('logoutParentBtn')?.addEventListener('click',()=>{currentUser=null;chatPanelOpen=false;activeChatWith=null;activeParentTab='dashboard';renderApp()});
+
+ // Tab navigation
+ document.querySelectorAll('.par-tab').forEach(b => b.addEventListener('click', () => {
+  activeParentTab = b.dataset.tab;
+  renderApp();
+ }));
+
+ // Fees tab — print receipts
+ if (activeParentTab === 'fees') {
+  document.querySelectorAll('.parPrintReceiptBtn').forEach(b => b.addEventListener('click', () => {
+   _printReceipt(b.dataset.id);
+  }));
+ }
+
+ // Complaint tab — submit
+ if (activeParentTab === 'complaint') {
+  document.getElementById('submitComplaintParent')?.addEventListener('click',()=>{
+   const t=document.getElementById('complaintTextParent').value.trim();
+   if(!t){alert('Please type your complaint');return}
+   const c=getComplaints();
+   c.push({id:Date.now(),text:t,status:'open',date:new Date().toISOString().slice(0,10)});
+   saveComplaints(c);document.getElementById('complaintTextParent').value='';showToast('Complaint submitted anonymously');
+  });
+ }
 }
 function attachStudentEvents(){
- document.getElementById('logoutStudentBtn')?.addEventListener('click',()=>{currentUser=null;chatPanelOpen=false;activeChatWith=null;renderApp()});
+ document.getElementById('logoutStudentBtn')?.addEventListener('click',()=>{currentUser=null;chatPanelOpen=false;activeChatWith=null;activeStudentTab='dashboard';renderApp()});
+
+ // Tab navigation
+ document.querySelectorAll('.stu-tab').forEach(b => b.addEventListener('click', () => {
+  activeStudentTab = b.dataset.tab;
+  renderApp();
+ }));
+
+ // Homework tab — upload submissions
+ if (activeStudentTab === 'homework') {
+  let pendingFileData = null, pendingFileName = null;
+
+  document.querySelectorAll('.stuUploadBtn').forEach(b => b.addEventListener('click', () => {
+   const hwId = parseInt(b.dataset.hw);
+   const hw = getHomeworks().find(h => h.id === hwId);
+   if (!hw) return;
+   document.getElementById('stuUploadHwId').value = hwId;
+   document.getElementById('stuUploadHwTitle').innerHTML = `<b>${hw.subject}</b><br>${(hw.description||'').replace(/</g,'&lt;')}<br><span class="text-xs text-gray-600">Due ${fmtDate(hw.dueDate)}</span>`;
+   document.getElementById('stuUploadFile').value = '';
+   document.getElementById('stuUploadNotes').value = '';
+   pendingFileData = null; pendingFileName = null;
+   document.getElementById('stuUploadModal').classList.remove('hidden');
+  }));
+
+  document.getElementById('stuUploadFile')?.addEventListener('change', e => {
+   const f = e.target.files[0];
+   if (!f) { pendingFileData = null; pendingFileName = null; return; }
+   if (f.size > 1024*1024) {
+    alert('File too large (' + Math.round(f.size/1024) + ' KB). Max 1 MB.');
+    e.target.value = '';
+    return;
+   }
+   const reader = new FileReader();
+   reader.onload = () => { pendingFileData = reader.result; pendingFileName = f.name; };
+   reader.readAsDataURL(f);
+  });
+
+  document.getElementById('stuUploadSaveBtn')?.addEventListener('click', () => {
+   const hwId = parseInt(document.getElementById('stuUploadHwId').value);
+   const notes = document.getElementById('stuUploadNotes').value.trim();
+   if (!pendingFileData && !notes) { alert('Please attach a file or write notes'); return; }
+   const subs = JSON.parse(localStorage.getItem('homeworkSubmissions')||'[]');
+   subs.push({
+    id: Date.now(),
+    homeworkId: hwId,
+    studentId: currentUser.studentId,
+    submittedAt: new Date().toISOString(),
+    fileName: pendingFileName || null,
+    fileData: pendingFileData || null,
+    notes: notes || null,
+    status: 'submitted'
+   });
+   localStorage.setItem('homeworkSubmissions', JSON.stringify(subs));
+   document.getElementById('stuUploadModal').classList.add('hidden');
+   showToast('Submission uploaded — your teacher can now view it');
+   renderApp();
+  });
+
+  document.querySelectorAll('.stuDelSubBtn').forEach(b => b.addEventListener('click', () => {
+   if (!confirm('Remove your submission? You can resubmit after.')) return;
+   const subId = parseInt(b.dataset.sub);
+   const subs = JSON.parse(localStorage.getItem('homeworkSubmissions')||'[]').filter(s => s.id !== subId);
+   localStorage.setItem('homeworkSubmissions', JSON.stringify(subs));
+   showToast('Submission removed');
+   renderApp();
+  }));
+ }
+
+ // Fees tab — print receipts
+ if (activeStudentTab === 'fees') {
+  document.querySelectorAll('.stuPrintReceiptBtn').forEach(b => b.addEventListener('click', () => {
+   _printReceipt(b.dataset.id);
+  }));
+ }
 }
 
 /* ---------- UNIVERSAL MODAL CLOSE ---------- */
@@ -6570,6 +7157,7 @@ function attachBroadcastEvents(){
   container.classList.remove('hidden');
   container.scrollIntoView({ behavior: 'smooth', block: 'start' });
   logBroadcast(tpl, recipients.length);
+  _logMessageToRecipients(recipients, message, 'whatsapp');
  });
 
  document.getElementById('bcLinksHide')?.addEventListener('click', () => {
@@ -6602,6 +7190,7 @@ function attachBroadcastEvents(){
   URL.revokeObjectURL(a.href);
   showToast(`CSV downloaded — ${recipients.length} parents. Upload to MSG91 / Fast2SMS / Twilio.`);
   logBroadcast(document.getElementById('bcTemplate').value, recipients.length);
+  _logMessageToRecipients(recipients, message, 'sms');
  });
 
  // === Copy phone numbers (for pasting into WhatsApp Broadcast List) ===
