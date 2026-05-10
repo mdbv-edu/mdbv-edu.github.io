@@ -1748,6 +1748,7 @@ function renderAdminPanel(){
   {id:'teachers',label:'Teachers',icon:'chalkboard-teacher'},
   {id:'datamanagement',label:'Data',icon:'database'},
   {id:'compliance',label:'Compliance',icon:'shield-halved'},
+  {id:'broadcast',label:'Broadcast',icon:'bullhorn'},
   {id:'gallery',label:'Gallery',icon:'images'},
   {id:'disclosureDocs',label:'Disclosure PDFs',icon:'file-pdf'},
   {id:'inventory',label:'Inventory',icon:'boxes-stacked'},
@@ -1780,6 +1781,7 @@ function renderAdminTabContent(){
   case 'teachers':return renderTeachersTab();
   case 'datamanagement':return renderDataManagement();
   case 'compliance':return renderComplianceTab();
+  case 'broadcast':return renderBroadcastTab();
   case 'gallery':return renderGalleryAdminTab();
   case 'disclosureDocs':return renderDisclosureDocsTab();
   case 'inventory':return renderInventory();
@@ -2038,8 +2040,8 @@ function renderTeachersTab(){
    <button id="addTeacherBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-plus mr-1"></i>Add Teacher</button>
   </div>
   <div class="overflow-x-auto">
-   <table class="border text-sm"><thead><tr><th>Name</th><th>Subject</th><th>Qualification</th><th>UDISE ID</th><th>Trained</th><th>Salary</th><th>Phone</th><th>Actions</th></tr></thead>
-   <tbody>${ts.map(t=>`<tr><td class="font-medium">${t.name}</td><td>${t.subject}</td><td>${t.qualification}</td><td>${t.udiseTeacherId}</td><td>${fmtDate(t.trainingDate)}</td><td>Rs.${(t.salary||0).toLocaleString('en-IN')}</td><td>${t.phone||'-'}</td><td><button class="delTeacherBtn text-red-600" data-id="${t.id}"><i class="fas fa-trash"></i></button></td></tr>`).join('')}</tbody></table>
+   <table class="border text-sm"><thead><tr><th>Name</th><th>Subject</th><th>Qualification</th><th>Emp. ID</th><th>Joined</th><th>Salary</th><th>Phone</th><th>Actions</th></tr></thead>
+   <tbody>${ts.map(t=>`<tr><td class="font-medium">${t.name}</td><td>${t.subject||'-'}</td><td>${t.qualification||'-'}</td><td>${t.employeeId || t.udiseTeacherId || '-'}</td><td>${t.trainingDate?fmtDate(t.trainingDate):'-'}</td><td>Rs.${(t.salary||0).toLocaleString('en-IN')}</td><td>${t.phone||'-'}</td><td><button class="delTeacherBtn text-red-600" data-id="${t.id}"><i class="fas fa-trash"></i></button></td></tr>`).join('')}</tbody></table>
   </div>
   <div id="teacherModal" class="hidden modal"><div class="modal-content">
    <h3 class="text-lg font-bold mb-3">Add Teacher</h3>
@@ -2047,8 +2049,8 @@ function renderTeachersTab(){
     <div><label class="text-xs">Name *</label><input id="tchName"></div>
     <div><label class="text-xs">Subject</label><input id="tchSubject"></div>
     <div><label class="text-xs">Qualification</label><input id="tchQual"></div>
-    <div><label class="text-xs">UDISE Teacher ID</label><input id="tchUdise"></div>
-    <div><label class="text-xs">Training Date</label><input type="date" id="tchTrain"></div>
+    <div><label class="text-xs">Employee ID</label><input id="tchEmpId" placeholder="e.g. MDB-T-001"></div>
+    <div><label class="text-xs">Date of Joining</label><input type="date" id="tchTrain"></div>
     <div><label class="text-xs">Salary</label><input type="number" id="tchSalary"></div>
     <div><label class="text-xs">Phone</label><input id="tchPhone"></div>
     <div><label class="text-xs">Bank A/C (last 4)</label><input id="tchBank"></div>
@@ -2165,6 +2167,7 @@ function renderDataManagement(){
     <div><label class="text-xs font-medium">Blood Group</label><select id="dmStuBlood"><option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>AB+</option><option>AB-</option><option>O+</option><option>O-</option></select></div>
     <div><label class="text-xs font-medium">Caste</label><select id="dmStuCaste"><option>General</option><option>OBC</option><option>SC</option><option>ST</option></select></div>
     <div><label class="text-xs font-medium">Aadhaar (masked)</label><input id="dmStuAadhaar" placeholder="XXXX-XXXX-1234"></div>
+    <div><label class="text-xs font-medium">PEN (UDISE+ ID)</label><input id="dmStuPen" placeholder="11-digit Permanent Education No."></div>
     <div><label class="text-xs font-medium">Admission Date</label><input type="date" id="dmStuAdmDate"></div>
     <div><label class="text-xs font-medium">Annual Fees (Rs.)</label><input type="number" id="dmStuAnnual" placeholder="e.g. 24000"></div>
     <div><label class="text-xs font-medium">Decided Fees (Rs.)</label><input type="number" id="dmStuDecided" placeholder="negotiated/concession"></div>
@@ -2658,6 +2661,7 @@ function attachActiveAdminTabEvents(){
  else if(activeAdminTab==='disclosureDocs')attachDisclosureDocsEvents();
  else if(activeAdminTab==='users')attachUsersTabEvents();
  else if(activeAdminTab==='backup')attachBackupEvents();
+ else if(activeAdminTab==='broadcast')attachBroadcastEvents();
  else attachGenericModuleEvents();
  attachUniversalCloseEvents();
 }
@@ -2796,7 +2800,7 @@ function attachTeachersTabEvents(){
   const name=document.getElementById('tchName').value.trim();
   if(!name){alert('Name required');return}
   const t=getTeachers();
-  const newTeacher = {id:Date.now(),name,subject:document.getElementById('tchSubject').value,qualification:document.getElementById('tchQual').value,udiseTeacherId:document.getElementById('tchUdise').value,trainingDate:document.getElementById('tchTrain').value,salary:parseInt(document.getElementById('tchSalary').value)||0,phone:document.getElementById('tchPhone').value,bankAccount:document.getElementById('tchBank').value};
+  const newTeacher = {id:Date.now(),name,subject:document.getElementById('tchSubject').value,qualification:document.getElementById('tchQual').value,employeeId:document.getElementById('tchEmpId').value,trainingDate:document.getElementById('tchTrain').value,salary:parseInt(document.getElementById('tchSalary').value)||0,phone:document.getElementById('tchPhone').value,bankAccount:document.getElementById('tchBank').value};
   t.push(newTeacher);
   saveTeachers(t);
   // Auto-create teacher login
@@ -2908,7 +2912,7 @@ function attachDataManagementEvents(){
  // Add Student button — opens the extended modal in "Add" mode
  const openStudentModal = (existingId) => {
   const fields = ['dmStuId','dmStuName','dmStuRegNo','dmStuAdmNo','dmStuRoll','dmStuFather','dmStuMother',
-                  'dmStuPhone','dmStuVillage','dmStuAddress','dmStuDob','dmStuAadhaar','dmStuAdmDate',
+                  'dmStuPhone','dmStuVillage','dmStuAddress','dmStuDob','dmStuAadhaar','dmStuPen','dmStuAdmDate',
                   'dmStuAnnual','dmStuDecided','dmStuTransport','dmStuFeeBal'];
   fields.forEach(f => { const el = document.getElementById(f); if (el) el.value = ''; });
   ['dmStuBpl','dmStuCwsn','dmStuFreeChild'].forEach(f => { const el = document.getElementById(f); if (el) el.checked = false; });
@@ -2939,6 +2943,7 @@ function attachDataManagementEvents(){
     document.getElementById('dmStuBlood').value = s.bloodGroup || 'O+';
     document.getElementById('dmStuCaste').value = s.caste || 'General';
     document.getElementById('dmStuAadhaar').value = s.aadhaar || '';
+    document.getElementById('dmStuPen').value = s.pen || '';
     document.getElementById('dmStuAdmDate').value = s.admissionDate || '';
     document.getElementById('dmStuAnnual').value = s.annualFees || '';
     document.getElementById('dmStuDecided').value = s.decidedFees || '';
@@ -2978,6 +2983,7 @@ function attachDataManagementEvents(){
     bloodGroup: document.getElementById('dmStuBlood').value,
     caste: document.getElementById('dmStuCaste').value,
     aadhaar: document.getElementById('dmStuAadhaar').value.trim(),
+    pen: document.getElementById('dmStuPen').value.trim(),
     admissionDate: document.getElementById('dmStuAdmDate').value,
     annualFees: parseInt(document.getElementById('dmStuAnnual').value) || 0,
     decidedFees: parseInt(document.getElementById('dmStuDecided').value) || 0,
@@ -3014,8 +3020,8 @@ function attachDataManagementEvents(){
  // Export all students with full XLS-aligned column set
  document.getElementById('dmExportAllBtn')?.addEventListener('click', () => {
   const s = getStudents();
-  let h = '<table border="1"><tr><th>S.No</th><th>Reg. No</th><th>Adm. No</th><th>Name</th><th>Class</th><th>Sec</th><th>Roll</th><th>Father\'s Name</th><th>Mother\'s Name</th><th>Village</th><th>Phone</th><th>Address</th><th>DOB</th><th>Gender</th><th>Blood</th><th>Caste</th><th>BPL</th><th>CWSN</th><th>Free Child</th><th>Aadhaar</th><th>Admission Date</th><th>Annual Fees</th><th>Decided Fees</th><th>Transport (Monthly)</th><th>Current Balance</th></tr>';
-  s.forEach((x, i) => h += `<tr><td>${i+1}</td><td>${x.registrationNo||''}</td><td>${x.admissionNo||''}</td><td>${x.name}</td><td>${x.class}</td><td>${x.section||''}</td><td>${x.rollNo||''}</td><td>${x.fatherName||''}</td><td>${x.parentName||''}</td><td>${x.village||''}</td><td>${x.parentPhone||''}</td><td>${x.address||''}</td><td>${x.dob||''}</td><td>${x.gender||''}</td><td>${x.bloodGroup||''}</td><td>${x.caste||''}</td><td>${x.bpl?'Yes':'No'}</td><td>${x.cwsn?'Yes':'No'}</td><td>${x.freeChild?'Yes':'No'}</td><td>${x.aadhaar||''}</td><td>${x.admissionDate||''}</td><td>${x.annualFees||0}</td><td>${x.decidedFees||0}</td><td>${x.transportMonthly||0}</td><td>${x.feeBalance||0}</td></tr>`);
+  let h = '<table border="1"><tr><th>S.No</th><th>Reg. No</th><th>Adm. No</th><th>PEN (UDISE+)</th><th>Name</th><th>Class</th><th>Sec</th><th>Roll</th><th>Father\'s Name</th><th>Mother\'s Name</th><th>Village</th><th>Phone</th><th>Address</th><th>DOB</th><th>Gender</th><th>Blood</th><th>Caste</th><th>BPL</th><th>CWSN</th><th>Free Child</th><th>Aadhaar</th><th>Admission Date</th><th>Annual Fees</th><th>Decided Fees</th><th>Transport (Monthly)</th><th>Current Balance</th></tr>';
+  s.forEach((x, i) => h += `<tr><td>${i+1}</td><td>${x.registrationNo||''}</td><td>${x.admissionNo||''}</td><td>${x.pen||''}</td><td>${x.name}</td><td>${x.class}</td><td>${x.section||''}</td><td>${x.rollNo||''}</td><td>${x.fatherName||''}</td><td>${x.parentName||''}</td><td>${x.village||''}</td><td>${x.parentPhone||''}</td><td>${x.address||''}</td><td>${x.dob||''}</td><td>${x.gender||''}</td><td>${x.bloodGroup||''}</td><td>${x.caste||''}</td><td>${x.bpl?'Yes':'No'}</td><td>${x.cwsn?'Yes':'No'}</td><td>${x.freeChild?'Yes':'No'}</td><td>${x.aadhaar||''}</td><td>${x.admissionDate||''}</td><td>${x.annualFees||0}</td><td>${x.decidedFees||0}</td><td>${x.transportMonthly||0}</td><td>${x.feeBalance||0}</td></tr>`);
   h += '</table>';
   downloadExcel(h, 'MDBV_All_Students_' + new Date().toISOString().slice(0,10));
   showToast('Student data exported');
@@ -3873,6 +3879,330 @@ function exportLoginSheet() {
  html += '</table>';
  downloadExcel(html, SCHOOL_INFO.shortName + '_Login_Sheet_' + new Date().toISOString().slice(0,10));
  showToast('Login sheet downloaded — open in Excel and print');
+}
+
+/* ============================================================
+   BROADCAST TAB — send WhatsApp messages to parents
+   Generates click-to-WhatsApp links per recipient. No backend needed.
+   Also exports phone+message CSV for use with bulk SMS gateways.
+============================================================ */
+
+const BROADCAST_TEMPLATES = {
+  custom: {
+    label: 'Custom message (write below)',
+    text: ''
+  },
+  fee_reminder: {
+    label: 'Fee Reminder',
+    text: 'नमस्ते {parentName} जी,\n\nआपकी बच्ची {studentName} (कक्षा {className}) की फीस ₹{feeBalance} बकाया है। कृपया जल्द से जल्द जमा करें।\n\nधन्यवाद,\n{schoolName}'
+  },
+  ptm: {
+    label: 'PTM Invitation',
+    text: 'Dear {parentName},\n\nYou are invited to the Parent-Teacher Meeting for {studentName} (Class {className}) on Saturday at 10:00 AM.\n\nAttendance is appreciated.\n\n— {schoolName}'
+  },
+  holiday: {
+    label: 'Holiday Notice',
+    text: 'Dear {parentName},\n\nSchool will remain closed tomorrow on account of [reason]. Regular classes will resume the next working day.\n\n— {schoolName}'
+  },
+  exam: {
+    label: 'Exam Schedule',
+    text: 'Dear {parentName},\n\n{studentName} (Class {className}) has upcoming exams starting from [date]. The detailed schedule is available on the school website. Please ensure regular attendance and revision.\n\n— {schoolName}'
+  },
+  result: {
+    label: 'Result Announcement',
+    text: 'Dear {parentName},\n\n{studentName}\'s (Class {className}) results are ready. Please collect the report card from school on [date] between [time].\n\n— {schoolName}'
+  },
+  general: {
+    label: 'General Notice',
+    text: 'Dear {parentName},\n\n[Write your notice here]\n\n— {schoolName}'
+  }
+};
+
+function renderBroadcastTab(){
+ const students = getStudents();
+ const log = JSON.parse(localStorage.getItem('broadcastLog') || '[]');
+ return `<div>
+  <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+   <h2 class="text-lg font-bold"><i class="fas fa-bullhorn text-burgundy mr-1" style="color:#7a1e2e"></i>Broadcast to Parents (WhatsApp / SMS)</h2>
+  </div>
+
+  <div class="bg-emerald-50 border-l-4 border-emerald-500 p-3 rounded mb-4 text-sm text-emerald-900">
+   <i class="fas fa-circle-info mr-1"></i>
+   <b>How this works:</b> Pick recipients (e.g. "Class 10 parents with fee dues"), choose a message template (or write custom), then click <b>Open in WhatsApp</b> per parent. Each click opens WhatsApp Web (or your phone's WhatsApp) with the message pre-filled to that parent's number — you just press Send. <b>No SMS charges, no backend needed.</b>
+  </div>
+
+  <div class="grid md:grid-cols-2 gap-5">
+
+   <!-- LEFT: Compose -->
+   <div>
+    <h3 class="font-semibold mb-2 text-sm uppercase tracking-wider text-gray-600">1. Compose</h3>
+    <div class="border rounded-lg p-4 space-y-3 bg-white">
+     <div>
+      <label class="text-xs font-medium">Template</label>
+      <select id="bcTemplate" class="w-full">
+       ${Object.entries(BROADCAST_TEMPLATES).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('')}
+      </select>
+     </div>
+     <div>
+      <label class="text-xs font-medium">Message (variables: <code class="text-xs bg-gray-100 px-1">{parentName}</code> <code class="text-xs bg-gray-100 px-1">{studentName}</code> <code class="text-xs bg-gray-100 px-1">{className}</code> <code class="text-xs bg-gray-100 px-1">{feeBalance}</code> <code class="text-xs bg-gray-100 px-1">{schoolName}</code>)</label>
+      <textarea id="bcMessage" rows="8" placeholder="Type your message here, or pick a template above..." style="font-size:0.9rem; line-height:1.5"></textarea>
+     </div>
+     <div class="text-xs text-gray-500">${BROADCAST_TEMPLATES.custom.text || 'Variables get replaced with each recipient\'s actual data when generating links.'}</div>
+    </div>
+
+    <h3 class="font-semibold mb-2 text-sm uppercase tracking-wider text-gray-600 mt-5">3. Preview</h3>
+    <div class="border rounded-lg p-4 bg-amber-50">
+     <div class="text-xs text-gray-600 mb-2">Preview shows the message that will be sent to <span id="bcPreviewName" class="font-semibold">first recipient</span>:</div>
+     <pre id="bcPreviewMsg" class="whitespace-pre-wrap text-sm font-sans bg-white p-3 rounded border" style="min-height:80px; max-height:240px; overflow-y:auto; font-family:'Manrope',sans-serif"></pre>
+    </div>
+   </div>
+
+   <!-- RIGHT: Recipients -->
+   <div>
+    <h3 class="font-semibold mb-2 text-sm uppercase tracking-wider text-gray-600">2. Recipients</h3>
+    <div class="border rounded-lg p-4 space-y-3 bg-white">
+     <div class="grid grid-cols-2 gap-2">
+      <div>
+       <label class="text-xs font-medium">Class</label>
+       <select id="bcFilterClass">
+        <option value="all">All Classes</option>
+        ${ALL_CLASSES.map(c => `<option value="${c}">Class ${c}</option>`).join('')}
+       </select>
+      </div>
+      <div>
+       <label class="text-xs font-medium">Fee Status</label>
+       <select id="bcFilterFee">
+        <option value="all">All</option>
+        <option value="due">Has dues only</option>
+        <option value="cleared">Cleared only</option>
+       </select>
+      </div>
+     </div>
+     <div id="bcRecipientCount" class="text-sm text-indigo-700 font-semibold"></div>
+     <div id="bcRecipientList" class="max-h-64 overflow-y-auto border-t pt-2 space-y-1 text-sm"></div>
+    </div>
+
+    <h3 class="font-semibold mb-2 text-sm uppercase tracking-wider text-gray-600 mt-5">4. Send</h3>
+    <div class="border rounded-lg p-4 bg-white space-y-2">
+     <button id="bcSendWhatsapp" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium">
+      <i class="fab fa-whatsapp mr-1"></i>Open WhatsApp Links (one per parent)
+     </button>
+     <button id="bcExportSMS" class="w-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium">
+      <i class="fas fa-sms mr-1"></i>Download CSV for SMS Gateway
+     </button>
+     <button id="bcCopyNumbers" class="w-full bg-gray-600 hover:bg-gray-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium">
+      <i class="fas fa-copy mr-1"></i>Copy Phone Numbers (for WhatsApp Broadcast List)
+     </button>
+    </div>
+   </div>
+
+  </div>
+
+  <!-- WhatsApp links result -->
+  <div id="bcLinksContainer" class="hidden mt-5 border rounded-lg p-4 bg-white">
+   <div class="flex justify-between items-center mb-3">
+    <h3 class="font-bold"><i class="fab fa-whatsapp text-emerald-600 mr-1"></i>Click each parent's link to send</h3>
+    <button id="bcLinksHide" class="text-gray-500 text-sm hover:text-gray-700">✕ Hide</button>
+   </div>
+   <div class="text-sm text-gray-600 mb-3"><i class="fas fa-info-circle mr-1"></i>Each click opens WhatsApp with that parent's number and message pre-filled. Tap "Send" in WhatsApp to deliver. Mark as sent below.</div>
+   <div id="bcLinksList" class="space-y-1"></div>
+  </div>
+
+  <!-- Broadcast log -->
+  ${log.length > 0 ? `
+  <div class="mt-6 border-t pt-4">
+   <h3 class="font-semibold mb-2"><i class="fas fa-clock-rotate-left mr-1"></i>Recent Broadcasts</h3>
+   <div class="overflow-x-auto"><table class="border text-sm w-full">
+    <thead><tr><th>Date</th><th>Template</th><th>Recipients</th><th>Sent by</th></tr></thead>
+    <tbody>
+     ${log.slice(-10).reverse().map(l => `<tr>
+      <td class="text-xs">${new Date(l.date).toLocaleString('en-IN')}</td>
+      <td>${l.template || 'Custom'}</td>
+      <td>${l.recipientCount} parent${l.recipientCount === 1 ? '' : 's'}</td>
+      <td class="text-xs">${l.sender}</td>
+     </tr>`).join('')}
+    </tbody>
+   </table></div>
+  </div>
+  ` : ''}
+ </div>`;
+}
+
+function attachBroadcastEvents(){
+ const students = getStudents();
+
+ // Resolve current message text with variables for a single recipient
+ const renderTemplate = (text, student) => {
+  return (text || '')
+    .replaceAll('{parentName}',  student.fatherName || student.parentName || 'Parent')
+    .replaceAll('{studentName}', student.name || '')
+    .replaceAll('{className}',   student.class || '')
+    .replaceAll('{feeBalance}',  (student.feeBalance || 0).toString())
+    .replaceAll('{schoolName}',  SCHOOL_INFO.name);
+ };
+
+ // Get filtered recipients based on current dropdowns
+ const getRecipients = () => {
+  const classFilter = document.getElementById('bcFilterClass').value;
+  const feeFilter = document.getElementById('bcFilterFee').value;
+  return students.filter(s => {
+   if (classFilter !== 'all' && s.class !== classFilter) return false;
+   if (feeFilter === 'due' && (s.feeBalance || 0) <= 0) return false;
+   if (feeFilter === 'cleared' && (s.feeBalance || 0) > 0) return false;
+   if (!s.parentPhone) return false; // can't message parents without phone
+   return true;
+  });
+ };
+
+ // Re-render the recipient list panel
+ const updateRecipientPanel = () => {
+  const recipients = getRecipients();
+  document.getElementById('bcRecipientCount').textContent = `${recipients.length} parent${recipients.length === 1 ? '' : 's'} selected`;
+  const list = document.getElementById('bcRecipientList');
+  if (recipients.length === 0) {
+   list.innerHTML = '<div class="text-gray-500 text-center py-3">No matching parents (with phone numbers) for this filter</div>';
+  } else {
+   list.innerHTML = recipients.slice(0, 100).map(s => `
+    <div class="flex justify-between items-center py-1 border-b border-gray-100 text-xs">
+     <div><b>${s.name}</b> · Class ${s.class}${s.section ? '-' + s.section : ''} · ${s.fatherName || s.parentName || 'Parent'}</div>
+     <div class="text-gray-600 font-mono">${s.parentPhone}</div>
+    </div>
+   `).join('') + (recipients.length > 100 ? `<div class="text-gray-500 text-center py-2">…and ${recipients.length - 100} more</div>` : '');
+  }
+  updatePreview();
+ };
+
+ // Refresh the message preview using the first recipient's data
+ const updatePreview = () => {
+  const recipients = getRecipients();
+  const message = document.getElementById('bcMessage').value;
+  if (recipients.length === 0) {
+   document.getElementById('bcPreviewName').textContent = 'no recipients';
+   document.getElementById('bcPreviewMsg').textContent = '(Select recipients above)';
+   return;
+  }
+  const first = recipients[0];
+  document.getElementById('bcPreviewName').textContent = (first.fatherName || first.parentName || 'Parent') + ' (' + first.parentPhone + ')';
+  document.getElementById('bcPreviewMsg').textContent = renderTemplate(message, first) || '(Type a message above or pick a template)';
+ };
+
+ // Wire template selector
+ document.getElementById('bcTemplate').addEventListener('change', (e) => {
+  const t = BROADCAST_TEMPLATES[e.target.value];
+  if (t) document.getElementById('bcMessage').value = t.text;
+  updatePreview();
+ });
+
+ // Wire filter changes
+ document.getElementById('bcFilterClass').addEventListener('change', updateRecipientPanel);
+ document.getElementById('bcFilterFee').addEventListener('change', updateRecipientPanel);
+ document.getElementById('bcMessage').addEventListener('input', updatePreview);
+
+ // Format phone for wa.me — strip non-digits, prepend 91 if 10 digits
+ const cleanPhone = (raw) => {
+  const digits = (raw || '').replace(/\D/g, '');
+  if (digits.length === 10) return '91' + digits;
+  if (digits.length === 12 && digits.startsWith('91')) return digits;
+  if (digits.length === 11 && digits.startsWith('0')) return '91' + digits.slice(1);
+  return digits;
+ };
+
+ // Log a broadcast for the audit trail
+ const logBroadcast = (template, recipientCount) => {
+  const log = JSON.parse(localStorage.getItem('broadcastLog') || '[]');
+  log.push({
+   date: new Date().toISOString(),
+   template: BROADCAST_TEMPLATES[template]?.label || 'Custom',
+   recipientCount,
+   sender: currentUser?.name || 'Admin'
+  });
+  localStorage.setItem('broadcastLog', JSON.stringify(log));
+ };
+
+ // === Generate WhatsApp links ===
+ document.getElementById('bcSendWhatsapp').addEventListener('click', () => {
+  const recipients = getRecipients();
+  const message = document.getElementById('bcMessage').value.trim();
+  if (!message) { alert('Please type a message or pick a template'); return; }
+  if (recipients.length === 0) { alert('No recipients match the filter'); return; }
+  const tpl = document.getElementById('bcTemplate').value;
+  const container = document.getElementById('bcLinksContainer');
+  const list = document.getElementById('bcLinksList');
+  list.innerHTML = recipients.map((s, i) => {
+   const phone = cleanPhone(s.parentPhone);
+   const personalMsg = renderTemplate(message, s);
+   const url = `https://wa.me/${phone}?text=${encodeURIComponent(personalMsg)}`;
+   return `
+    <div class="flex flex-wrap items-center gap-2 py-2 border-b border-gray-100">
+     <input type="checkbox" class="bcSentCheck w-auto" data-id="${s.id}">
+     <div class="flex-1 min-w-0">
+      <div class="text-sm font-medium">${i+1}. ${s.fatherName || s.parentName || 'Parent'} <span class="text-gray-500 text-xs">(${s.name}, Class ${s.class})</span></div>
+      <div class="text-xs text-gray-600 font-mono">${s.parentPhone}</div>
+     </div>
+     <a href="${url}" target="_blank" rel="noopener" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap">
+      <i class="fab fa-whatsapp mr-1"></i>Open WhatsApp
+     </a>
+    </div>`;
+  }).join('');
+  container.classList.remove('hidden');
+  container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  logBroadcast(tpl, recipients.length);
+ });
+
+ document.getElementById('bcLinksHide')?.addEventListener('click', () => {
+  document.getElementById('bcLinksContainer').classList.add('hidden');
+ });
+
+ // === Export CSV for bulk SMS ===
+ document.getElementById('bcExportSMS').addEventListener('click', () => {
+  const recipients = getRecipients();
+  const message = document.getElementById('bcMessage').value.trim();
+  if (!message) { alert('Please type a message or pick a template'); return; }
+  if (recipients.length === 0) { alert('No recipients match the filter'); return; }
+  // CSV format: phone, name, message
+  const rows = [['Phone', 'Name', 'Student', 'Class', 'Message']];
+  recipients.forEach(s => {
+   rows.push([
+    cleanPhone(s.parentPhone),
+    (s.fatherName || s.parentName || 'Parent').replace(/"/g, '""'),
+    s.name.replace(/"/g, '""'),
+    s.class,
+    renderTemplate(message, s).replace(/"/g, '""').replace(/\n/g, ' ')
+   ]);
+  });
+  const csv = rows.map(r => r.map(c => `"${c}"`).join(',')).join('\n');
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = SCHOOL_INFO.shortName + '_Broadcast_' + new Date().toISOString().slice(0, 10) + '.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  showToast(`CSV downloaded — ${recipients.length} parents. Upload to MSG91 / Fast2SMS / Twilio.`);
+  logBroadcast(document.getElementById('bcTemplate').value, recipients.length);
+ });
+
+ // === Copy phone numbers (for pasting into WhatsApp Broadcast List) ===
+ document.getElementById('bcCopyNumbers').addEventListener('click', () => {
+  const recipients = getRecipients();
+  if (recipients.length === 0) { alert('No recipients match the filter'); return; }
+  // For WhatsApp Broadcast List, format: comma-separated +91XXXXXXXXXX
+  const numbers = recipients.map(s => '+' + cleanPhone(s.parentPhone)).join(', ');
+  navigator.clipboard?.writeText(numbers).then(() => {
+   showToast(`${recipients.length} numbers copied. Open WhatsApp → New Broadcast → paste.`);
+  }).catch(() => {
+   // Fallback: show in a textarea for manual copy
+   const ta = document.createElement('textarea');
+   ta.value = numbers;
+   document.body.appendChild(ta);
+   ta.select();
+   try { document.execCommand('copy'); showToast(`${recipients.length} numbers copied`); }
+   catch(e) { alert('Could not copy. Numbers:\n\n' + numbers); }
+   document.body.removeChild(ta);
+  });
+ });
+
+ // Initialize
+ updateRecipientPanel();
 }
 
 /* ============================================================
