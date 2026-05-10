@@ -6,6 +6,7 @@
 <meta name="description" content="Murti Devi Balika Vidyapeeth — a CBSE-affiliated girls' school in Binauli, Baghpat offering Pre-Nursery through Class 12 education rooted in values, knowledge, and academic excellence.">
 <title>Murti Devi Balika Vidyapeeth — Binauli, Baghpat</title>
 <script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1971,6 +1972,9 @@ function renderStudentsTab(){
    <h2 class="text-lg font-bold"><i class="fas fa-user-graduate text-indigo-600 mr-1"></i>Students Management</h2>
    <div class="flex gap-2 flex-wrap">
     <button id="addStudentBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-plus mr-1"></i>Add Student</button>
+    <button id="downloadStudentTemplateBtn" class="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Download Excel template for bulk entry"><i class="fas fa-file-arrow-down mr-1"></i>Template</button>
+    <button id="bulkImportStudentsBtn" class="bg-cyan-600 hover:bg-cyan-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Upload filled template to bulk-add students"><i class="fas fa-file-arrow-up mr-1"></i>Bulk Import</button>
+    <input type="file" id="bulkImportStudentsFile" class="hidden" accept=".xlsx,.xls,.csv">
     <button id="exportStudentsBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-file-excel mr-1"></i>Export</button>
     <button id="promoteStudentsBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-arrow-up mr-1"></i>Promote</button>
    </div>
@@ -2035,6 +2039,18 @@ function renderStudentsTab(){
   </div></div>
 
   <div id="profileModal" class="hidden modal"><div class="modal-content" style="max-width:800px"><div id="profileContent"></div></div></div>
+
+  <!-- Bulk Import Preview Modal -->
+  <div id="bulkImportModal" class="hidden modal"><div class="modal-content" style="max-width:1100px">
+   <h3 class="text-lg font-bold mb-2"><i class="fas fa-file-arrow-up text-cyan-600 mr-1"></i>Bulk Import Preview</h3>
+   <p class="text-sm text-gray-600 mb-3">Review the data below. Rows with errors are highlighted in red and will be skipped. Click <b>Import</b> to add the valid rows.</p>
+   <div id="bulkImportSummary" class="mb-3"></div>
+   <div id="bulkImportTable" class="overflow-auto max-h-96 border rounded"></div>
+   <div class="flex justify-end gap-2 mt-4">
+    <button class="closeModal bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded-lg text-sm font-medium">Cancel</button>
+    <button id="bulkImportConfirmBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-check mr-1"></i>Import Valid Rows</button>
+   </div>
+  </div></div>
  </div>`;
 }
 
@@ -6111,7 +6127,373 @@ function attachStudentsTabEvents(){
   saveStudents(s);showToast('All students promoted to next class');
   activeAdminTab==='students'?refreshAdminTabContent():refreshPrincipalTabContent();
  });
+
+ // ============== TEMPLATE DOWNLOAD ==============
+ document.getElementById('downloadStudentTemplateBtn')?.addEventListener('click', () => {
+  if (typeof XLSX === 'undefined') { alert('Excel library not loaded. Please reload the page and try again.'); return; }
+  _generateStudentTemplate();
+ });
+
+ // ============== BULK IMPORT ==============
+ const bulkBtn = document.getElementById('bulkImportStudentsBtn');
+ const bulkFileInput = document.getElementById('bulkImportStudentsFile');
+ bulkBtn?.addEventListener('click', () => {
+  if (typeof XLSX === 'undefined') { alert('Excel library not loaded. Please reload the page and try again.'); return; }
+  bulkFileInput.value = '';
+  bulkFileInput.click();
+ });
+ bulkFileInput?.addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  if (f.size > 5*1024*1024) { alert('File too large (max 5 MB)'); return; }
+  const reader = new FileReader();
+  reader.onload = ev => _handleStudentBulkUpload(ev.target.result);
+  reader.readAsArrayBuffer(f);
+ });
 }
+
+// ============== STUDENT TEMPLATE GENERATOR ==============
+function _generateStudentTemplate(){
+ // Define column structure with header + sample rows
+ const headers = [
+  'Full Name *',
+  'Admission No',
+  'Registration No',
+  'PEN (11-digit UDISE+)',
+  'Class *',
+  'Section *',
+  'Roll No',
+  'Gender',
+  'Date of Birth (YYYY-MM-DD)',
+  'Blood Group',
+  'Caste',
+  'Aadhaar (masked)',
+  'Father Name',
+  'Mother Name',
+  'Parent Phone (10 digits)',
+  'Parent Email',
+  'Address',
+  'Admission Date (YYYY-MM-DD)',
+  'Annual Fees (Rs.)',
+  'Decided Fees (Rs.)',
+  'Transport Monthly (Rs.)',
+  'Fee Balance (Rs.)',
+  'Previous School',
+  'Religion',
+  'Nationality',
+  'BPL (Yes/No)',
+  'CWSN (Yes/No)'
+ ];
+ const sample1 = [
+  'Aaradhya Singh','MDB2024001','REG2024001','12345678901','10','A',1,'Female','2009-03-15','B+','General','XXXX-XXXX-1234','Sudheer Tomar','Suman Lata','9876543210','sudheer@example.com','123 Main Road, Binauli','2024-04-01',24000,24000,500,0,'St. Marys Convent','Hindu','Indian','No','No'
+ ];
+ const sample2 = [
+  'Priya Sharma','MDB2024002','REG2024002','12345678902','9','B',5,'Female','2010-07-22','A+','OBC','','Rajesh Sharma','Sunita Sharma','9876543211','','Village Saroli, Baghpat','2024-04-01',22000,20000,500,2000,'Govt Primary','Hindu','Indian','Yes','No'
+ ];
+ const data = [headers, sample1, sample2];
+
+ // Sheet 1: Students (data sheet)
+ const ws1 = XLSX.utils.aoa_to_sheet(data);
+ // Set column widths roughly
+ ws1['!cols'] = headers.map((h, i) => ({ wch: h.length < 16 ? 16 : Math.min(h.length + 4, 30) }));
+
+ // Sheet 2: Instructions
+ const instructions = [
+  ['MURTI DEVI BALIKA VIDYAPEETH — Student Bulk Entry Template'],
+  [''],
+  ['HOW TO USE'],
+  ['1. Fill in your students data starting from row 2 of the "Students" sheet.'],
+  ['2. Delete the two sample rows (Aaradhya Singh, Priya Sharma) before uploading.'],
+  ['3. Save the file as .xlsx.'],
+  ['4. Go to Admin → Students tab → click "Bulk Import" → upload this file.'],
+  ['5. Review the preview, fix any flagged errors, then click "Import Valid Rows".'],
+  [''],
+  ['REQUIRED FIELDS (marked with * in headers)'],
+  ['• Full Name — must not be blank'],
+  ['• Class — must be one of: Nursery, LKG, UKG, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12'],
+  ['• Section — must be one of: A, B, C, D'],
+  [''],
+  ['VALID VALUES FOR OTHER FIELDS'],
+  ['Gender: Female, Male, Other'],
+  ['Blood Group: A+, A-, B+, B-, AB+, AB-, O+, O-'],
+  ['Caste: General, OBC, SC, ST'],
+  ['BPL / CWSN: Yes, No (or true/false, 1/0)'],
+  ['Religion: Hindu, Muslim, Sikh, Christian, Jain, Buddhist, Other'],
+  ['Nationality: Indian (default if blank)'],
+  [''],
+  ['DATE FORMAT'],
+  ['Use YYYY-MM-DD (e.g., 2024-04-15). Excel may auto-format — if so, format the column as Text first.'],
+  [''],
+  ['IDENTIFIERS'],
+  ['• Admission No: school internal admission number, must be unique across students'],
+  ['• Registration No: alternate ID, used to auto-create parent username "p_<regNo>"'],
+  ['• PEN: 11-digit Permanent Education Number from UDISE+'],
+  ['• Aadhaar: store masked (last 4 digits visible) for privacy. e.g., XXXX-XXXX-1234'],
+  [''],
+  ['FEES'],
+  ['• Annual Fees: original total fees for the year'],
+  ['• Decided Fees: actual fee after any concession/discount (must be ≤ Annual Fees)'],
+  ['• Transport Monthly: monthly transport charge if applicable'],
+  ['• Fee Balance: outstanding amount yet to be paid (set to 0 if all paid; default decidedFees if blank)'],
+  [''],
+  ['CONTACT'],
+  ['• Parent Phone: 10-digit mobile number without country code'],
+  ['• Address: free text, full postal address'],
+  [''],
+  ['NOTES'],
+  ['• Duplicate Admission Nos will be flagged and skipped during import.'],
+  ['• Empty rows are ignored.'],
+  ['• You can re-upload corrected files; existing students with matching Admission No will be UPDATED (not duplicated).']
+ ];
+ const ws2 = XLSX.utils.aoa_to_sheet(instructions);
+ ws2['!cols'] = [{ wch: 100 }];
+
+ // Build workbook
+ const wb = XLSX.utils.book_new();
+ XLSX.utils.book_append_sheet(wb, ws1, 'Students');
+ XLSX.utils.book_append_sheet(wb, ws2, 'Instructions');
+
+ const filename = SCHOOL_INFO.shortName + '_StudentTemplate_' + new Date().toISOString().slice(0,10) + '.xlsx';
+ XLSX.writeFile(wb, filename);
+ showToast('Template downloaded — fill it in and click "Bulk Import"');
+}
+
+// ============== STUDENT BULK IMPORT ==============
+function _handleStudentBulkUpload(arrayBuffer){
+ try {
+  const workbook = XLSX.read(arrayBuffer, { type: 'array', cellDates: false });
+  const sheetName = workbook.SheetNames.includes('Students') ? 'Students' : workbook.SheetNames[0];
+  const sheet = workbook.Sheets[sheetName];
+  const rawRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+  if (rawRows.length < 2) { alert('No data found in the file. Make sure students are listed below the header row.'); return; }
+
+  // Validate headers (first row)
+  const headerRow = rawRows[0].map(h => String(h || '').trim());
+  const dataRows = rawRows.slice(1);
+
+  // Build a mapping from column name → index, supporting both '*'-suffixed and plain
+  const headerIndex = {};
+  const fieldMap = {
+   'name':           ['full name', 'name'],
+   'admissionNo':    ['admission no', 'admission number', 'adm no', 'admno'],
+   'registrationNo': ['registration no', 'reg no', 'registrationno'],
+   'pen':            ['pen', 'pen (11-digit udise+)', 'udise pen'],
+   'class':          ['class'],
+   'section':        ['section'],
+   'rollNo':         ['roll no', 'roll', 'rollno'],
+   'gender':         ['gender'],
+   'dob':            ['date of birth', 'dob'],
+   'bloodGroup':     ['blood group', 'blood'],
+   'caste':          ['caste', 'category'],
+   'aadhaar':        ['aadhaar', 'aadhar'],
+   'fatherName':     ['father name', 'father'],
+   'motherName':     ['mother name', 'mother'],
+   'parentPhone':    ['parent phone', 'phone'],
+   'parentEmail':    ['parent email', 'email'],
+   'address':        ['address'],
+   'admissionDate':  ['admission date'],
+   'annualFees':     ['annual fees'],
+   'decidedFees':    ['decided fees'],
+   'transportMonthly': ['transport monthly', 'transport'],
+   'feeBalance':     ['fee balance'],
+   'previousSchool': ['previous school'],
+   'religion':       ['religion'],
+   'nationality':    ['nationality'],
+   'bpl':            ['bpl', 'bpl (yes/no)'],
+   'cwsn':           ['cwsn', 'cwsn (yes/no)']
+  };
+  Object.keys(fieldMap).forEach(field => {
+   const aliases = fieldMap[field];
+   // Normalize: lowercase, strip "*" suffix, strip parenthetical hints, collapse whitespace
+   const normalize = h => h.toLowerCase()
+     .replace(/\s*\*\s*$/, '')          // trailing *
+     .replace(/\s*\([^)]*\)\s*/g, ' ')  // any (parenthetical hints)
+     .replace(/\s+/g, ' ')              // collapse spaces
+     .trim();
+   const idx = headerRow.findIndex(h => aliases.some(a => normalize(h) === a));
+   if (idx > -1) headerIndex[field] = idx;
+  });
+
+  if (headerIndex.name === undefined) {
+   alert('Could not find a "Full Name" column. Please use the official template — click "Template" button to download the correct format.');
+   return;
+  }
+
+  // Process each data row, validate, and build candidate student records
+  const existingStudents = getStudents();
+  const existingAdmNos = new Set(existingStudents.map(s => (s.admissionNo || '').toLowerCase()).filter(Boolean));
+  const seenAdmNos = new Set();
+
+  const VALID_CLASSES = new Set(['Nursery','LKG','UKG','1','2','3','4','5','6','7','8','9','10','11','12']);
+  const VALID_SECTIONS = new Set(['A','B','C','D']);
+  const VALID_GENDERS = ['Female','Male','Other'];
+  const VALID_BLOODS = ['A+','A-','B+','B-','AB+','AB-','O+','O-'];
+  const VALID_CASTES = ['General','OBC','SC','ST'];
+
+  const yesNo = (v) => {
+   if (v === '' || v === null || v === undefined) return false;
+   const s = String(v).toLowerCase().trim();
+   return s === 'yes' || s === 'y' || s === 'true' || s === '1';
+  };
+  const cleanStr = v => String(v || '').trim();
+  const cleanInt = v => { const n = parseInt(v); return isNaN(n) ? 0 : n; };
+
+  const candidates = [];
+  dataRows.forEach((row, idx) => {
+   const get = (field) => row[headerIndex[field]];
+   const nameVal = cleanStr(get('name'));
+   if (!nameVal) return; // skip blank rows entirely
+
+   const errors = [];
+   const warnings = [];
+
+   const classVal = cleanStr(get('class'));
+   if (!classVal) errors.push('Class is required');
+   else if (!VALID_CLASSES.has(classVal)) errors.push(`Invalid class "${classVal}" — must be Nursery/LKG/UKG/1-12`);
+
+   const secVal = cleanStr(get('section')) || 'A';
+   if (!VALID_SECTIONS.has(secVal)) errors.push(`Invalid section "${secVal}" — must be A/B/C/D`);
+
+   const admNo = cleanStr(get('admissionNo'));
+   if (admNo) {
+    const lc = admNo.toLowerCase();
+    if (seenAdmNos.has(lc)) errors.push(`Duplicate Admission No "${admNo}" within this file`);
+    else seenAdmNos.add(lc);
+   }
+   const isExisting = admNo && existingAdmNos.has(admNo.toLowerCase());
+
+   const phone = cleanStr(get('parentPhone')).replace(/\D/g,'');
+   if (phone && phone.length !== 10) warnings.push(`Phone "${phone}" is not 10 digits`);
+
+   const gender = cleanStr(get('gender'));
+   if (gender && !VALID_GENDERS.includes(gender)) warnings.push(`Gender "${gender}" — using as-is`);
+
+   const blood = cleanStr(get('bloodGroup'));
+   if (blood && !VALID_BLOODS.includes(blood)) warnings.push(`Blood "${blood}" — using as-is`);
+
+   const caste = cleanStr(get('caste')) || 'General';
+   if (caste && !VALID_CASTES.includes(caste)) warnings.push(`Caste "${caste}" — using as-is`);
+
+   const annualFees = cleanInt(get('annualFees'));
+   const decidedFees = cleanInt(get('decidedFees')) || annualFees;
+   if (decidedFees > annualFees && annualFees > 0) warnings.push('Decided fees > Annual fees');
+
+   const feeBalance = get('feeBalance') === '' || get('feeBalance') === undefined ? decidedFees : cleanInt(get('feeBalance'));
+
+   const student = {
+    name: nameVal,
+    admissionNo: admNo || undefined,
+    registrationNo: cleanStr(get('registrationNo')) || undefined,
+    pen: cleanStr(get('pen')) || undefined,
+    class: classVal || undefined,
+    section: secVal,
+    rollNo: cleanInt(get('rollNo')) || undefined,
+    gender: gender || 'Female',
+    dob: cleanStr(get('dob')) || undefined,
+    bloodGroup: blood || undefined,
+    caste: caste,
+    aadhaar: cleanStr(get('aadhaar')) || undefined,
+    fatherName: cleanStr(get('fatherName')) || undefined,
+    motherName: cleanStr(get('motherName')) || undefined,
+    parentName: cleanStr(get('fatherName')) || cleanStr(get('motherName')) || undefined,
+    parentPhone: phone || undefined,
+    parentEmail: cleanStr(get('parentEmail')) || undefined,
+    address: cleanStr(get('address')) || undefined,
+    admissionDate: cleanStr(get('admissionDate')) || undefined,
+    annualFees: annualFees || undefined,
+    decidedFees: decidedFees || undefined,
+    transportMonthly: cleanInt(get('transportMonthly')) || undefined,
+    feeBalance: feeBalance,
+    previousSchool: cleanStr(get('previousSchool')) || undefined,
+    religion: cleanStr(get('religion')) || undefined,
+    nationality: cleanStr(get('nationality')) || 'Indian',
+    bpl: yesNo(get('bpl')),
+    cwsn: yesNo(get('cwsn'))
+   };
+
+   candidates.push({ rowNum: idx + 2, student, errors, warnings, isExisting });
+  });
+
+  if (candidates.length === 0) { alert('No data rows found (after skipping the header). Add students starting from row 2.'); return; }
+
+  _showBulkImportPreview(candidates);
+ } catch (e) {
+  console.error(e);
+  alert('Error parsing file: ' + e.message + '\n\nMake sure it is a valid Excel file (.xlsx) generated from the template.');
+ }
+}
+
+function _showBulkImportPreview(candidates){
+ const validCount = candidates.filter(c => c.errors.length === 0).length;
+ const errorCount = candidates.filter(c => c.errors.length > 0).length;
+ const newCount = candidates.filter(c => !c.isExisting && c.errors.length === 0).length;
+ const updateCount = candidates.filter(c => c.isExisting && c.errors.length === 0).length;
+
+ const summary = document.getElementById('bulkImportSummary');
+ summary.innerHTML = `
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+   <div class="bg-emerald-50 border border-emerald-200 rounded p-2"><div class="text-xs uppercase font-semibold text-emerald-700">Valid</div><div class="text-2xl font-bold text-emerald-900">${validCount}</div></div>
+   <div class="bg-rose-50 border border-rose-200 rounded p-2"><div class="text-xs uppercase font-semibold text-rose-700">Errors</div><div class="text-2xl font-bold text-rose-900">${errorCount}</div></div>
+   <div class="bg-blue-50 border border-blue-200 rounded p-2"><div class="text-xs uppercase font-semibold text-blue-700">New</div><div class="text-2xl font-bold text-blue-900">${newCount}</div></div>
+   <div class="bg-amber-50 border border-amber-200 rounded p-2"><div class="text-xs uppercase font-semibold text-amber-700">Will Update</div><div class="text-2xl font-bold text-amber-900">${updateCount}</div></div>
+  </div>`;
+
+ const tbl = document.getElementById('bulkImportTable');
+ tbl.innerHTML = `<table class="text-xs w-full">
+  <thead class="bg-gray-100 sticky top-0"><tr>
+   <th class="text-left p-2">Row</th><th class="text-left p-2">Status</th><th class="text-left p-2">Name</th><th class="text-left p-2">Adm No</th><th class="text-left p-2">Class/Sec</th><th class="text-left p-2">Roll</th><th class="text-left p-2">Phone</th><th class="text-left p-2">Notes</th>
+  </tr></thead>
+  <tbody>${candidates.map(c => {
+    const status = c.errors.length > 0 ? '<span class="pill pill-red">Error</span>' : c.isExisting ? '<span class="pill pill-amber">Update</span>' : '<span class="pill pill-green">New</span>';
+    const rowClass = c.errors.length > 0 ? 'bg-rose-50' : '';
+    const notes = [...c.errors.map(e => '❌ '+e), ...c.warnings.map(w => '⚠ '+w)].join('<br>') || '<span class="text-gray-400">—</span>';
+    return `<tr class="border-t ${rowClass}">
+     <td class="p-2 text-gray-500">#${c.rowNum}</td>
+     <td class="p-2">${status}</td>
+     <td class="p-2 font-medium">${c.student.name || '<i class="text-gray-400">(blank)</i>'}</td>
+     <td class="p-2 text-xs">${c.student.admissionNo || '-'}</td>
+     <td class="p-2 text-xs">${c.student.class || '?'}/${c.student.section || '?'}</td>
+     <td class="p-2 text-xs">${c.student.rollNo || '-'}</td>
+     <td class="p-2 text-xs">${c.student.parentPhone || '-'}</td>
+     <td class="p-2 text-xs">${notes}</td>
+    </tr>`;
+   }).join('')}</tbody></table>`;
+
+ // Wire up the confirm button (single instance to avoid duplicate handlers)
+ const confirmBtn = document.getElementById('bulkImportConfirmBtn');
+ const newConfirm = confirmBtn.cloneNode(true);
+ confirmBtn.parentNode.replaceChild(newConfirm, confirmBtn);
+ newConfirm.addEventListener('click', () => {
+  if (validCount === 0) { alert('No valid rows to import.'); return; }
+  if (!confirm(`Import ${validCount} students?\n\n• ${newCount} new students will be added\n• ${updateCount} existing students will be updated by Admission No\n• ${errorCount} rows with errors will be skipped\n\nProceed?`)) return;
+
+  const allStudents = getStudents();
+  const byAdmNo = {};
+  allStudents.forEach(s => { if (s.admissionNo) byAdmNo[s.admissionNo.toLowerCase()] = s; });
+
+  candidates.filter(c => c.errors.length === 0).forEach(c => {
+   if (c.isExisting && c.student.admissionNo) {
+    // Merge into existing
+    const existing = byAdmNo[c.student.admissionNo.toLowerCase()];
+    Object.keys(c.student).forEach(k => {
+     if (c.student[k] !== undefined) existing[k] = c.student[k];
+    });
+   } else {
+    // New record
+    c.student.id = Date.now() + Math.floor(Math.random() * 100000);
+    allStudents.push(c.student);
+   }
+  });
+  saveStudents(allStudents);
+  document.getElementById('bulkImportModal').classList.add('hidden');
+  showToast(`Imported ${validCount} students (${newCount} new, ${updateCount} updated)`);
+  if (activeAdminTab === 'students') refreshAdminTabContent();
+  else if (activePrincipalTab === 'students') refreshPrincipalTabContent();
+ });
+
+ document.getElementById('bulkImportModal').classList.remove('hidden');
+}
+
 function attachProfileTabEvents(){
  document.querySelectorAll('.profile-tab').forEach(t=>t.addEventListener('click',()=>{
   activeStudentProfileTab=t.dataset.ptab;
