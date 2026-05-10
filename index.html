@@ -2094,10 +2094,11 @@ function renderTeachersTab(){
   </div>
   <div class="overflow-x-auto">
    <table class="border text-sm"><thead><tr><th>Name</th><th>Subject</th><th>Qualification</th><th>Emp. ID</th><th>Joined</th><th>Salary</th><th>Phone</th><th>Actions</th></tr></thead>
-   <tbody>${ts.map(t=>`<tr><td class="font-medium">${t.name}</td><td>${t.subject||'-'}</td><td>${t.qualification||'-'}</td><td>${t.employeeId || t.udiseTeacherId || '-'}</td><td>${t.trainingDate?fmtDate(t.trainingDate):'-'}</td><td>Rs.${(t.salary||0).toLocaleString('en-IN')}</td><td>${t.phone||'-'}</td><td><button class="delTeacherBtn text-red-600" data-id="${t.id}"><i class="fas fa-trash"></i></button></td></tr>`).join('')}</tbody></table>
+   <tbody>${ts.map(t=>`<tr><td class="font-medium">${t.name}</td><td>${t.subject||'-'}</td><td>${t.qualification||'-'}</td><td>${t.employeeId || t.udiseTeacherId || '-'}</td><td>${t.trainingDate?fmtDate(t.trainingDate):'-'}</td><td>Rs.${(t.salary||0).toLocaleString('en-IN')}</td><td>${t.phone||'-'}</td><td class="whitespace-nowrap"><button class="editTeacherBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${t.id}" title="Edit"><i class="fas fa-edit"></i></button> <button class="delTeacherBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Delete"><i class="fas fa-trash"></i></button></td></tr>`).join('')}</tbody></table>
   </div>
   <div id="teacherModal" class="hidden modal"><div class="modal-content">
-   <h3 class="text-lg font-bold mb-3">Add Teacher</h3>
+   <h3 class="text-lg font-bold mb-3" id="teacherModalTitle">Add Teacher</h3>
+   <input type="hidden" id="tchId">
    <div class="grid grid-cols-2 gap-3">
     <div><label class="text-xs">Name *</label><input id="tchName"></div>
     <div><label class="text-xs">Subject</label><input id="tchSubject"></div>
@@ -2850,23 +2851,78 @@ function attachProfileTabEvents(){
 /* ---------- TEACHERS TAB EVENTS ---------- */
 function attachTeachersTabEvents(){
  const refresh=()=>{activeAdminTab==='teachers'?refreshAdminTabContent():refreshPrincipalTabContent()};
- document.getElementById('addTeacherBtn')?.addEventListener('click',()=>{document.getElementById('teacherModal').classList.remove('hidden')});
- document.getElementById('saveTeacherBtn')?.addEventListener('click',()=>{
-  const name=document.getElementById('tchName').value.trim();
-  if(!name){alert('Name required');return}
-  const t=getTeachers();
-  const newTeacher = {id:Date.now(),name,subject:document.getElementById('tchSubject').value,qualification:document.getElementById('tchQual').value,employeeId:document.getElementById('tchEmpId').value,trainingDate:document.getElementById('tchTrain').value,salary:parseInt(document.getElementById('tchSalary').value)||0,phone:document.getElementById('tchPhone').value,bankAccount:document.getElementById('tchBank').value};
-  t.push(newTeacher);
-  saveTeachers(t);
-  // Auto-create teacher login
-  const r = createLoginForTeacher(newTeacher);
-  document.getElementById('teacherModal').classList.add('hidden');
-  showToast('Teacher added' + (r.created ? ' — login created (' + _genUsername('teacher', newTeacher) + ')' : ''));
+
+ // Helper to open modal in either Add or Edit mode
+ const openTeacherModal = (existingId) => {
+  // Clear all fields
+  ['tchId','tchName','tchSubject','tchQual','tchEmpId','tchTrain','tchSalary','tchPhone','tchBank']
+   .forEach(f => { const el = document.getElementById(f); if (el) el.value = ''; });
+
+  if (existingId) {
+   const t = getTeachers().find(x => x.id === parseInt(existingId));
+   if (t) {
+    document.getElementById('teacherModalTitle').innerText = 'Edit Teacher';
+    document.getElementById('tchId').value = t.id;
+    document.getElementById('tchName').value = t.name || '';
+    document.getElementById('tchSubject').value = t.subject || '';
+    document.getElementById('tchQual').value = t.qualification || '';
+    document.getElementById('tchEmpId').value = t.employeeId || t.udiseTeacherId || '';
+    document.getElementById('tchTrain').value = t.trainingDate || '';
+    document.getElementById('tchSalary').value = t.salary || '';
+    document.getElementById('tchPhone').value = t.phone || '';
+    document.getElementById('tchBank').value = t.bankAccount || '';
+   }
+  } else {
+   document.getElementById('teacherModalTitle').innerText = 'Add Teacher';
+  }
+  document.getElementById('teacherModal').classList.remove('hidden');
+ };
+
+ document.getElementById('addTeacherBtn')?.addEventListener('click', () => openTeacherModal(null));
+ document.querySelectorAll('.editTeacherBtn').forEach(b => b.addEventListener('click', () => openTeacherModal(b.dataset.id)));
+
+ document.getElementById('saveTeacherBtn')?.addEventListener('click', () => {
+  const name = document.getElementById('tchName').value.trim();
+  if (!name) { alert('Name required'); return; }
+  const id = document.getElementById('tchId').value;
+  const data = {
+   name,
+   subject: document.getElementById('tchSubject').value.trim(),
+   qualification: document.getElementById('tchQual').value.trim(),
+   employeeId: document.getElementById('tchEmpId').value.trim(),
+   trainingDate: document.getElementById('tchTrain').value,
+   salary: parseInt(document.getElementById('tchSalary').value) || 0,
+   phone: document.getElementById('tchPhone').value.trim(),
+   bankAccount: document.getElementById('tchBank').value.trim()
+  };
+  const teachers = getTeachers();
+  if (id) {
+   // Edit mode — update existing record
+   const i = teachers.findIndex(x => x.id === parseInt(id));
+   if (i > -1) {
+    // Drop the old udiseTeacherId once we have a real Employee ID, to clean migration
+    teachers[i] = { ...teachers[i], ...data };
+    if (data.employeeId) delete teachers[i].udiseTeacherId;
+   }
+   saveTeachers(teachers);
+   document.getElementById('teacherModal').classList.add('hidden');
+   showToast('Teacher updated');
+  } else {
+   // Add mode — create new record + auto-login
+   data.id = Date.now();
+   teachers.push(data);
+   saveTeachers(teachers);
+   const r = createLoginForTeacher(data);
+   document.getElementById('teacherModal').classList.add('hidden');
+   showToast('Teacher added' + (r.created ? ' — login created (' + _genUsername('teacher', data) + ')' : ''));
+  }
   refresh();
  });
- document.querySelectorAll('.delTeacherBtn').forEach(b=>b.addEventListener('click',()=>{
-  if(!confirm('Delete this teacher?'))return;
-  saveTeachers(getTeachers().filter(x=>x.id!==parseInt(b.dataset.id)));refresh();
+
+ document.querySelectorAll('.delTeacherBtn').forEach(b => b.addEventListener('click', () => {
+  if (!confirm('Delete this teacher?')) return;
+  saveTeachers(getTeachers().filter(x => x.id !== parseInt(b.dataset.id)));
+  refresh();
  }));
 }
 
