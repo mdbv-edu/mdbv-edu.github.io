@@ -1619,8 +1619,8 @@ function initDB(){
  if(!localStorage.getItem('feeTransactions')) localStorage.setItem('feeTransactions','[]');
  if(!localStorage.getItem('homeworks'))       localStorage.setItem('homeworks','[]');
  if(!localStorage.getItem('complaints'))      localStorage.setItem('complaints','[]');
- if(!localStorage.getItem('busTracking'))     localStorage.setItem('busTracking',JSON.stringify({route1:{lat:28.95,lng:77.62,lastUpdate:'',status:''}}));
- if(!localStorage.getItem('schoolInfra'))     localStorage.setItem('schoolInfra',JSON.stringify({girlsToilets:8,functionalComputers:45,ramps:true,library:true,incinerator:true,lastUpdated:'2026-04-01'}));
+ if(!localStorage.getItem('busTracking'))     localStorage.setItem('busTracking',JSON.stringify({route1:{lat:null,lng:null,lastUpdate:'',status:''}}));
+ if(!localStorage.getItem('schoolInfra'))     localStorage.setItem('schoolInfra',JSON.stringify({girlsToilets:0,functionalComputers:0,ramps:false,library:false,incinerator:false,lastUpdated:''}));
  if(!localStorage.getItem('udiseReport'))     localStorage.setItem('udiseReport',JSON.stringify({lastSubmitted:'',ackNo:''}));
  if(!localStorage.getItem('examMarks'))       localStorage.setItem('examMarks','[]');
  if(!localStorage.getItem('payrollSlips'))    localStorage.setItem('payrollSlips','[]');
@@ -1628,41 +1628,41 @@ function initDB(){
   let r={};JSON.parse(localStorage.getItem('students')).forEach(s=>{r[s.id]={}});
   localStorage.setItem('attendanceRecords',JSON.stringify(r));
  }
- if(!localStorage.getItem('inventory'))localStorage.setItem('inventory',JSON.stringify([{id:1,name:'Whiteboard Markers',category:'Stationery',quantity:50,unit:'box',location:'Store Room'}]));
- if(!localStorage.getItem('vehicles'))localStorage.setItem('vehicles',JSON.stringify([{id:1,vehicleNo:'UP15 AB 1234',type:'Bus',capacity:50,driver:'Ramesh',route:'Binauli-Baghpat',status:'Active'}]));
- if(!localStorage.getItem('routeMovements'))localStorage.setItem('routeMovements',JSON.stringify([{id:1,vehicleId:1,date:'2026-04-24',departure:'07:30',arrival:'08:00',status:'On Time'}]));
- if(!localStorage.getItem('maintenance'))localStorage.setItem('maintenance',JSON.stringify([{id:1,vehicleId:1,date:'2026-04-10',type:'Oil Change',cost:3500,nextDue:'2026-07-10'}]));
- if(!localStorage.getItem('expenses'))localStorage.setItem('expenses',JSON.stringify([{id:1,date:'2026-04-23',category:'Stationery',description:'Printer paper',amount:1200,mode:'Cash'}]));
- if(!localStorage.getItem('bankAccounts'))localStorage.setItem('bankAccounts',JSON.stringify([{id:1,bankName:'State Bank of India',accountNo:'1234567890',branch:'Binauli',ifsc:'SBIN0012345',balance:450000}]));
+ if(!localStorage.getItem('inventory'))       localStorage.setItem('inventory','[]');
+ if(!localStorage.getItem('vehicles'))        localStorage.setItem('vehicles','[]');
+ if(!localStorage.getItem('routeMovements')) localStorage.setItem('routeMovements','[]');
+ if(!localStorage.getItem('maintenance'))     localStorage.setItem('maintenance','[]');
+ if(!localStorage.getItem('expenses'))        localStorage.setItem('expenses','[]');
+ if(!localStorage.getItem('bankAccounts'))    localStorage.setItem('bankAccounts','[]');
  if(!localStorage.getItem('bankTransactions'))localStorage.setItem('bankTransactions','[]');
  if(!localStorage.getItem('correctionRequests'))localStorage.setItem('correctionRequests','[]');
  if(!localStorage.getItem('accountingAuditLog'))localStorage.setItem('accountingAuditLog','[]');
- if(!localStorage.getItem('messageLog'))localStorage.setItem('messageLog','[]');
- if(!localStorage.getItem('ptmEvents'))localStorage.setItem('ptmEvents','[]');
+ if(!localStorage.getItem('messageLog'))      localStorage.setItem('messageLog','[]');
+ if(!localStorage.getItem('ptmEvents'))       localStorage.setItem('ptmEvents','[]');
  if(!localStorage.getItem('homeworkSubmissions'))localStorage.setItem('homeworkSubmissions','[]');
- if(!localStorage.getItem('teacherAuditLog'))localStorage.setItem('teacherAuditLog','[]');
- if(!localStorage.getItem('calendar'))localStorage.setItem('calendar',JSON.stringify([{id:1,title:'CBSE Pre-Board Exam',date:'2026-05-10',description:'Class 10 & 12',type:'Exam'}]));
- if(!localStorage.getItem('documents'))localStorage.setItem('documents','[]');
- if(!localStorage.getItem('chatMessages'))localStorage.setItem('chatMessages','[]');
+ if(!localStorage.getItem('teacherAuditLog')) localStorage.setItem('teacherAuditLog','[]');
+ if(!localStorage.getItem('calendar'))        localStorage.setItem('calendar','[]');
+ if(!localStorage.getItem('documents'))       localStorage.setItem('documents','[]');
+ if(!localStorage.getItem('chatMessages'))    localStorage.setItem('chatMessages','[]');
  if(!localStorage.getItem('compliance'))localStorage.setItem('compliance',JSON.stringify([
-  {id:'udise',name:'UDISE+ Reporting',desc:'Annual school data submission to MoE',enabled:true,status:'compliant',validUntil:'2026-12-31',docRef:'UD2025UP1234',notes:'',category:'Statutory'},
-  {id:'rte',name:'RTE 25% Reservation',desc:'Right to Education quota compliance',enabled:true,status:'compliant',validUntil:'2027-03-31',docRef:'RTE/UP/2025',notes:'',category:'Statutory'},
-  {id:'cbse',name:'CBSE Affiliation',desc:'Primary regulatory affiliation',enabled:true,status:'compliant',validUntil:'2029-03-31',docRef:'CBSE/2022/3530012',notes:'',category:'Statutory'},
+  {id:'udise',name:'UDISE+ Reporting',desc:'Annual school data submission to MoE',enabled:true,status:'pending',validUntil:'',docRef:'',notes:'',category:'Statutory'},
+  {id:'rte',name:'RTE 25% Reservation',desc:'Right to Education quota compliance',enabled:true,status:'pending',validUntil:'',docRef:'',notes:'',category:'Statutory'},
+  {id:'cbse',name:'CBSE Affiliation',desc:'Primary regulatory affiliation',enabled:true,status:'pending',validUntil:'',docRef:'',notes:'',category:'Statutory'},
   {id:'mdm',name:'Mid-Day Meal Compliance',desc:'MDM norms (if applicable)',enabled:false,status:'na',validUntil:'',docRef:'',notes:'Not applicable for private school',category:'Statutory'},
-  {id:'pocso',name:'POCSO Committee',desc:'Child sexual offences prevention cell',enabled:true,status:'compliant',validUntil:'2026-08-15',docRef:'POCSO/INT/01',notes:'Monthly meeting minutes maintained',category:'Safety'},
-  {id:'antirag',name:'Anti-Ragging Committee',desc:'CBSE mandated committee for harassment',enabled:true,status:'compliant',validUntil:'2026-06-30',docRef:'ARC/2025',notes:'',category:'Safety'},
-  {id:'posh',name:'POSH (Internal Committee)',desc:'Sexual Harassment at Workplace Act',enabled:true,status:'pending',validUntil:'2026-05-15',docRef:'POSH/2025',notes:'External member nomination pending',category:'Safety'},
-  {id:'health',name:'Health Check-up Records',desc:'Annual student health camp',enabled:true,status:'pending',validUntil:'2026-07-31',docRef:'',notes:'Camp scheduled for June',category:'Safety'},
-  {id:'cctv',name:'CCTV Monitoring',desc:'Coverage of entry/exit/corridors',enabled:true,status:'compliant',validUntil:'2026-12-31',docRef:'CCTV/LOG',notes:'24 cameras active',category:'Safety'},
-  {id:'girlssafe',name:'Girls Safety Norms',desc:'Balika Suraksha: incinerators, counsellor',enabled:true,status:'compliant',validUntil:'2026-12-31',docRef:'BS/2025',notes:'',category:'Safety'},
-  {id:'firstaid',name:'First Aid and Medical Room',desc:'Dedicated medical room + nurse',enabled:true,status:'compliant',validUntil:'2026-12-31',docRef:'MR/2025',notes:'',category:'Safety'},
-  {id:'evac',name:'Emergency Evacuation Plan',desc:'Mock drill every 6 months',enabled:true,status:'pending',validUntil:'2026-05-30',docRef:'',notes:'Next drill: May 20',category:'Safety'},
-  {id:'fire',name:'Fire Safety Certificate',desc:'NOC from fire department',enabled:true,status:'compliant',validUntil:'2027-01-20',docRef:'FIRE/BGP/2026/102',notes:'',category:'Infrastructure'},
-  {id:'building',name:'Building Safety Certificate',desc:'Structural stability certificate',enabled:true,status:'compliant',validUntil:'2028-03-31',docRef:'BSC/BGP/2024',notes:'',category:'Infrastructure'},
-  {id:'water',name:'Drinking Water and Sanitation',desc:'RO + segregated toilets',enabled:true,status:'compliant',validUntil:'2026-12-31',docRef:'',notes:'',category:'Infrastructure'},
-  {id:'nishtha',name:'Teacher Training (NISHTHA)',desc:'Govt mandated teacher capacity building',enabled:true,status:'compliant',validUntil:'2026-09-30',docRef:'NISHTHA/2025',notes:'',category:'Academic'},
-  {id:'library',name:'Library Access (RTE)',desc:'Minimum library norms under RTE Act',enabled:true,status:'compliant',validUntil:'2026-12-31',docRef:'',notes:'2500+ books',category:'Academic'},
-  {id:'smc',name:'School Management Committee',desc:'Parent-Teacher-Community governance',enabled:true,status:'compliant',validUntil:'2026-10-31',docRef:'SMC/2025',notes:'Quarterly meetings',category:'Governance'}
+  {id:'pocso',name:'POCSO Committee',desc:'Child sexual offences prevention cell',enabled:true,status:'pending',validUntil:'',docRef:'',notes:'',category:'Safety'},
+  {id:'antirag',name:'Anti-Ragging Committee',desc:'CBSE mandated committee for harassment',enabled:true,status:'pending',validUntil:'',docRef:'',notes:'',category:'Safety'},
+  {id:'posh',name:'POSH (Internal Committee)',desc:'Sexual Harassment at Workplace Act',enabled:true,status:'pending',validUntil:'',docRef:'',notes:'',category:'Safety'},
+  {id:'health',name:'Health Check-up Records',desc:'Annual student health camp',enabled:true,status:'pending',validUntil:'',docRef:'',notes:'',category:'Safety'},
+  {id:'cctv',name:'CCTV Monitoring',desc:'Coverage of entry/exit/corridors',enabled:true,status:'pending',validUntil:'',docRef:'',notes:'',category:'Safety'},
+  {id:'girlssafe',name:'Girls Safety Norms',desc:'Balika Suraksha: incinerators, counsellor',enabled:true,status:'pending',validUntil:'',docRef:'',notes:'',category:'Safety'},
+  {id:'firstaid',name:'First Aid and Medical Room',desc:'Dedicated medical room + nurse',enabled:true,status:'pending',validUntil:'',docRef:'',notes:'',category:'Safety'},
+  {id:'evac',name:'Emergency Evacuation Plan',desc:'Mock drill every 6 months',enabled:true,status:'pending',validUntil:'',docRef:'',notes:'',category:'Safety'},
+  {id:'fire',name:'Fire Safety Certificate',desc:'NOC from fire department',enabled:true,status:'pending',validUntil:'',docRef:'',notes:'',category:'Infrastructure'},
+  {id:'building',name:'Building Safety Certificate',desc:'Structural stability certificate',enabled:true,status:'pending',validUntil:'',docRef:'',notes:'',category:'Infrastructure'},
+  {id:'water',name:'Drinking Water and Sanitation',desc:'RO + segregated toilets',enabled:true,status:'pending',validUntil:'',docRef:'',notes:'',category:'Infrastructure'},
+  {id:'nishtha',name:'Teacher Training (NISHTHA)',desc:'Govt mandated teacher capacity building',enabled:true,status:'pending',validUntil:'',docRef:'',notes:'',category:'Academic'},
+  {id:'library',name:'Library Access (RTE)',desc:'Minimum library norms under RTE Act',enabled:true,status:'pending',validUntil:'',docRef:'',notes:'',category:'Academic'},
+  {id:'smc',name:'School Management Committee',desc:'Parent-Teacher-Community governance',enabled:true,status:'pending',validUntil:'',docRef:'',notes:'',category:'Governance'}
  ]));
 }
 
@@ -1833,6 +1833,22 @@ function renderOwnerDashboard(){
   <div class="bg-white rounded-xl shadow-sm p-5 mt-6">
    <h2 class="font-semibold mb-3"><i class="fas fa-file-alt text-gray-600 mr-2"></i>Recent Exam Marks</h2>
    <div id="examMarksSummary" class="text-sm space-y-1 max-h-48 overflow-auto"></div>
+  </div>
+
+  <!-- DANGER ZONE: data reset for production setup -->
+  <div class="bg-rose-50 border-2 border-rose-300 rounded-xl p-5 mt-6">
+   <h2 class="font-semibold mb-2 text-rose-900"><i class="fas fa-triangle-exclamation text-rose-600 mr-2"></i>Danger Zone — Production Reset</h2>
+   <p class="text-sm text-rose-900 mb-3">When putting the app into actual use after testing, use these tools to wipe demo / test data. <b>Operations are PERMANENT — once cleared, the data cannot be recovered.</b></p>
+   <div class="flex flex-wrap gap-2">
+    <button id="wipeFinanceBtn" class="bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-broom mr-1"></i>Wipe Financial Data Only</button>
+    <button id="wipeOperationalBtn" class="bg-rose-700 hover:bg-rose-800 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-eraser mr-1"></i>Wipe All Operational Data</button>
+    <button id="wipeEverythingBtn" class="bg-black hover:bg-gray-800 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-skull mr-1"></i>Factory Reset (clears EVERYTHING)</button>
+   </div>
+   <div class="mt-3 text-xs text-rose-800 leading-relaxed">
+    <b>Wipe Financial Data Only</b> — clears: receipts, expenses, bank transactions, bank accounts, correction requests, accounting audit log. <b>Keeps:</b> users, students, teachers, marks, attendance, homework.<br>
+    <b>Wipe All Operational Data</b> — adds to the above: exam marks, attendance, homework + submissions, complaints, payroll slips, message log, PTM events, teacher audit log, inventory, vehicles, maintenance, calendar. <b>Keeps:</b> users, students, teachers, school config, compliance template, gallery, disclosure docs.<br>
+    <b>Factory Reset</b> — removes <i>everything</i> including users and students. The app reloads and you'll need to log in with the original SEED_USERS credentials.
+   </div>
   </div>
  </div>`;
 }
@@ -5726,6 +5742,38 @@ function attachOwnerEvents(){
   const marks=getExamMarks(),students=getStudents();
   em.innerHTML=marks.length?marks.slice(-10).map(m=>{const s=students.find(x=>x.id===m.studentId);return `<div class="flex justify-between border-b py-1"><span>${s?.name||'?'} - ${m.subject} (${m.examName})</span><b>${m.marks}/${m.maxMarks}</b></div>`}).join(''):'<div class="text-gray-500">No exam marks recorded</div>';
  }
+
+ // ── DANGER ZONE: data wipe handlers ──
+ const FINANCIAL_KEYS = ['feeTransactions','expenses','bankTransactions','bankAccounts','correctionRequests','accountingAuditLog'];
+ const OPERATIONAL_KEYS = [...FINANCIAL_KEYS,'examMarks','attendanceRecords','homeworks','homeworkSubmissions','complaints','payrollSlips','messageLog','ptmEvents','teacherAuditLog','inventory','vehicles','routeMovements','maintenance','calendar','documents','chatMessages','busTracking'];
+
+ document.getElementById('wipeFinanceBtn')?.addEventListener('click', () => {
+  if (!confirm('WIPE all financial data?\n\nThis clears:\n• Fee receipts (receipts to students)\n• Expenses\n• Bank accounts and bank transactions\n• Correction requests\n• Accounting audit log\n\nKeeps: users, students, teachers, marks, attendance, homework, etc.\n\nThis is PERMANENT. Continue?')) return;
+  if (!confirm('Are you absolutely sure? This cannot be undone.')) return;
+  FINANCIAL_KEYS.forEach(k => localStorage.removeItem(k));
+  // Clear lastReceiptId banner state too
+  localStorage.removeItem('_lastReceiptId');
+  alert('Financial data wiped. Page will reload now.');
+  location.reload();
+ });
+
+ document.getElementById('wipeOperationalBtn')?.addEventListener('click', () => {
+  if (!confirm('WIPE all operational data?\n\nThis clears all transactional data including marks, attendance, homework, complaints, payroll, broadcasts, PTMs, audit logs, and all financial records.\n\nKeeps: users, students, teachers, school config, compliance template, gallery, disclosure docs.\n\nThis is PERMANENT. Continue?')) return;
+  if (!confirm('Last chance — really clear all operational data?')) return;
+  OPERATIONAL_KEYS.forEach(k => localStorage.removeItem(k));
+  localStorage.removeItem('_lastReceiptId');
+  alert('All operational data wiped. Page will reload now.');
+  location.reload();
+ });
+
+ document.getElementById('wipeEverythingBtn')?.addEventListener('click', () => {
+  if (!confirm('FACTORY RESET — clear EVERYTHING?\n\nThis wipes the entire app database:\n• All users (you will be logged out)\n• All students, teachers, parents\n• All transactions, marks, attendance, everything\n\nAfter reload, the app will use the SEED_USERS defaults. Make sure you know how to log back in.\n\nThis is PERMANENT and IRREVERSIBLE. Continue?')) return;
+  if (!confirm('Type-test confirmation: are you 100% sure you want to FACTORY RESET this app?')) return;
+  if (!confirm('Final warning: this will log you out and remove ALL data. Proceed?')) return;
+  localStorage.clear();
+  alert('Factory reset complete. Logging out and reloading.');
+  location.reload();
+ });
 }
 
 /* ---------- ADMIN EVENTS ---------- */
