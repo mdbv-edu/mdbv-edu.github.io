@@ -4016,8 +4016,9 @@ function renderAccReceipts(){
      <input id="rcptChequeNo" placeholder="e.g. 123456">
     </div>
     <div id="rcptBankRow" style="display:none">
-     <label class="text-xs font-medium">Deposited to Bank</label>
+     <label class="text-xs font-medium">Credit to school A/C *</label>
      <select id="rcptBankAcc">${banks.map(b => `<option value="${b.id}">${b.bankName} · ${b.accountNo}</option>`).join('')}</select>
+     <div class="text-xs text-gray-500 mt-0.5">Select the school's bank account that received this payment</div>
     </div>
     <div class="md:col-span-2">
      <label class="text-xs font-medium">Notes (optional)</label>
@@ -4372,7 +4373,8 @@ function _generateReceiptHTML(txn){
    <div class="receipt">
     <div class="receipt-header">
      <div class="logo-block">
-      <div class="logo">M</div>
+      <img src="assets/img/apple-touch-icon.png" alt="MDBV" class="logo-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+      <div class="logo" style="display:none">M</div>
      </div>
      <div class="school-info">
       <div class="school-name">${SCHOOL_INFO.name}</div>
@@ -4408,7 +4410,7 @@ function _generateReceiptHTML(txn){
      </div>
 
      ${txn.chequeNo ? `<div class="row"><span class="lbl">Cheque No:</span> <span class="val mono">${txn.chequeNo}</span></div>` : ''}
-     ${bank ? `<div class="row"><span class="lbl">${txn.mode === 'Cheque' ? 'Deposited to:' : 'Bank:'}</span> <span class="val">${bank.bankName} - A/C ${bank.accountNo}</span></div>` : ''}
+     ${(bank && txn.mode && txn.mode !== 'Cash') ? `<div class="row"><span class="lbl">Credited to school A/C:</span> <span class="val">${bank.bankName} - A/C ${bank.accountNo}</span></div>` : ''}
      ${txn.notes ? `<div class="row"><span class="lbl">Notes:</span> <span class="val">${txn.notes}</span></div>` : ''}
 
      <div class="amount-block">
@@ -4434,6 +4436,7 @@ function _generateReceiptHTML(txn){
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<base href="${(typeof window !== 'undefined' ? window.location.origin : '') + (typeof window !== 'undefined' ? window.location.pathname.replace(/\/[^\/]*$/, '/') : '/')}">
 <title>Receipt ${txn.receiptNo} - ${SCHOOL_INFO.shortName}</title>
 <style>
  @page { size: A4; margin: 1cm; }
@@ -4477,10 +4480,17 @@ function _generateReceiptHTML(txn){
   display: flex; gap: 15px; align-items: center;
   border-bottom: 2px solid #7a1e2e; padding-bottom: 12px; margin-bottom: 14px;
  }
+ .logo-img {
+  width: 64px; height: 64px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 1px solid #e5e5e5;
+ }
  .logo {
   width: 56px; height: 56px;
   background: #7a1e2e; color: #faf6ef;
-  display: flex; align-items: center; justify-content: center;
+  align-items: center; justify-content: center;
   font-family: 'Fraunces', Georgia, serif;
   font-size: 32px; font-weight: 700;
   border-radius: 8px;
@@ -4952,7 +4962,8 @@ function _attachReceiptEvents(){
   const mode = document.getElementById('rcptMode').value;
   const date = document.getElementById('rcptDate').value || new Date().toISOString().slice(0,10);
   const chequeNo = document.getElementById('rcptChequeNo')?.value.trim();
-  const bankAccId = parseInt(document.getElementById('rcptBankAcc')?.value) || null;
+  // Only capture bank account for non-cash modes (UI hides the field but the dropdown still has a value)
+  const bankAccId = (mode !== 'Cash') ? (parseInt(document.getElementById('rcptBankAcc')?.value) || null) : null;
   const notes = document.getElementById('rcptNotes').value.trim();
 
   const transaction = {
@@ -5047,7 +5058,8 @@ function _attachPaymentEvents(){
   const vendor = document.getElementById('expVendor').value.trim();
   const description = document.getElementById('expDescription').value.trim();
   const chequeNo = document.getElementById('expChequeNo')?.value.trim();
-  const bankAccId = parseInt(document.getElementById('expBankAcc')?.value) || null;
+  // Only capture bank account for non-cash modes
+  const bankAccId = (mode !== 'Cash') ? (parseInt(document.getElementById('expBankAcc')?.value) || null) : null;
 
   const expense = {
    id: Date.now(), date, category: cat, vendor: vendor || undefined,
