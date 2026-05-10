@@ -3437,11 +3437,24 @@ function renderAccReceipts(){
     <div>
      <label class="text-xs font-medium">Receipt From *</label>
      <select id="rcptFrom">
-      <option value="">— Choose payer type —</option>
-      <optgroup label="Students">
-       ${students.map(s => `<option value="student:${s.id}">Class ${s.class} · ${s.name}${s.feeBalance > 0 ? ' (Due ' + fmtINR(s.feeBalance) + ')' : ''}</option>`).join('')}
+      <option value="">— Choose payer —</option>
+      ${(() => {
+        // Group students by class, then sort within each class by roll number
+        const byClass = {};
+        students.forEach(s => { (byClass[s.class] = byClass[s.class] || []).push(s); });
+        const classOrder = ALL_CLASSES.filter(c => byClass[c]);
+        return classOrder.map(cls => {
+          const list = byClass[cls].sort((a,b) => (a.rollNo||0) - (b.rollNo||0));
+          return `<optgroup label="Class ${cls} (${list.length})">${list.map(s => {
+            const due = s.feeBalance > 0 ? ' — Due ' + fmtINR(s.feeBalance) : ' — Cleared';
+            const roll = s.rollNo ? '#' + s.rollNo + ' ' : '';
+            return `<option value="student:${s.id}">${roll}${s.name}${due}</option>`;
+          }).join('')}</optgroup>`;
+        }).join('');
+      })()}
+      <optgroup label="Other">
+       <option value="other:">Other (donation / outside payer)</option>
       </optgroup>
-      <option value="other:">Other (donation / outside payer)</option>
      </select>
     </div>
     <div>
