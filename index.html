@@ -1846,13 +1846,11 @@ function renderAdminPanel(){
   {id:'datamanagement',label:'Data',icon:'database'},
   {id:'compliance',label:'Compliance',icon:'shield-halved'},
   {id:'broadcast',label:'Broadcast',icon:'bullhorn'},
-  {id:'accounts',label:'Accounts',icon:'book-open-reader'},
   {id:'gallery',label:'Gallery',icon:'images'},
   {id:'disclosureDocs',label:'Disclosure PDFs',icon:'file-pdf'},
   {id:'inventory',label:'Inventory',icon:'boxes-stacked'},
   {id:'vehicles',label:'Vehicles',icon:'bus'},
   {id:'maintenance',label:'Maintenance',icon:'screwdriver-wrench'},
-  {id:'expenses',label:'Expenses',icon:'receipt'},
   {id:'bank',label:'Bank',icon:'building-columns'},
   {id:'calendar',label:'Calendar',icon:'calendar-days'},
   {id:'documents',label:'Documents',icon:'folder-open'},
@@ -1872,6 +1870,16 @@ function renderAdminPanel(){
  </div>`;
 }
 function renderAdminTabContent(){
+ // Defensive redirect: if admin is on a tab that's been moved to another role's panel
+ if (activeAdminTab === 'accounts' || activeAdminTab === 'expenses') {
+  return `<div class="bg-amber-50 border-l-4 border-amber-500 p-4 rounded">
+   <div class="font-semibold text-amber-900 mb-1"><i class="fas fa-info-circle mr-1"></i>This tab has moved.</div>
+   <div class="text-sm text-amber-800">
+    ${activeAdminTab === 'accounts' ? 'Accounts &amp; Audit is now an Owner-only function. The owner reviews correction requests, audit logs, and edits/deletes transactions through their own dashboard.' : 'Expense entry is now handled by the Accountant via the Payments tab in the Accountant Panel. The accountant has full access to record and categorize school expenses.'}
+   </div>
+   <div class="text-sm text-amber-800 mt-2">As Admin, you can still view the financial summary in <b>Reports</b>.</div>
+  </div>`;
+ }
  switch(activeAdminTab){
   case 'dashboard':return renderAdminDashboardTab();
   case 'users':return renderUsersTab();
@@ -1880,13 +1888,11 @@ function renderAdminTabContent(){
   case 'datamanagement':return renderDataManagement();
   case 'compliance':return renderComplianceTab();
   case 'broadcast':return renderBroadcastTab();
-  case 'accounts':return renderAdminAccountsTab();
   case 'gallery':return renderGalleryAdminTab();
   case 'disclosureDocs':return renderDisclosureDocsTab();
   case 'inventory':return renderInventory();
   case 'vehicles':return renderVehicles();
   case 'maintenance':return renderMaintenance();
-  case 'expenses':return renderExpenses();
   case 'bank':return renderBank();
   case 'calendar':return renderCalendar();
   case 'documents':return renderDocuments();
@@ -4294,7 +4300,9 @@ function _renderLedgerResults(){
    <tbody>${rows.length === 0 ? '<tr><td colspan="8" class="text-center text-gray-500 py-4">No transactions in this period</td></tr>' : rows.map(r => {
      // Look up if a pending correction request exists for this transaction
      const pending = getCorrectionRequests().find(cr => cr.txnId === r.id && cr.txnKind === r._kind && cr.status === 'pending');
-     const actionBtn = (currentUser?.role === 'admin' || currentUser?.role === 'owner')
+     // Strict policy: only Owner can edit/delete financial transactions.
+     // Accountant must Request Fix; Admin sees Request Fix as well (read-only via Owner panel).
+     const actionBtn = (currentUser?.role === 'owner')
       ? `<button class="ledEditBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${r.id}" data-kind="${r._kind}" title="Edit"><i class="fas fa-edit"></i></button> <button class="ledDelBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${r.id}" data-kind="${r._kind}" title="Delete"><i class="fas fa-trash"></i></button>`
       : pending
        ? `<span class="pill pill-amber text-xs" title="Correction requested — awaiting owner review"><i class="fas fa-hourglass-half mr-1"></i>Requested</span>`
