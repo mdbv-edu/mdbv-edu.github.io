@@ -451,8 +451,8 @@
         <h4 class="font-display text-base mb-4 text-saffron">Reach Us</h4>
         <ul class="text-sm space-y-3 opacity-80">
           <li class="flex gap-3"><i class="fas fa-map-marker-alt text-saffron mt-1"></i><span>Meerut-Baraut Road<br>Binauli, Baghpat<br>UP 250345, India</span></li>
-          <li class="flex gap-3"><i class="fas fa-phone text-saffron mt-1"></i><span>+91 95572 60700<br>01234-57260700</span></li>
-          <li class="flex gap-3"><i class="fas fa-envelope text-saffron mt-1"></i><a href="mailto:mdbvidyapeeth@gmail.com" class="hover:text-saffron break-all">mdbvidyapeeth@gmail.com</a></li>
+          <li class="flex gap-3"><i class="fas fa-phone text-saffron mt-1"></i><span>${SCHOOL_INFO.phone}<br>${SCHOOL_INFO.phoneAlt}</span></li>
+          <li class="flex gap-3"><i class="fas fa-envelope text-saffron mt-1"></i><a href="mailto:${SCHOOL_INFO.email}" class="hover:text-saffron break-all">${SCHOOL_INFO.email}</a></li>
         </ul>
       </div>
     </div>
@@ -727,7 +727,7 @@ function renderHome() {
               <i class="fas fa-feather text-burgundy text-xl"></i>
             </div>
             <div>
-              <div class="font-semibold text-ink">Reena Goyal</div>
+              <div class="font-semibold text-ink">${SCHOOL_INFO.principal.name}</div>
               <div class="text-sm text-ink-soft">Principal · M.A. (English), B.Ed</div>
             </div>
           </div>
@@ -890,8 +890,8 @@ function renderAbout() {
         <div class="text-xs uppercase tracking-[0.25em] text-burgundy font-semibold mb-3">Leadership</div>
         <h2 class="font-display text-5xl text-ink mb-12">The people behind the school</h2>
         <div class="grid md:grid-cols-3 gap-8">
-          ${leadershipCard('Mr. Vinod Kumar Giri', 'Founder & Owner', 'Founded MDBV in 2022 with a single vision — to build a school where daughters of Baghpat could receive world-class education rooted in Indian values.', 'fa-landmark')}
-          ${leadershipCard('Reena Goyal', 'Principal', 'M.A. (English), B.Ed. Brings over two decades of academic leadership, specialising in girl-child education and CBSE curriculum implementation.', 'fa-feather')}
+          ${leadershipCard(SCHOOL_INFO.founder.name, SCHOOL_INFO.founder.title, SCHOOL_INFO.founder.bio, SCHOOL_INFO.founder.icon)}
+          ${leadershipCard(SCHOOL_INFO.principal.name, 'Principal', SCHOOL_INFO.principal.bio, SCHOOL_INFO.principal.icon)}
           ${leadershipCard('Management Committee', 'Governance', 'A committee of educators, parents and community leaders that oversees school policy, infrastructure, and long-term strategy.', 'fa-users-gear')}
         </div>
       </div>
@@ -1088,8 +1088,8 @@ function renderAdmissions() {
           <h3 class="font-display text-3xl text-ink mb-4">Ready to apply?</h3>
           <p class="text-ink-soft mb-6">Our admissions team will get back to you within 48 hours.</p>
           <div class="space-y-3 text-sm">
-            <div class="flex gap-3 items-center"><i class="fas fa-phone text-burgundy"></i><span class="text-ink-soft">Call: <strong class="text-ink">+91 95572 60700</strong></span></div>
-            <div class="flex gap-3 items-center"><i class="fas fa-envelope text-burgundy"></i><span class="text-ink-soft"><strong class="text-ink">mdbvidyapeeth@gmail.com</strong></span></div>
+            <div class="flex gap-3 items-center"><i class="fas fa-phone text-burgundy"></i><span class="text-ink-soft">Call: <strong class="text-ink">${SCHOOL_INFO.phone}</strong></span></div>
+            <div class="flex gap-3 items-center"><i class="fas fa-envelope text-burgundy"></i><span class="text-ink-soft"><strong class="text-ink">${SCHOOL_INFO.email}</strong></span></div>
             <div class="flex gap-3 items-center"><i class="fas fa-clock text-burgundy"></i><span class="text-ink-soft">Office hours: Mon-Sat, 9 AM - 2 PM</span></div>
           </div>
           <button onclick="showPage('contact')" class="btn-primary mt-8">
@@ -1208,9 +1208,9 @@ function renderDisclosure() {
             <tr><td>2</td><td>Affiliation Number (CBSE)</td><td>Applied</td></tr>
             <tr><td>3</td><td>School Code</td><td>N.A.</td></tr>
             <tr><td>4</td><td>Complete Address</td><td>Meerut-Baraut Road, Binauli, Baghpat, UP - 250345</td></tr>
-            <tr><td>5</td><td>Principal Name & Qualification</td><td>Reena Goyal — M.A. (English), B.Ed.</td></tr>
-            <tr><td>6</td><td>School Email ID</td><td>mdbvidyapeeth@gmail.com</td></tr>
-            <tr><td>7</td><td>Contact Details</td><td>01234-57260700 / +91 95572 60700</td></tr>
+            <tr><td>5</td><td>Principal Name & Qualification</td><td>${SCHOOL_INFO.principal.name} — ${SCHOOL_INFO.principal.qualification}</td></tr>
+            <tr><td>6</td><td>School Email ID</td><td>${SCHOOL_INFO.email}</td></tr>
+            <tr><td>7</td><td>Contact Details</td><td>${SCHOOL_INFO.phoneAlt} / ${SCHOOL_INFO.phone}</td></tr>
           </table>
         </div>
 
@@ -1247,9 +1247,9 @@ function renderDisclosure() {
           <h2 class="font-display text-3xl text-ink mb-5 pb-2 border-b-2 border-burgundy inline-block pr-8">D. Staff (Teaching)</h2>
           <table class="md-table">
             <tr><th>S. No.</th><th>Information</th><th>Details</th></tr>
-            <tr><td>1</td><td>Principal</td><td>Reena Goyal</td></tr>
-            <tr><td>2</td><td>Total Number of Teachers</td><td>20</td></tr>
-            <tr><td>3</td><td>Teachers Section Ratio</td><td>1:10</td></tr>
+            <tr><td>1</td><td>Principal</td><td>${SCHOOL_INFO.principal.name}</td></tr>
+            <tr><td>2</td><td>Total Number of Teachers</td><td>${SCHOOL_INFO.totalTeachers}</td></tr>
+            <tr><td>3</td><td>Teachers Section Ratio</td><td>${SCHOOL_INFO.teacherStudentRatio}</td></tr>
             <tr><td>4</td><td>Details of Special Educator</td><td>Available</td></tr>
             <tr><td>5</td><td>Details of Counsellor and Welfare Officer</td><td>Available</td></tr>
           </table>
@@ -1301,12 +1301,12 @@ function renderContact() {
           <div>
             <div class="w-12 h-12 bg-burgundy text-cream flex items-center justify-center mb-4"><i class="fas fa-phone"></i></div>
             <h3 class="font-display text-2xl text-ink mb-2">Phone</h3>
-            <p class="text-ink-soft">+91 95572 60700<br>01234-57260700</p>
+            <p class="text-ink-soft">${SCHOOL_INFO.phone}<br>${SCHOOL_INFO.phoneAlt}</p>
           </div>
           <div>
             <div class="w-12 h-12 bg-burgundy text-cream flex items-center justify-center mb-4"><i class="fas fa-envelope"></i></div>
             <h3 class="font-display text-2xl text-ink mb-2">Email</h3>
-            <p class="text-ink-soft">mdbvidyapeeth@gmail.com</p>
+            <p class="text-ink-soft">${SCHOOL_INFO.email}</p>
           </div>
           <div>
             <div class="w-12 h-12 bg-burgundy text-cream flex items-center justify-center mb-4"><i class="fas fa-clock"></i></div>
@@ -1390,7 +1390,7 @@ function submitContactForm() {
 
   // Send via FormSubmit (free, no signup needed; first email triggers a one-time confirmation
   // that the school's inbox owner must approve — see https://formsubmit.co)
-  fetch('https://formsubmit.co/ajax/mdbvidyapeeth@gmail.com', {
+  fetch('https://formsubmit.co/ajax/' + SCHOOL_INFO.email, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
     body: JSON.stringify({
@@ -1411,7 +1411,7 @@ function submitContactForm() {
       const arr = JSON.parse(localStorage.getItem('enquiries') || '[]');
       const last = arr[arr.length - 1]; if (last) { last.sent = true; localStorage.setItem('enquiries', JSON.stringify(arr)); }
       ['cName','cPhone','cEmail','cMessage'].forEach(i => document.getElementById(i).value = '');
-      showToast('Thank you! Your message has been sent to ' + 'mdbvidyapeeth@gmail.com');
+      showToast('Thank you! Your message has been sent to ' + SCHOOL_INFO.email);
     } else {
       showToast('Saved locally. Email service needs activation — see admin notice on contact page.');
     }
@@ -1451,38 +1451,52 @@ function setupContactForm() {
 //
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ BEGIN SCHOOL DATA ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+// All publicly-visible school information lives here. Edit values, save, redeploy.
+// This block is referenced from About, Disclosure, Contact, Footer, etc.
+const SCHOOL_INFO = {
+  // School identity
+  name:        'Murti Devi Balika Vidyapeeth',
+  shortName:   'MDBV',
+
+  // Address
+  addressLine1:'Meerut-Baraut Road',
+  addressLine2:'Binauli, Baghpat',
+  pincode:     '250345',
+  state:       'Uttar Pradesh',
+
+  // Contact
+  phone:       '+91 95572 60700',
+  phoneAlt:    '01234-57260700',
+  email:       'mdbvidyapeeth@gmail.com',
+
+  // Leadership — shown on About page and Disclosure D table
+  founder: {
+    name:  'Mr. Vinod Kumar Giri',
+    title: 'Founder & Owner',
+    bio:   'Founded MDBV in 2022 with a single vision — to build a school where daughters of Baghpat could receive world-class education rooted in Indian values.',
+    icon:  'fa-landmark'
+  },
+  principal: {
+    name:          'Lavita Pradhan',
+    qualification: 'M.A. (English), B.Ed.',
+    bio:           'M.A. (English), B.Ed. Brings over two decades of academic leadership, specialising in girl-child education and CBSE curriculum implementation.',
+    icon:          'fa-feather'
+  },
+
+  // Stats — shown on Disclosure D table
+  totalTeachers:       20,
+  teacherStudentRatio: '1:10'
+};
+
 const SEED_USERS = [
   // Replace usernames, passwords, and names with your real accounts.
   // Roles must be one of: owner, admin, principal, teacher, parent, accountant, student
-{
-  "schoolInfra": "{\"girlsToilets\":8,\"functionalComputers\":45,\"ramps\":true,\"library\":true,\"incinerator\":true,\"lastUpdated\":\"2026-04-01\"}",
-  "calendar": "[{\"id\":1,\"title\":\"CBSE Pre-Board Exam\",\"date\":\"2026-05-10\",\"description\":\"Class 10 & 12\",\"type\":\"Exam\"}]",
-  "payrollSlips": "[]",
-  "complaints": "[]",
-  "feeTransactions": "[{\"id\":1001,\"studentId\":101,\"amount\":5000,\"date\":\"2026-04-05\",\"mode\":\"online\",\"status\":\"paid\",\"receiptNo\":\"RCP001\"},{\"id\":1002,\"studentId\":102,\"amount\":2000,\"date\":\"2026-03-28\",\"mode\":\"cash\",\"status\":\"paid\",\"receiptNo\":\"RCP002\"}]",
-  "routeMovements": "[{\"id\":1,\"vehicleId\":1,\"date\":\"2026-04-24\",\"departure\":\"07:30\",\"arrival\":\"08:00\",\"status\":\"On Time\"}]",
-  "compliance": "[{\"id\":\"udise\",\"name\":\"UDISE+ Reporting\",\"desc\":\"Annual school data submission to MoE\",\"enabled\":true,\"status\":\"compliant\",\"validUntil\":\"2026-12-31\",\"docRef\":\"UD2025UP1234\",\"notes\":\"\",\"category\":\"Statutory\"},{\"id\":\"rte\",\"name\":\"RTE 25% Reservation\",\"desc\":\"Right to Education quota compliance\",\"enabled\":true,\"status\":\"compliant\",\"validUntil\":\"2027-03-31\",\"docRef\":\"RTE/UP/2025\",\"notes\":\"\",\"category\":\"Statutory\"},{\"id\":\"cbse\",\"name\":\"CBSE Affiliation\",\"desc\":\"Primary regulatory affiliation\",\"enabled\":true,\"status\":\"compliant\",\"validUntil\":\"2029-03-31\",\"docRef\":\"CBSE/2022/3530012\",\"notes\":\"\",\"category\":\"Statutory\"},{\"id\":\"mdm\",\"name\":\"Mid-Day Meal Compliance\",\"desc\":\"MDM norms (if applicable)\",\"enabled\":false,\"status\":\"na\",\"validUntil\":\"\",\"docRef\":\"\",\"notes\":\"Not applicable for private school\",\"category\":\"Statutory\"},{\"id\":\"pocso\",\"name\":\"POCSO Committee\",\"desc\":\"Child sexual offences prevention cell\",\"enabled\":true,\"status\":\"compliant\",\"validUntil\":\"2026-08-15\",\"docRef\":\"POCSO/INT/01\",\"notes\":\"Monthly meeting minutes maintained\",\"category\":\"Safety\"},{\"id\":\"antirag\",\"name\":\"Anti-Ragging Committee\",\"desc\":\"CBSE mandated committee for harassment\",\"enabled\":true,\"status\":\"compliant\",\"validUntil\":\"2026-06-30\",\"docRef\":\"ARC/2025\",\"notes\":\"\",\"category\":\"Safety\"},{\"id\":\"posh\",\"name\":\"POSH (Internal Committee)\",\"desc\":\"Sexual Harassment at Workplace Act\",\"enabled\":true,\"status\":\"pending\",\"validUntil\":\"2026-05-15\",\"docRef\":\"POSH/2025\",\"notes\":\"External member nomination pending\",\"category\":\"Safety\"},{\"id\":\"health\",\"name\":\"Health Check-up Records\",\"desc\":\"Annual student health camp\",\"enabled\":true,\"status\":\"pending\",\"validUntil\":\"2026-07-31\",\"docRef\":\"\",\"notes\":\"Camp scheduled for June\",\"category\":\"Safety\"},{\"id\":\"cctv\",\"name\":\"CCTV Monitoring\",\"desc\":\"Coverage of entry/exit/corridors\",\"enabled\":true,\"status\":\"compliant\",\"validUntil\":\"2026-12-31\",\"docRef\":\"CCTV/LOG\",\"notes\":\"24 cameras active\",\"category\":\"Safety\"},{\"id\":\"girlssafe\",\"name\":\"Girls Safety Norms\",\"desc\":\"Balika Suraksha: incinerators, counsellor\",\"enabled\":true,\"status\":\"compliant\",\"validUntil\":\"2026-12-31\",\"docRef\":\"BS/2025\",\"notes\":\"\",\"category\":\"Safety\"},{\"id\":\"firstaid\",\"name\":\"First Aid and Medical Room\",\"desc\":\"Dedicated medical room + nurse\",\"enabled\":true,\"status\":\"compliant\",\"validUntil\":\"2026-12-31\",\"docRef\":\"MR/2025\",\"notes\":\"\",\"category\":\"Safety\"},{\"id\":\"evac\",\"name\":\"Emergency Evacuation Plan\",\"desc\":\"Mock drill every 6 months\",\"enabled\":true,\"status\":\"pending\",\"validUntil\":\"2026-05-30\",\"docRef\":\"\",\"notes\":\"Next drill: May 20\",\"category\":\"Safety\"},{\"id\":\"fire\",\"name\":\"Fire Safety Certificate\",\"desc\":\"NOC from fire department\",\"enabled\":true,\"status\":\"compliant\",\"validUntil\":\"2027-01-20\",\"docRef\":\"FIRE/BGP/2026/102\",\"notes\":\"\",\"category\":\"Infrastructure\"},{\"id\":\"building\",\"name\":\"Building Safety Certificate\",\"desc\":\"Structural stability certificate\",\"enabled\":true,\"status\":\"compliant\",\"validUntil\":\"2028-03-31\",\"docRef\":\"BSC/BGP/2024\",\"notes\":\"\",\"category\":\"Infrastructure\"},{\"id\":\"water\",\"name\":\"Drinking Water and Sanitation\",\"desc\":\"RO + segregated toilets\",\"enabled\":true,\"status\":\"compliant\",\"validUntil\":\"2026-12-31\",\"docRef\":\"\",\"notes\":\"\",\"category\":\"Infrastructure\"},{\"id\":\"nishtha\",\"name\":\"Teacher Training (NISHTHA)\",\"desc\":\"Govt mandated teacher capacity building\",\"enabled\":true,\"status\":\"compliant\",\"validUntil\":\"2026-09-30\",\"docRef\":\"NISHTHA/2025\",\"notes\":\"\",\"category\":\"Academic\"},{\"id\":\"library\",\"name\":\"Library Access (RTE)\",\"desc\":\"Minimum library norms under RTE Act\",\"enabled\":true,\"status\":\"compliant\",\"validUntil\":\"2026-12-31\",\"docRef\":\"\",\"notes\":\"2500+ books\",\"category\":\"Academic\"},{\"id\":\"smc\",\"name\":\"School Management Committee\",\"desc\":\"Parent-Teacher-Community governance\",\"enabled\":true,\"status\":\"compliant\",\"validUntil\":\"2026-10-31\",\"docRef\":\"SMC/2025\",\"notes\":\"Quarterly meetings\",\"category\":\"Governance\"}]",
-  "chatMessages": "[{\"id\":1,\"from\":2,\"to\":6,\"fromName\":\"Rajesh Kumar (Admin)\",\"toName\":\"Dr. Anita Singh (Principal)\",\"text\":\"Good morning maam, the UDISE+ export is ready for your review.\",\"time\":\"2026-04-24T08:15:00\",\"read\":true},{\"id\":2,\"from\":6,\"to\":2,\"fromName\":\"Dr. Anita Singh (Principal)\",\"toName\":\"Rajesh Kumar (Admin)\",\"text\":\"Great, please share the CSV. I will verify by EOD.\",\"time\":\"2026-04-24T08:20:00\",\"read\":false},{\"id\":3,\"from\":3,\"to\":0,\"fromName\":\"Priya Sharma (Teacher)\",\"toName\":\"All Teachers\",\"text\":\"Staff meeting at 3 PM in the conference room.\",\"time\":\"2026-04-24T09:00:00\",\"read\":false,\"group\":\"teachers\"}]",
-  "inventory": "[{\"id\":1,\"name\":\"Whiteboard Markers\",\"category\":\"Stationery\",\"quantity\":50,\"unit\":\"box\",\"location\":\"Store Room\"}]",
-  "enquiries": "[{\"id\":1777030942629,\"name\":\"Vinod Kumar Giri\",\"phone\":\"+919999747444\",\"email\":\"vinod_nhai@yahoo.com\",\"subject\":\"Campus visit\",\"message\":\"let me know the convenient time on 27,04.2026\",\"date\":\"2026-04-24T11:42:22.629Z\"}]",
-  "documents": "[]",
-  "udiseReport": "{\"lastSubmitted\":\"2025-12-10\",\"ackNo\":\"UD2025UP1234\"}",
-  "homeworks": "[{\"id\":1,\"className\":\"10\",\"subject\":\"Mathematics\",\"description\":\"Solve exercise 4.1\",\"dueDate\":\"2026-04-30\",\"teacher\":\"Priya Sharma (Teacher)\",\"submitted\":[]},{\"id\":2,\"className\":\"10\",\"subject\":\"Science\",\"description\":\"Light chapter Q1-Q5\",\"dueDate\":\"2026-04-28\",\"teacher\":\"Neha Gupta (Teacher)\",\"submitted\":[]}]",
-  "users": "[{\"id\":1,\"username\":\"owner\",\"password\":\"owner123\",\"role\":\"owner\",\"name\":\"Mr. Vinod Kumar Giri (Owner)\"},{\"id\":2,\"username\":\"admin\",\"password\":\"admin123\",\"role\":\"admin\",\"name\":\"Rajesh Kumar (Admin)\"},{\"id\":3,\"username\":\"teacher\",\"password\":\"teacher123\",\"role\":\"teacher\",\"name\":\"Priya Sharma (Teacher)\",\"teacherId\":1},{\"id\":4,\"username\":\"parent\",\"password\":\"parent123\",\"role\":\"parent\",\"name\":\"Suman Lata (Parent)\"},{\"id\":5,\"username\":\"accountant\",\"password\":\"acc123\",\"role\":\"accountant\",\"name\":\"Manoj Gupta (Accountant)\"},{\"id\":6,\"username\":\"principal\",\"password\":\"principal123\",\"role\":\"principal\",\"name\":\"Dr. Anita Singh (Principal)\"},{\"id\":7,\"username\":\"student\",\"password\":\"student123\",\"role\":\"student\",\"name\":\"Aaradhya Singh\",\"studentId\":101},{\"id\":8,\"username\":\"neha\",\"password\":\"teacher123\",\"role\":\"teacher\",\"name\":\"Neha Gupta (Teacher)\",\"teacherId\":2}]",
-  "examMarks": "[{\"id\":1,\"studentId\":101,\"examName\":\"Unit Test 1\",\"subject\":\"Mathematics\",\"marks\":42,\"maxMarks\":50,\"date\":\"2026-03-10\"},{\"id\":2,\"studentId\":101,\"examName\":\"Unit Test 1\",\"subject\":\"Science\",\"marks\":45,\"maxMarks\":50,\"date\":\"2026-03-12\"}]",
-  "expenses": "[{\"id\":1,\"date\":\"2026-04-23\",\"category\":\"Stationery\",\"description\":\"Printer paper\",\"amount\":1200,\"mode\":\"Cash\"}]",
-  "gallery": "[{\"id\":1101,\"src\":\"assets/img/about.jpg\",\"title\":\"School entrance\",\"category\":\"Campus\",\"addedAt\":\"2026-04-01\"},{\"id\":1102,\"src\":\"assets/img/campus1.jpeg\",\"title\":\"Main campus view\",\"category\":\"Campus\",\"addedAt\":\"2026-04-01\"},{\"id\":1103,\"src\":\"assets/img/campus2.jpeg\",\"title\":\"School building\",\"category\":\"Campus\",\"addedAt\":\"2026-04-01\"},{\"id\":1104,\"src\":\"assets/img/campus3.jpeg\",\"title\":\"Courtyard\",\"category\":\"Campus\",\"addedAt\":\"2026-04-01\"},{\"id\":1105,\"src\":\"assets/img/campus4.jpeg\",\"title\":\"Campus grounds\",\"category\":\"Campus\",\"addedAt\":\"2026-04-01\"},{\"id\":1106,\"src\":\"assets/img/activity1.jpeg\",\"title\":\"School activity\",\"category\":\"Activities\",\"addedAt\":\"2026-04-01\"},{\"id\":1107,\"src\":\"assets/img/activity2.jpeg\",\"title\":\"Cultural programme\",\"category\":\"Activities\",\"addedAt\":\"2026-04-01\"},{\"id\":1108,\"src\":\"assets/img/activity3.jpeg\",\"title\":\"Student event\",\"category\":\"Activities\",\"addedAt\":\"2026-04-01\"},{\"id\":1109,\"src\":\"assets/img/activity4.jpeg\",\"title\":\"Annual function\",\"category\":\"Activities\",\"addedAt\":\"2026-04-01\"},{\"id\":1110,\"src\":\"assets/img/activity5.jpeg\",\"title\":\"Sports day\",\"category\":\"Activities\",\"addedAt\":\"2026-04-01\"},{\"id\":1111,\"src\":\"assets/img/activity6.jpeg\",\"title\":\"Class activity\",\"category\":\"Activities\",\"addedAt\":\"2026-04-01\"}]",
-  "schemaVersion": "4",
-  "teachers": "[{\"id\":1,\"name\":\"Priya Sharma\",\"subject\":\"Mathematics\",\"qualification\":\"M.Sc B.Ed\",\"udiseTeacherId\":\"UP098765\",\"trainingDate\":\"2025-06-10\",\"salary\":45000,\"bankAccount\":\"XXXX1234\",\"phone\":\"9876500001\"},{\"id\":2,\"name\":\"Neha Gupta\",\"subject\":\"Science\",\"qualification\":\"M.Sc B.Ed\",\"udiseTeacherId\":\"UP098764\",\"trainingDate\":\"2025-07-15\",\"salary\":42000,\"bankAccount\":\"XXXX5678\",\"phone\":\"9876500002\"}]",
-  "bankAccounts": "[{\"id\":1,\"bankName\":\"State Bank of India\",\"accountNo\":\"1234567890\",\"branch\":\"Binauli\",\"ifsc\":\"SBIN0012345\",\"balance\":450000}]",
-  "bankTransactions": "[]",
-  "busTracking": "{\"route1\":{\"lat\":28.95,\"lng\":77.62,\"lastUpdate\":\"2026-04-23 08:15 AM\",\"status\":\"On Time\"}}",
-  "vehicles": "[{\"id\":1,\"vehicleNo\":\"UP15 AB 1234\",\"type\":\"Bus\",\"capacity\":50,\"driver\":\"Ramesh\",\"route\":\"Binauli-Baghpat\",\"status\":\"Active\"}]",
-  "disclosureDocs": "[{\"id\":\"doc1\",\"key\":\"affiliation\",\"name\":\"Copy of affiliation / upgradation letter (CBSE)\",\"url\":\"\"},{\"id\":\"doc2\",\"key\":\"society\",\"name\":\"Copy of societies / trust / company registration\",\"url\":\"assets/docs/trust-deed.pdf\"},{\"id\":\"doc3\",\"key\":\"state_noc\",\"name\":\"Copy of NOC issued by State Government\",\"url\":\"assets/docs/State%20NOC.pdf\"},{\"id\":\"doc4\",\"key\":\"noc\",\"name\":\"Copy of NOC (district / education department)\",\"url\":\"assets/docs/NOC.pdf\"},{\"id\":\"doc5\",\"key\":\"rte\",\"name\":\"Copy of recognition certificate under RTE Act, 2009\",\"url\":\"\"},{\"id\":\"doc6\",\"key\":\"building\",\"name\":\"Copy of building safety certificate\",\"url\":\"assets/docs/building-safety.pdf\"},{\"id\":\"doc7\",\"key\":\"fire\",\"name\":\"Copy of fire safety certificate\",\"url\":\"assets/docs/fire-safety-new.pdf\"},{\"id\":\"doc8\",\"key\":\"fire_old\",\"name\":\"Fire safety certificate (previous)\",\"url\":\"assets/docs/fire-safety.pdf\"},{\"id\":\"doc9\",\"key\":\"fire_noc\",\"name\":\"Fire NOC (initial)\",\"url\":\"assets/docs/fire.pdf\"},{\"id\":\"doc10\",\"key\":\"water1\",\"name\":\"Water, health and sanitation certificate\",\"url\":\"assets/docs/water-safety.jpeg\"},{\"id\":\"doc11\",\"key\":\"water2\",\"name\":\"Water testing report\",\"url\":\"assets/docs/water.jpeg\"},{\"id\":\"doc12\",\"key\":\"land\",\"name\":\"Land documents (ownership / lease)\",\"url\":\"assets/docs/land.pdf\"},{\"id\":\"doc13\",\"key\":\"fees_all\",\"name\":\"Fee structure — current academic year\",\"url\":\"assets/docs/fees.pdf\"},{\"id\":\"doc14\",\"key\":\"fees_nur5\",\"name\":\"Fee structure — Nursery to Class 5\",\"url\":\"assets/docs/nur-5.pdf\"},{\"id\":\"doc15\",\"key\":\"fees_primary\",\"name\":\"Fee structure — Primary\",\"url\":\"assets/docs/primary.pdf\"},{\"id\":\"doc16\",\"key\":\"fees_68\",\"name\":\"Fee structure — Classes 6 to 8\",\"url\":\"assets/docs/6-8.pdf\"},{\"id\":\"doc17\",\"key\":\"calendar\",\"name\":\"Annual academic calendar\",\"url\":\"assets/docs/calendar.pdf\"},{\"id\":\"doc18\",\"key\":\"pta\",\"name\":\"List of PTA / SMC members\",\"url\":\"\"}]",
-  "maintenance": "[{\"id\":1,\"vehicleId\":1,\"date\":\"2026-04-10\",\"type\":\"Oil Change\",\"cost\":3500,\"nextDue\":\"2026-07-10\"}]",
-  "attendanceRecords": "{\"101\":{\"2026-04-20\":\"P\",\"2026-04-21\":\"P\",\"2026-04-22\":\"A\",\"2026-04-23\":\"P\"},\"102\":{\"2026-04-20\":\"P\",\"2026-04-21\":\"P\",\"2026-04-22\":\"A\",\"2026-04-23\":\"P\"},\"103\":{\"2026-04-20\":\"P\",\"2026-04-21\":\"P\",\"2026-04-22\":\"A\",\"2026-04-23\":\"P\"},\"104\":{\"2026-04-20\":\"P\",\"2026-04-21\":\"P\",\"2026-04-22\":\"A\",\"2026-04-23\":\"P\"},\"105\":{\"2026-04-20\":\"P\",\"2026-04-21\":\"P\",\"2026-04-22\":\"A\",\"2026-04-23\":\"P\"}}",
-  "students": "[{\"id\":101,\"name\":\"Aaradhya Singh\",\"registrationNo\":\"MDB2023001\",\"admissionNo\":\"MDB2023001\",\"class\":\"10\",\"section\":\"A\",\"rollNo\":1,\"feeBalance\":12500,\"parentId\":4,\"fatherName\":\"Sudheer Tomar\",\"parentName\":\"Suman Lata\",\"parentPhone\":\"9876543210\",\"village\":\"Fazalpur\",\"caste\":\"General\",\"bpl\":false,\"cwsn\":false,\"aadhaar\":\"XXXX-XXXX-1234\",\"gender\":\"Female\",\"dob\":\"2010-03-15\",\"bloodGroup\":\"O+\",\"address\":\"Binauli, Baghpat\",\"admissionDate\":\"2023-04-01\",\"annualFees\":24000,\"decidedFees\":18000,\"transportMonthly\":800},{\"id\":102,\"name\":\"Divyanshi Verma\",\"registrationNo\":\"MDB2023002\",\"admissionNo\":\"MDB2023002\",\"class\":\"10\",\"section\":\"A\",\"rollNo\":2,\"feeBalance\":5000,\"parentId\":4,\"fatherName\":\"Sandeep Verma\",\"parentName\":\"Rekha Verma\",\"parentPhone\":\"9876543211\",\"village\":\"Baghpat\",\"caste\":\"OBC\",\"bpl\":true,\"cwsn\":false,\"aadhaar\":\"XXXX-XXXX-5678\",\"gender\":\"Female\",\"dob\":\"2010-05-22\",\"bloodGroup\":\"A+\",\"address\":\"Baghpat\",\"admissionDate\":\"2023-04-01\",\"annualFees\":24000,\"decidedFees\":20000,\"transportMonthly\":500},{\"id\":103,\"name\":\"Kavya Chaudhary\",\"registrationNo\":\"MDB2021015\",\"admissionNo\":\"MDB2021015\",\"class\":\"12\",\"section\":\"B\",\"rollNo\":5,\"feeBalance\":21000,\"parentId\":4,\"fatherName\":\"Mahesh Chaudhary\",\"parentName\":\"Anita Chaudhary\",\"parentPhone\":\"9876543212\",\"village\":\"Baraut\",\"caste\":\"SC\",\"bpl\":false,\"cwsn\":false,\"aadhaar\":\"XXXX-XXXX-9101\",\"gender\":\"Female\",\"dob\":\"2008-08-09\",\"bloodGroup\":\"B+\",\"address\":\"Baraut\",\"admissionDate\":\"2021-04-01\",\"annualFees\":32000,\"decidedFees\":28000,\"transportMonthly\":0},{\"id\":104,\"name\":\"Riya Sharma\",\"registrationNo\":\"MDB2024007\",\"admissionNo\":\"MDB2024007\",\"class\":\"9\",\"section\":\"A\",\"rollNo\":3,\"feeBalance\":8000,\"parentId\":4,\"fatherName\":\"Suresh Sharma\",\"parentName\":\"Sunita Sharma\",\"parentPhone\":\"9876543213\",\"village\":\"Binauli\",\"caste\":\"General\",\"bpl\":false,\"cwsn\":false,\"aadhaar\":\"XXXX-XXXX-1122\",\"gender\":\"Female\",\"dob\":\"2011-11-30\",\"bloodGroup\":\"AB+\",\"address\":\"Binauli\",\"admissionDate\":\"2024-04-01\",\"annualFees\":22000,\"decidedFees\":20000,\"transportMonthly\":500},{\"id\":105,\"name\":\"Anushka Tomar\",\"registrationNo\":\"MDB2022010\",\"admissionNo\":\"MDB2022010\",\"class\":\"11\",\"section\":\"A\",\"rollNo\":4,\"feeBalance\":0,\"parentId\":4,\"fatherName\":\"Ramesh Tomar\",\"parentName\":\"Ramesh Tomar\",\"parentPhone\":\"9876543214\",\"village\":\"Baghpat\",\"caste\":\"General\",\"bpl\":false,\"cwsn\":true,\"aadhaar\":\"XXXX-XXXX-2211\",\"gender\":\"Female\",\"dob\":\"2009-02-18\",\"bloodGroup\":\"O-\",\"address\":\"Baghpat\",\"admissionDate\":\"2022-04-01\",\"annualFees\":30000,\"decidedFees\":0,\"transportMonthly\":0}]"
-}
+  {id: 1, username: 'owner',     password: 'CHANGE_ME', role: 'owner',      name: 'Owner Name'},
+  {id: 2, username: 'admin',     password: 'CHANGE_ME', role: 'admin',      name: 'Admin Name'},
+  {id: 3, username: 'principal', password: 'CHANGE_ME', role: 'principal',  name: 'Principal Name'},
+  {id: 4, username: 'teacher1',  password: 'CHANGE_ME', role: 'teacher',    name: 'Teacher Name', teacherId: 1},
+  {id: 5, username: 'parent1',   password: 'CHANGE_ME', role: 'parent',     name: 'Parent Name'},
+  {id: 6, username: 'accountant',password: 'CHANGE_ME', role: 'accountant', name: 'Accountant Name'}
 ];
 
 const SEED_STUDENTS = [
@@ -1570,11 +1584,7 @@ function initDB(){
  if(!localStorage.getItem('bankTransactions'))localStorage.setItem('bankTransactions','[]');
  if(!localStorage.getItem('calendar'))localStorage.setItem('calendar',JSON.stringify([{id:1,title:'CBSE Pre-Board Exam',date:'2026-05-10',description:'Class 10 & 12',type:'Exam'}]));
  if(!localStorage.getItem('documents'))localStorage.setItem('documents','[]');
- if(!localStorage.getItem('chatMessages'))localStorage.setItem('chatMessages',JSON.stringify([
-  {id:1,from:2,to:6,fromName:'Rajesh Kumar (Admin)',toName:'Dr. Anita Singh (Principal)',text:"Good morning maam, the UDISE+ export is ready for your review.",time:'2026-04-24T08:15:00',read:true},
-  {id:2,from:6,to:2,fromName:'Dr. Anita Singh (Principal)',toName:'Rajesh Kumar (Admin)',text:"Great, please share the CSV. I will verify by EOD.",time:'2026-04-24T08:20:00',read:false},
-  {id:3,from:3,to:0,fromName:'Priya Sharma (Teacher)',toName:'All Teachers',text:'Staff meeting at 3 PM in the conference room.',time:'2026-04-24T09:00:00',read:false,group:'teachers'}
- ]));
+ if(!localStorage.getItem('chatMessages'))localStorage.setItem('chatMessages','[]');
  if(!localStorage.getItem('compliance'))localStorage.setItem('compliance',JSON.stringify([
   {id:'udise',name:'UDISE+ Reporting',desc:'Annual school data submission to MoE',enabled:true,status:'compliant',validUntil:'2026-12-31',docRef:'UD2025UP1234',notes:'',category:'Statutory'},
   {id:'rte',name:'RTE 25% Reservation',desc:'Right to Education quota compliance',enabled:true,status:'compliant',validUntil:'2027-03-31',docRef:'RTE/UP/2025',notes:'',category:'Statutory'},
@@ -2153,10 +2163,22 @@ function renderDataManagement(){
     <div><label class="text-xs font-medium">Decided Fees (Rs.)</label><input type="number" id="dmStuDecided" placeholder="negotiated/concession"></div>
     <div><label class="text-xs font-medium">Transport (monthly Rs.)</label><input type="number" id="dmStuTransport" placeholder="0 if not using"></div>
     <div><label class="text-xs font-medium">Current Fee Balance (Rs.)</label><input type="number" id="dmStuFeeBal" value="0"></div>
-    <div class="col-span-2 md:col-span-3 flex gap-4 mt-2">
+    <div class="col-span-2 md:col-span-3 flex flex-wrap gap-4 mt-2">
      <label class="text-sm flex items-center gap-1"><input type="checkbox" id="dmStuBpl" class="w-auto"> BPL (Below Poverty Line)</label>
      <label class="text-sm flex items-center gap-1"><input type="checkbox" id="dmStuCwsn" class="w-auto"> CWSN (Children with Special Needs)</label>
      <label class="text-sm flex items-center gap-1"><input type="checkbox" id="dmStuFreeChild" class="w-auto"> RTE Free Child</label>
+    </div>
+    <div class="col-span-2 md:col-span-3 mt-3 pt-3 border-t border-gray-200 bg-blue-50 -mx-1 px-3 py-3 rounded">
+     <div class="text-xs font-semibold text-blue-900 mb-2"><i class="fas fa-key mr-1"></i>LOGIN ACCOUNTS (auto-created — admin can edit/disable later)</div>
+     <div class="flex flex-wrap gap-4">
+      <label class="text-sm flex items-center gap-1"><input type="checkbox" id="dmStuCreateLogin" class="w-auto" checked> Create student login</label>
+      <label class="text-sm flex items-center gap-1"><input type="checkbox" id="dmStuCreateParent" class="w-auto" checked> Create parent login</label>
+     </div>
+     <div class="text-xs text-blue-900 mt-2 leading-relaxed">
+      Student login: username = <b>Registration No</b>, password = <b>regno@123</b>.<br>
+      Parent login: username = <b>p_</b> + Registration No, password = <b>contact number</b>.<br>
+      <span class="text-amber-900">Both accounts can be edited or deleted later from the Users tab.</span>
+     </div>
     </div>
    </div>
    <div class="flex justify-end gap-2 mt-4">
@@ -2767,8 +2789,14 @@ function attachTeachersTabEvents(){
   const name=document.getElementById('tchName').value.trim();
   if(!name){alert('Name required');return}
   const t=getTeachers();
-  t.push({id:Date.now(),name,subject:document.getElementById('tchSubject').value,qualification:document.getElementById('tchQual').value,udiseTeacherId:document.getElementById('tchUdise').value,trainingDate:document.getElementById('tchTrain').value,salary:parseInt(document.getElementById('tchSalary').value)||0,phone:document.getElementById('tchPhone').value,bankAccount:document.getElementById('tchBank').value});
-  saveTeachers(t);document.getElementById('teacherModal').classList.add('hidden');showToast('Teacher added');refresh();
+  const newTeacher = {id:Date.now(),name,subject:document.getElementById('tchSubject').value,qualification:document.getElementById('tchQual').value,udiseTeacherId:document.getElementById('tchUdise').value,trainingDate:document.getElementById('tchTrain').value,salary:parseInt(document.getElementById('tchSalary').value)||0,phone:document.getElementById('tchPhone').value,bankAccount:document.getElementById('tchBank').value};
+  t.push(newTeacher);
+  saveTeachers(t);
+  // Auto-create teacher login
+  const r = createLoginForTeacher(newTeacher);
+  document.getElementById('teacherModal').classList.add('hidden');
+  showToast('Teacher added' + (r.created ? ' — login created (' + _genUsername('teacher', newTeacher) + ')' : ''));
+  refresh();
  });
  document.querySelectorAll('.delTeacherBtn').forEach(b=>b.addEventListener('click',()=>{
   if(!confirm('Delete this teacher?'))return;
@@ -2953,6 +2981,7 @@ function attachDataManagementEvents(){
     freeChild: document.getElementById('dmStuFreeChild').checked
   };
   const all = getStudents();
+  let createdMsg = '';
   if (id) {
     const i = all.findIndex(x => x.id === parseInt(id));
     if (i > -1) all[i] = { ...all[i], ...data };
@@ -2960,7 +2989,15 @@ function attachDataManagementEvents(){
   } else {
     data.id = Date.now();
     all.push(data);
-    showToast('Student added to Class ' + data.class);
+    // Auto-create login accounts if checked
+    const wantStudentLogin = document.getElementById('dmStuCreateLogin')?.checked;
+    const wantParentLogin = document.getElementById('dmStuCreateParent')?.checked;
+    if (wantStudentLogin || wantParentLogin) {
+      saveStudents(all); // save first so the user record can link to it
+      const result = createLoginsForStudent(data, { student: wantStudentLogin, parent: wantParentLogin });
+      createdMsg = result.message;
+    }
+    showToast('Student added to Class ' + data.class + (createdMsg ? ' — ' + createdMsg : ''));
   }
   saveStudents(all);
   document.getElementById('dmStudentModal').classList.add('hidden');
@@ -3403,11 +3440,43 @@ function renderUsersTab(){
  return `<div>
   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
    <h2 class="text-lg font-bold"><i class="fas fa-user-shield text-indigo-600 mr-1"></i>User Accounts</h2>
-   <button id="addUserBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-plus mr-1"></i>Add User</button>
+   <div class="flex flex-wrap gap-2">
+    <button id="addUserBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-plus mr-1"></i>Add User</button>
+    <button id="bulkGenBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-bolt mr-1"></i>Bulk Generate</button>
+    <button id="exportLoginsBtn" class="bg-saffron-600 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium" style="background:#c8860d"><i class="fas fa-print mr-1"></i>Print Login Sheet</button>
+   </div>
   </div>
+
+  ${(() => {
+    const students = getStudents();
+    const teachers = getTeachers();
+    const allUsers = users;
+    const studentsWithLogin = students.filter(s => allUsers.some(u => u.role === 'student' && u.studentId === s.id)).length;
+    const studentsWithParent = students.filter(s => allUsers.some(u => u.role === 'parent' && u.linkedStudentId === s.id)).length;
+    const teachersWithLogin = teachers.filter(t => allUsers.some(u => u.role === 'teacher' && u.teacherId === t.id)).length;
+    return `
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+     <div class="bg-indigo-50 border border-indigo-200 p-3 rounded-lg">
+      <div class="text-xs text-indigo-700 font-semibold uppercase">Student Logins</div>
+      <div class="text-2xl font-bold text-indigo-900 mt-1">${studentsWithLogin} <span class="text-sm font-normal text-indigo-600">/ ${students.length}</span></div>
+      ${studentsWithLogin < students.length ? `<div class="text-xs text-amber-800 mt-1">${students.length - studentsWithLogin} student${students.length - studentsWithLogin === 1 ? '' : 's'} without login</div>` : '<div class="text-xs text-green-700 mt-1">✓ All students have logins</div>'}
+     </div>
+     <div class="bg-purple-50 border border-purple-200 p-3 rounded-lg">
+      <div class="text-xs text-purple-700 font-semibold uppercase">Parent Logins</div>
+      <div class="text-2xl font-bold text-purple-900 mt-1">${studentsWithParent} <span class="text-sm font-normal text-purple-600">/ ${students.length}</span></div>
+      ${studentsWithParent < students.length ? `<div class="text-xs text-amber-800 mt-1">${students.length - studentsWithParent} student${students.length - studentsWithParent === 1 ? '' : 's'} without parent login</div>` : '<div class="text-xs text-green-700 mt-1">✓ All have parent logins</div>'}
+     </div>
+     <div class="bg-emerald-50 border border-emerald-200 p-3 rounded-lg">
+      <div class="text-xs text-emerald-700 font-semibold uppercase">Teacher Logins</div>
+      <div class="text-2xl font-bold text-emerald-900 mt-1">${teachersWithLogin} <span class="text-sm font-normal text-emerald-600">/ ${teachers.length}</span></div>
+      ${teachersWithLogin < teachers.length ? `<div class="text-xs text-amber-800 mt-1">${teachers.length - teachersWithLogin} teacher${teachers.length - teachersWithLogin === 1 ? '' : 's'} without login</div>` : '<div class="text-xs text-green-700 mt-1">✓ All teachers have logins</div>'}
+     </div>
+    </div>`;
+  })()}
+
   <div class="bg-amber-50 border-l-4 border-amber-400 p-3 rounded mb-4 text-sm text-amber-900">
    <i class="fas fa-info-circle mr-1"></i>
-   <b>Important:</b> Changes here save to your browser only. After making changes, go to the <b>Backup</b> tab to download a JSON backup. To make changes permanent across all visitors, also update the <code class="bg-white px-1 rounded text-xs">SEED_USERS</code> block at the top of <code class="bg-white px-1 rounded text-xs">index.html</code> in your GitHub repo and push.
+   <b>Tip:</b> Use <b>Bulk Generate</b> to create login accounts for all students/parents/teachers at once. Use <b>Print Login Sheet</b> to download a printable Excel of credentials to distribute. Default passwords should be changed by users on first login.
   </div>
   <div class="overflow-x-auto"><table class="border text-sm w-full">
    <thead><tr><th>ID</th><th>Username</th><th>Password</th><th>Role</th><th>Display Name</th><th>Linked ID</th><th>Actions</th></tr></thead>
@@ -3431,8 +3500,8 @@ function renderUsersTab(){
    <h3 class="text-lg font-bold mb-3" id="userModalTitle">Add User</h3>
    <input type="hidden" id="userModalId">
    <div class="space-y-3">
-    <div><label class="text-xs font-medium">Display Name *</label><input id="userModalName" placeholder="e.g. Reena Goyal"></div>
-    <div><label class="text-xs font-medium">Username *</label><input id="userModalUsername" placeholder="e.g. reena" autocomplete="off"></div>
+    <div><label class="text-xs font-medium">Display Name *</label><input id="userModalName" placeholder="e.g. ${SCHOOL_INFO.principal.name}"></div>
+    <div><label class="text-xs font-medium">Username *</label><input id="userModalUsername" placeholder="e.g. lavita" autocomplete="off"></div>
     <div><label class="text-xs font-medium">Password *</label><input type="text" id="userModalPassword" placeholder="Set a strong password" autocomplete="off"></div>
     <div><label class="text-xs font-medium">Role *</label><select id="userModalRole">
      <option value="owner">Owner</option>
@@ -3449,6 +3518,45 @@ function renderUsersTab(){
    <div class="flex justify-end gap-2 mt-4">
     <button class="closeModal bg-gray-300 px-4 py-2 rounded-lg text-sm">Cancel</button>
     <button id="userModalSave" class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm">Save</button>
+   </div>
+  </div></div>
+
+  <div id="bulkGenModal" class="hidden modal"><div class="modal-content" style="max-width:600px">
+   <h3 class="text-lg font-bold mb-2"><i class="fas fa-bolt text-blue-600 mr-1"></i>Bulk Generate Login Accounts</h3>
+   <p class="text-sm text-gray-600 mb-4">Creates login accounts for all students, parents, and/or teachers who don't already have one. Existing accounts are not modified.</p>
+
+   <div class="space-y-3 mb-4">
+    <label class="flex items-start gap-2 p-3 border rounded-lg cursor-pointer hover:bg-blue-50">
+     <input type="checkbox" id="bulkGenStudents" class="w-auto mt-1" checked>
+     <div class="flex-1">
+      <div class="font-semibold text-sm">Student logins</div>
+      <div class="text-xs text-gray-600 mt-1">Username = Registration No · Password = <code class="bg-gray-100 px-1">regno@123</code></div>
+     </div>
+    </label>
+    <label class="flex items-start gap-2 p-3 border rounded-lg cursor-pointer hover:bg-blue-50">
+     <input type="checkbox" id="bulkGenParents" class="w-auto mt-1" checked>
+     <div class="flex-1">
+      <div class="font-semibold text-sm">Parent logins</div>
+      <div class="text-xs text-gray-600 mt-1">Username = <code class="bg-gray-100 px-1">p_</code> + Registration No · Password = parent's contact number</div>
+     </div>
+    </label>
+    <label class="flex items-start gap-2 p-3 border rounded-lg cursor-pointer hover:bg-blue-50">
+     <input type="checkbox" id="bulkGenTeachers" class="w-auto mt-1" checked>
+     <div class="flex-1">
+      <div class="font-semibold text-sm">Teacher logins</div>
+      <div class="text-xs text-gray-600 mt-1">Username = first name (lowercased) · Password = <code class="bg-gray-100 px-1">Teacher@</code> + ID</div>
+     </div>
+    </label>
+   </div>
+
+   <div class="bg-amber-50 border-l-4 border-amber-400 p-3 rounded text-xs text-amber-900 mb-3">
+    <i class="fas fa-exclamation-triangle mr-1"></i>
+    Skipped students with no Registration No, parents with no contact number, or teachers with no name. Fill in those fields first, then re-run.
+   </div>
+
+   <div class="flex justify-end gap-2">
+    <button class="closeModal bg-gray-300 px-4 py-2 rounded-lg text-sm">Cancel</button>
+    <button id="bulkGenRun" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-bolt mr-1"></i>Generate Logins</button>
    </div>
   </div></div>
  </div>`;
@@ -3528,6 +3636,236 @@ function attachUsersTabEvents(){
   document.getElementById('userModal').classList.add('hidden');
   refresh();
  });
+
+ // === Bulk Generate Logins button ===
+ document.getElementById('bulkGenBtn')?.addEventListener('click', () => {
+  document.getElementById('bulkGenStudents').checked = true;
+  document.getElementById('bulkGenParents').checked = true;
+  document.getElementById('bulkGenTeachers').checked = true;
+  document.getElementById('bulkGenModal').classList.remove('hidden');
+ });
+
+ document.getElementById('bulkGenRun')?.addEventListener('click', () => {
+  const wantStu = document.getElementById('bulkGenStudents').checked;
+  const wantPar = document.getElementById('bulkGenParents').checked;
+  const wantTea = document.getElementById('bulkGenTeachers').checked;
+  if (!wantStu && !wantPar && !wantTea) { alert('Pick at least one category'); return; }
+  const result = bulkGenerateLogins({ student: wantStu, parent: wantPar, teacher: wantTea });
+  document.getElementById('bulkGenModal').classList.add('hidden');
+  alert(result.summary);
+  refresh();
+ });
+
+ // === Print/Export Login Sheet button ===
+ document.getElementById('exportLoginsBtn')?.addEventListener('click', () => {
+  exportLoginSheet();
+ });
+}
+
+/* ============================================================
+   AUTO LOGIN GENERATION — helpers used when adding students/teachers
+   and from the bulk generation tool. Rules in one place for consistency.
+============================================================ */
+
+// Returns the canonical username for a given record. Pure function (no side-effects).
+function _genUsername(kind, record) {
+ if (kind === 'student') {
+  return (record.registrationNo || record.admissionNo || ('s' + record.id) || '').toString().trim();
+ }
+ if (kind === 'parent') {
+  return ('p_' + (record.registrationNo || record.admissionNo || ('s' + record.id))).toString().trim();
+ }
+ if (kind === 'teacher') {
+  // First word of name, lowercased, alphanumeric only
+  const base = (record.name || '').split(/\s+/)[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+  return base || ('t' + record.id);
+ }
+ return '';
+}
+
+function _genPassword(kind, record) {
+ if (kind === 'student') return (record.registrationNo || record.admissionNo || ('s' + record.id)) + '@123';
+ if (kind === 'parent')  return (record.parentPhone || '').replace(/\D/g, '').slice(-10) || ('parent' + record.id);
+ if (kind === 'teacher') return 'Teacher@' + record.id;
+ return 'CHANGE_ME';
+}
+
+// Ensures username uniqueness — if taken, appends -2, -3, etc.
+function _uniqueUsername(base, existingUsernames) {
+ if (!existingUsernames.includes(base)) return base;
+ let n = 2;
+ while (existingUsernames.includes(base + '-' + n)) n++;
+ return base + '-' + n;
+}
+
+// Creates student and/or parent login for one student record.
+// `flags` = { student: true/false, parent: true/false }
+// Returns { created: number, message: string }
+function createLoginsForStudent(student, flags) {
+ const users = getUsers();
+ const taken = users.map(u => u.username);
+ let created = 0;
+ const parts = [];
+
+ if (flags.student) {
+  const exists = users.some(u => u.role === 'student' && u.studentId === student.id);
+  if (!exists) {
+   const baseU = _genUsername('student', student);
+   if (baseU) {
+    const username = _uniqueUsername(baseU, taken);
+    const newUser = {
+     id: Math.max(0, ...users.map(u => u.id)) + 1 + created,
+     username, password: _genPassword('student', student),
+     role: 'student', name: student.name, studentId: student.id
+    };
+    users.push(newUser); taken.push(username); created++;
+    parts.push('student login');
+   }
+  }
+ }
+
+ if (flags.parent) {
+  const exists = users.some(u => u.role === 'parent' && u.linkedStudentId === student.id);
+  if (!exists && student.parentPhone) {
+   const baseU = _genUsername('parent', student);
+   if (baseU) {
+    const username = _uniqueUsername(baseU, taken);
+    const newUser = {
+     id: Math.max(0, ...users.map(u => u.id)) + 1 + created,
+     username, password: _genPassword('parent', student),
+     role: 'parent',
+     name: (student.fatherName || student.parentName || 'Parent') + ' (' + student.name + ')',
+     linkedStudentId: student.id
+    };
+    users.push(newUser); taken.push(username); created++;
+    parts.push('parent login');
+   }
+  }
+ }
+
+ set('users', users);
+ return {
+  created,
+  message: created ? ('created ' + parts.join(' + ')) : 'no logins created'
+ };
+}
+
+function createLoginForTeacher(teacher) {
+ const users = getUsers();
+ const exists = users.some(u => u.role === 'teacher' && u.teacherId === teacher.id);
+ if (exists) return { created: 0, message: 'login already exists' };
+ if (!teacher.name) return { created: 0, message: 'teacher has no name — skipped' };
+ const taken = users.map(u => u.username);
+ const baseU = _genUsername('teacher', teacher);
+ const username = _uniqueUsername(baseU, taken);
+ const newUser = {
+  id: Math.max(0, ...users.map(u => u.id)) + 1,
+  username, password: _genPassword('teacher', teacher),
+  role: 'teacher', name: teacher.name, teacherId: teacher.id
+ };
+ users.push(newUser);
+ set('users', users);
+ return { created: 1, message: 'teacher login created (' + username + ')' };
+}
+
+// Bulk-create accounts for all records that don't already have one.
+// `flags` = { student, parent, teacher }
+function bulkGenerateLogins(flags) {
+ const students = getStudents();
+ const teachers = getTeachers();
+ let stuCreated = 0, parCreated = 0, teaCreated = 0;
+ let stuSkipped = 0, parSkipped = 0, teaSkipped = 0;
+
+ students.forEach(s => {
+  const r = createLoginsForStudent(s, { student: flags.student, parent: flags.parent });
+  if (flags.student && r.message.includes('student')) stuCreated++;
+  else if (flags.student) stuSkipped++;
+  if (flags.parent && r.message.includes('parent')) parCreated++;
+  else if (flags.parent) parSkipped++;
+ });
+
+ if (flags.teacher) {
+  teachers.forEach(t => {
+   const r = createLoginForTeacher(t);
+   if (r.created) teaCreated++; else teaSkipped++;
+  });
+ }
+
+ const lines = [];
+ if (flags.student) lines.push(`✓ Students: ${stuCreated} created${stuSkipped ? ', ' + stuSkipped + ' skipped (already exist or no Reg No)' : ''}`);
+ if (flags.parent)  lines.push(`✓ Parents:  ${parCreated} created${parSkipped ? ', ' + parSkipped + ' skipped (already exist or no phone)' : ''}`);
+ if (flags.teacher) lines.push(`✓ Teachers: ${teaCreated} created${teaSkipped ? ', ' + teaSkipped + ' skipped (already exist)' : ''}`);
+
+ const total = stuCreated + parCreated + teaCreated;
+ const summary = `Bulk Generate complete\n\n${lines.join('\n')}\n\nTotal: ${total} new login account${total === 1 ? '' : 's'} created.${total ? '\n\nNext step: click "Print Login Sheet" to download credentials, then distribute to users.' : ''}`;
+
+ return { stuCreated, parCreated, teaCreated, total, summary };
+}
+
+// Generates a printable Excel with all credentials, organized by role/class.
+function exportLoginSheet() {
+ const users = getUsers();
+ const students = getStudents();
+ const teachers = getTeachers();
+
+ // Build sectioned HTML table — Excel handles this fine via downloadExcel
+ let html = '<table border="1" cellspacing="0" cellpadding="4">';
+
+ // Header
+ html += `<tr><td colspan="6" style="background:#7a1e2e;color:#fff;font-size:14pt;font-weight:bold;padding:8px;">${SCHOOL_INFO.name} — Login Credentials Sheet</td></tr>`;
+ html += `<tr><td colspan="6" style="background:#faf6ef;font-size:9pt;padding:6px;">Generated: ${new Date().toLocaleString('en-IN')} · ${users.length} accounts total</td></tr>`;
+ html += '<tr><td colspan="6" style="height:8px;"></td></tr>';
+
+ // Staff section
+ const staff = users.filter(u => ['owner','admin','principal','accountant','teacher'].includes(u.role));
+ html += `<tr><td colspan="6" style="background:#1f3a2b;color:#fff;font-weight:bold;padding:6px;">STAFF ACCOUNTS (${staff.length})</td></tr>`;
+ html += '<tr style="background:#e7e5e4;font-weight:bold;"><td>S.No</td><td>Role</td><td>Name</td><td>Username</td><td>Password</td><td>Notes</td></tr>';
+ staff.forEach((u, i) => {
+  html += `<tr><td>${i+1}</td><td>${u.role}</td><td>${u.name||''}</td><td>${u.username}</td><td>${u.password}</td><td>Change password on first login</td></tr>`;
+ });
+
+ // Students by class
+ html += '<tr><td colspan="6" style="height:12px;"></td></tr>';
+ const studentLogins = users.filter(u => u.role === 'student');
+ html += `<tr><td colspan="6" style="background:#7a1e2e;color:#fff;font-weight:bold;padding:6px;">STUDENT ACCOUNTS (${studentLogins.length})</td></tr>`;
+ const byClass = {};
+ studentLogins.forEach(u => {
+  const s = students.find(x => x.id === u.studentId);
+  const cls = s?.class || 'Unknown';
+  (byClass[cls] = byClass[cls] || []).push({ user: u, student: s });
+ });
+ const classOrder = ['Pre Nursery','Nursery','LKG','UKG','1','2','3','4','5','6','7','8','9','10','11','12','Unknown'];
+ classOrder.forEach(cls => {
+  if (!byClass[cls]) return;
+  html += `<tr><td colspan="6" style="background:#fef3c7;font-weight:bold;padding:5px;">Class ${cls} (${byClass[cls].length})</td></tr>`;
+  html += '<tr style="background:#f5f5f4;font-weight:bold;"><td>Roll</td><td>Reg. No</td><td>Name</td><td>Username</td><td>Password</td><td>Father / Phone</td></tr>';
+  byClass[cls].sort((a,b) => (a.student?.rollNo||0) - (b.student?.rollNo||0)).forEach(({ user, student }) => {
+   html += `<tr><td>${student?.rollNo||''}</td><td>${student?.registrationNo||''}</td><td>${user.name}</td><td>${user.username}</td><td>${user.password}</td><td>${student?.fatherName||''} / ${student?.parentPhone||''}</td></tr>`;
+  });
+ });
+
+ // Parents by class
+ html += '<tr><td colspan="6" style="height:12px;"></td></tr>';
+ const parentLogins = users.filter(u => u.role === 'parent');
+ html += `<tr><td colspan="6" style="background:#581c87;color:#fff;font-weight:bold;padding:6px;">PARENT ACCOUNTS (${parentLogins.length})</td></tr>`;
+ const parentByClass = {};
+ parentLogins.forEach(u => {
+  const s = students.find(x => x.id === u.linkedStudentId);
+  const cls = s?.class || 'Unknown';
+  (parentByClass[cls] = parentByClass[cls] || []).push({ user: u, student: s });
+ });
+ classOrder.forEach(cls => {
+  if (!parentByClass[cls]) return;
+  html += `<tr><td colspan="6" style="background:#ede9fe;font-weight:bold;padding:5px;">Class ${cls} parents (${parentByClass[cls].length})</td></tr>`;
+  html += '<tr style="background:#f5f5f4;font-weight:bold;"><td>S.No</td><td>Student Reg. No</td><td>Parent Name</td><td>Username</td><td>Password (Phone)</td><td>Student</td></tr>';
+  parentByClass[cls].sort((a,b) => (a.student?.rollNo||0) - (b.student?.rollNo||0)).forEach(({ user, student }, i) => {
+   html += `<tr><td>${i+1}</td><td>${student?.registrationNo||''}</td><td>${user.name}</td><td>${user.username}</td><td>${user.password}</td><td>${student?.name||''}</td></tr>`;
+  });
+ });
+
+ html += '</table>';
+ downloadExcel(html, SCHOOL_INFO.shortName + '_Login_Sheet_' + new Date().toISOString().slice(0,10));
+ showToast('Login sheet downloaded — open in Excel and print');
 }
 
 /* ============================================================
