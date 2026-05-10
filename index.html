@@ -1321,16 +1321,16 @@ function renderContact() {
             <div class="space-y-6">
               <div class="grid md:grid-cols-2 gap-6">
                 <div>
-                  <label class="text-xs font-semibold uppercase tracking-wider text-ink-soft">Full Name</label>
+                  <label class="text-xs font-semibold uppercase tracking-wider text-ink-soft">Full Name <span style="color:#dc2626">*</span></label>
                   <input id="cName" class="form-input mt-1" placeholder="Your full name">
                 </div>
                 <div>
-                  <label class="text-xs font-semibold uppercase tracking-wider text-ink-soft">Phone</label>
+                  <label class="text-xs font-semibold uppercase tracking-wider text-ink-soft">Phone <span class="text-ink-soft" style="font-weight:normal; text-transform:none">(optional)</span></label>
                   <input id="cPhone" class="form-input mt-1" placeholder="+91">
                 </div>
               </div>
               <div>
-                <label class="text-xs font-semibold uppercase tracking-wider text-ink-soft">Email</label>
+                <label class="text-xs font-semibold uppercase tracking-wider text-ink-soft">Email <span style="color:#dc2626">*</span></label>
                 <input id="cEmail" type="email" class="form-input mt-1" placeholder="you@example.com">
               </div>
               <div>
@@ -1344,9 +1344,10 @@ function renderContact() {
                 </select>
               </div>
               <div>
-                <label class="text-xs font-semibold uppercase tracking-wider text-ink-soft">Message</label>
+                <label class="text-xs font-semibold uppercase tracking-wider text-ink-soft">Message <span style="color:#dc2626">*</span></label>
                 <textarea id="cMessage" rows="4" class="form-input mt-1" style="border: 1px solid var(--ink-soft); padding: 0.75rem;" placeholder="Tell us how we can help..."></textarea>
               </div>
+              <div class="text-xs text-ink-soft"><span style="color:#dc2626">*</span> Required field</div>
               <button id="cSubmitBtn" onclick="submitContactForm()" class="btn-primary">
                 <i class="fas fa-paper-plane"></i> Send Message
               </button>
@@ -1376,7 +1377,47 @@ function submitContactForm() {
   const email = document.getElementById('cEmail').value.trim();
   const subject = document.getElementById('cSubject').value;
   const msg = document.getElementById('cMessage').value.trim();
-  if (!name || !email || !msg) { showToast('Please fill in name, email and message.'); return; }
+
+  // Clear any previous error highlights
+  ['cName','cEmail','cMessage'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.borderColor = '';
+  });
+
+  // Validate each required field; collect missing ones for a clear message
+  const missing = [];
+  if (!name)  missing.push({ id: 'cName',    label: 'Full Name' });
+  if (!email) missing.push({ id: 'cEmail',   label: 'Email' });
+  if (!msg)   missing.push({ id: 'cMessage', label: 'Message' });
+
+  if (missing.length) {
+    // Visually highlight every missing field with a red border
+    missing.forEach(f => {
+      const el = document.getElementById(f.id);
+      if (el) {
+        el.style.borderColor = '#dc2626';
+        el.style.borderWidth = '2px';
+      }
+    });
+    // Focus and scroll to the first missing field so the user sees it
+    const firstEl = document.getElementById(missing[0].id);
+    if (firstEl) {
+      firstEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => firstEl.focus(), 300);
+    }
+    // Specific toast naming the missing field(s)
+    const names = missing.map(f => f.label).join(', ');
+    showToast('Please fill in: ' + names);
+    return;
+  }
+
+  // Email format sanity check
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    const el = document.getElementById('cEmail');
+    if (el) { el.style.borderColor = '#dc2626'; el.style.borderWidth = '2px'; el.focus(); }
+    showToast('Please enter a valid email address');
+    return;
+  }
 
   // Save locally so admin can review enquiries from the portal
   const enquiries = JSON.parse(localStorage.getItem('enquiries') || '[]');
@@ -1413,7 +1454,7 @@ function submitContactForm() {
       ['cName','cPhone','cEmail','cMessage'].forEach(i => document.getElementById(i).value = '');
       showToast('Thank you! Your message has been sent to ' + SCHOOL_INFO.email);
     } else {
-      showToast('Saved locally. Email service needs activation — see admin notice on contact page.');
+      showToast('Saved locally. Email service needs one-time activation — check ' + SCHOOL_INFO.email + ' inbox for FormSubmit confirmation.');
     }
   })
   .catch(() => {
@@ -1424,7 +1465,16 @@ function submitContactForm() {
 }
 
 function setupContactForm() {
-  // No-op for now (form uses inline onclick) — placeholder for any future enhancements
+  // Clear red borders as the user starts typing in a previously-empty required field
+  ['cName','cEmail','cMessage'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', () => {
+      if (el.value.trim()) {
+        el.style.borderColor = '';
+        el.style.borderWidth = '';
+      }
+    });
+  });
 }
 
 
