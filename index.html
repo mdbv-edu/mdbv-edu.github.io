@@ -1723,7 +1723,25 @@ function enterPortal() {
 }
 
 /* ---------- OWNER DASHBOARD ---------- */
+let ownerView = 'dashboard'; // 'dashboard' or 'accounts'
+
 function renderOwnerDashboard(){
+ // If owner is viewing the Accounts section, render the full admin Accounts UI
+ // (reusing renderAdminAccountsTab — same component, same data)
+ if (ownerView === 'accounts') {
+  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+    <div>
+     <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
+     <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-crown text-amber-500 mr-2"></i>Owner · Accounts & Audit</h1>
+     <p class="text-gray-600 text-xs">${currentUser.name}</p>
+    </div>
+    <button id="logoutBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
+   </div>
+   ${renderAdminAccountsTab()}
+  </div>`;
+ }
+
  const st=getStudents(),tc=getTeachers(),c=getComplaints(),inf=getSchoolInfra();
  const tot=st.reduce((a,x)=>a+(x.feeBalance||0),0);
  const pend=c.filter(x=>x.status==='open').length;
@@ -1732,6 +1750,9 @@ function renderOwnerDashboard(){
  const ok=comp.filter(x=>x.status==='compliant').length;
  const pen=comp.filter(x=>x.status==='pending').length;
  const exp=comp.filter(x=>x.validUntil&&daysUntil(x.validUntil)<30&&daysUntil(x.validUntil)>=0).length;
+ // Counts for Accounts card
+ const pendingRequests = getCorrectionRequests().filter(r => r.status === 'pending').length;
+ const auditCount = getAuditLog().length;
  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
   <div class="flex flex-wrap justify-between items-center gap-2">
    <div><h1 class="text-2xl font-bold text-gray-900"><i class="fas fa-crown text-amber-500 mr-2"></i>Owner Dashboard</h1><p class="text-gray-600 text-sm">Welcome, ${currentUser.name} - Binauli, Baghpat</p></div>
@@ -1784,6 +1805,24 @@ function renderOwnerDashboard(){
     </div>
    </div>
   </div>
+
+  <!-- Accounts & Audit (Owner-only authority) -->
+  <div class="bg-gradient-to-r from-purple-50 to-indigo-50 border-2 border-purple-200 rounded-xl p-5 mt-6">
+   <div class="flex flex-wrap items-start justify-between gap-3">
+    <div class="flex-1 min-w-0">
+     <h2 class="font-semibold mb-1"><i class="fas fa-book-open-reader text-purple-600 mr-2"></i>Accounts & Audit</h2>
+     <p class="text-sm text-gray-700">Review the accountant's correction requests, edit/delete any transaction, and view the complete audit log.</p>
+     <div class="flex flex-wrap gap-3 mt-2 text-sm">
+      ${pendingRequests > 0 ? `<span class="pill pill-amber"><i class="fas fa-flag mr-1"></i>${pendingRequests} pending request${pendingRequests===1?'':'s'}</span>` : '<span class="text-emerald-700"><i class="fas fa-circle-check mr-1"></i>No pending requests</span>'}
+      <span class="text-gray-600 text-xs">${auditCount} entr${auditCount===1?'y':'ies'} in audit log</span>
+     </div>
+    </div>
+    <button id="ownerOpenAccountsBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium ${pendingRequests>0?'animate-pulse':''}">
+     <i class="fas fa-arrow-right-to-bracket mr-1"></i>Open Accounts & Audit
+    </button>
+   </div>
+  </div>
+
   <div class="bg-white rounded-xl shadow-sm p-5 mt-6">
    <h2 class="font-semibold mb-3"><i class="fas fa-file-alt text-gray-600 mr-2"></i>Recent Exam Marks</h2>
    <div id="examMarksSummary" class="text-sm space-y-1 max-h-48 overflow-auto"></div>
@@ -3777,7 +3816,7 @@ function _renderLedgerResults(){
    <tbody>${rows.length === 0 ? '<tr><td colspan="8" class="text-center text-gray-500 py-4">No transactions in this period</td></tr>' : rows.map(r => {
      // Look up if a pending correction request exists for this transaction
      const pending = getCorrectionRequests().find(cr => cr.txnId === r.id && cr.txnKind === r._kind && cr.status === 'pending');
-     const actionBtn = currentUser?.role === 'admin'
+     const actionBtn = (currentUser?.role === 'admin' || currentUser?.role === 'owner')
       ? `<button class="ledEditBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${r.id}" data-kind="${r._kind}" title="Edit"><i class="fas fa-edit"></i></button> <button class="ledDelBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${r.id}" data-kind="${r._kind}" title="Delete"><i class="fas fa-trash"></i></button>`
       : pending
        ? `<span class="pill pill-amber text-xs" title="Correction requested — awaiting owner review"><i class="fas fa-hourglass-half mr-1"></i>Requested</span>`
@@ -4098,6 +4137,7 @@ function _printReceipt(txnId){
 }
 
 
+function getCorrectionRequests(){ return JSON.parse(localStorage.getItem('correctionRequests') || '[]'); }
 function saveCorrectionRequests(d){ localStorage.setItem('correctionRequests', JSON.stringify(d)); }
 function getAuditLog(){ return JSON.parse(localStorage.getItem('accountingAuditLog') || '[]'); }
 function _logAccountingChange(action, kind, before, after, reason){
@@ -4795,7 +4835,25 @@ function refreshPrincipalTabContent(){
 
 /* ---------- OWNER EVENTS ---------- */
 function attachOwnerEvents(){
- document.getElementById('logoutBtn')?.addEventListener('click',()=>{currentUser=null;chatPanelOpen=false;activeChatWith=null;renderApp()});
+ document.getElementById('logoutBtn')?.addEventListener('click',()=>{currentUser=null;chatPanelOpen=false;activeChatWith=null;ownerView='dashboard';renderApp()});
+
+ // Accounts & Audit navigation
+ document.getElementById('ownerOpenAccountsBtn')?.addEventListener('click', () => {
+  ownerView = 'accounts';
+  activeAdminAccountsSubtab = 'requests';
+  renderApp();
+ });
+ document.getElementById('ownerBackBtn')?.addEventListener('click', () => {
+  ownerView = 'dashboard';
+  renderApp();
+ });
+
+ // When on the Accounts view, attach the same admin-accounts event handlers
+ if (ownerView === 'accounts') {
+  attachAdminAccountsEvents();
+  return; // skip the dashboard-specific wires below
+ }
+
  document.getElementById('exportUdisBtn')?.addEventListener('click',exportUdisCSV);
  document.getElementById('viewComplaintsBtn')?.addEventListener('click',()=>{const c=getComplaints().filter(x=>x.status==='open');alert(c.length?'Open Complaints:\n\n'+c.map(x=>'- '+x.text).join('\n'):'No open complaints')});
  document.getElementById('busTrackingBtn')?.addEventListener('click',()=>{const b=JSON.parse(localStorage.getItem('busTracking'))?.route1;alert('Bus Route 1\nLast update: '+(b?.lastUpdate||'-')+'\nStatus: '+(b?.status||'-')+'\nLocation: '+b?.lat+', '+b?.lng)});
@@ -5498,11 +5556,20 @@ function _renderAdminAuditLog(){
 }
 
 function attachAdminAccountsEvents(){
+ // Refresh that works for both admin (in tab shell) and owner (full-page view)
+ const refresh = () => {
+  if (currentUser.role === 'owner') {
+   renderApp();
+  } else {
+   refreshAdminTabContent();
+   attachAdminAccountsEvents();
+  }
+ };
+
  // Subtab navigation
  document.querySelectorAll('.adm-acc-subtab').forEach(b => b.addEventListener('click', () => {
   activeAdminAccountsSubtab = b.dataset.sub;
-  refreshAdminTabContent();
-  attachAdminAccountsEvents();
+  refresh();
  }));
 
  if (activeAdminAccountsSubtab === 'ledger') {
@@ -5527,8 +5594,7 @@ function attachAdminAccountsEvents(){
     saveCorrectionRequests(reqs);
     _logAccountingChange('approve', 'request', null, reqs[i], 'Deletion completed');
    }
-   refreshAdminTabContent();
-   attachAdminAccountsEvents();
+   refresh();
   }));
   document.querySelectorAll('.crqApproveBtn').forEach(b => b.addEventListener('click', () => {
    const notes = prompt('Notes for the accountant (optional):') || 'Resolved';
@@ -5542,8 +5608,7 @@ function attachAdminAccountsEvents(){
     saveCorrectionRequests(reqs);
     _logAccountingChange('approve', 'request', null, reqs[i], notes);
     showToast('Request marked as resolved');
-    refreshAdminTabContent();
-    attachAdminAccountsEvents();
+    refresh();
    }
   }));
   document.querySelectorAll('.crqRejectBtn').forEach(b => b.addEventListener('click', () => {
@@ -5559,8 +5624,7 @@ function attachAdminAccountsEvents(){
     saveCorrectionRequests(reqs);
     _logAccountingChange('reject', 'request', null, reqs[i], notes);
     showToast('Request rejected');
-    refreshAdminTabContent();
-    attachAdminAccountsEvents();
+    refresh();
    }
   }));
  }
