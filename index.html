@@ -3434,6 +3434,27 @@ function renderAccReceipts(){
  const classOrder = ALL_CLASSES.filter(c => byClass[c]);
 
  return `<div>
+  ${(() => {
+    // If a receipt was just saved, show a "Print last receipt" banner
+    const lastId = localStorage.getItem('_lastReceiptId');
+    if (!lastId) return '';
+    const t = getFeeTransactions().find(x => x.id === parseInt(lastId));
+    if (!t) return '';
+    const s = students.find(x => x.id === t.studentId);
+    return `<div class="bg-emerald-50 border-l-4 border-emerald-500 rounded p-3 mb-4 flex flex-wrap items-center justify-between gap-2">
+     <div class="flex items-center gap-2 text-sm">
+      <i class="fas fa-circle-check text-emerald-600 text-lg"></i>
+      <div>
+       <div class="font-semibold">Receipt saved: <span class="font-mono">${t.receiptNo}</span></div>
+       <div class="text-xs text-gray-600">${s?.name || t.payerName || '-'} · ${t.feeHead || 'Tuition'} · Rs.${(t.amount||0).toLocaleString('en-IN')}</div>
+      </div>
+     </div>
+     <div class="flex gap-2">
+      <button id="rcptPrintLastBtn" class="bg-burgundy hover:opacity-90 text-white px-4 py-2 rounded-lg text-sm font-medium" style="background:#7a1e2e"><i class="fas fa-print mr-1"></i>Print Receipt</button>
+      <button id="rcptDismissLastBtn" class="bg-gray-200 hover:bg-gray-300 px-3 py-2 rounded-lg text-sm">Dismiss</button>
+     </div>
+    </div>`;
+  })()}
   <!-- Record receipt form -->
   <div class="bg-white border rounded-lg p-4 mb-4">
    <h3 class="font-semibold mb-3"><i class="fas fa-hand-holding-dollar text-emerald-600 mr-1"></i>Record Receipt</h3>
@@ -3763,6 +3784,7 @@ function _renderLedgerResults(){
        : `<button class="ledRequestBtn bg-amber-500 hover:bg-amber-600 text-white px-2 py-1 rounded text-xs" data-id="${r.id}" data-kind="${r._kind}" title="Request correction"><i class="fas fa-flag mr-1"></i>Request Fix</button>`;
      if (r._kind === 'receipt') {
       const s = students.find(x => x.id === r.studentId);
+      const printBtn = `<button class="ledPrintBtn bg-burgundy hover:opacity-80 text-white px-2 py-1 rounded text-xs" style="background:#7a1e2e" data-id="${r.id}" title="Print receipt"><i class="fas fa-print"></i></button>`;
       return `<tr class="hover:bg-emerald-50">
        <td class="text-xs">${fmtDate(r.date)}</td>
        <td><span class="pill pill-green">Receipt</span></td>
@@ -3771,7 +3793,7 @@ function _renderLedgerResults(){
        <td class="text-xs">${r.mode}</td>
        <td class="text-xs font-mono">${r.receiptNo || ''}${r.chequeNo ? ' Chq:'+r.chequeNo : ''}</td>
        <td class="text-right font-semibold text-emerald-700">+${fmtINR(r.amount)}</td>
-       <td class="whitespace-nowrap">${actionBtn}</td>
+       <td class="whitespace-nowrap">${printBtn} ${actionBtn}</td>
       </tr>`;
      } else {
       return `<tr class="hover:bg-rose-50">
@@ -3793,12 +3815,289 @@ function _renderLedgerResults(){
  document.querySelectorAll('.ledRequestBtn').forEach(b => b.addEventListener('click', () => _openCorrectionRequestModal(b.dataset.id, b.dataset.kind)));
  document.querySelectorAll('.ledEditBtn').forEach(b => b.addEventListener('click', () => _openTxnEditModal(b.dataset.id, b.dataset.kind)));
  document.querySelectorAll('.ledDelBtn').forEach(b => b.addEventListener('click', () => _deleteTxn(b.dataset.id, b.dataset.kind)));
+ document.querySelectorAll('.ledPrintBtn').forEach(b => b.addEventListener('click', () => _printReceipt(b.dataset.id)));
 }
 
 /* ---------- ACCOUNTANT EVENT HANDLERS ---------- */
 
-/* Helpers for correction requests + audit log + transaction edit/delete */
-function getCorrectionRequests(){ return JSON.parse(localStorage.getItem('correctionRequests') || '[]'); }
+/* ============================================================
+   RECEIPT PDF GENERATOR — opens a print-ready receipt in new window
+   User can print to physical printer or "Save as PDF" via browser print dialog
+============================================================ */
+
+// Convert an amount to words in Indian numbering system (Lakh / Crore)
+function _amountToWordsINR(num){
+ num = Math.floor(num || 0);
+ if (num === 0) return 'Zero Rupees only';
+ const ones = ['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine',
+               'Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen',
+               'Sixteen','Seventeen','Eighteen','Nineteen'];
+ const tens = ['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
+ const below100 = n => n < 20 ? ones[n] : tens[Math.floor(n/10)] + (n%10 ? ' ' + ones[n%10] : '');
+ const below1000 = n => n < 100 ? below100(n) : ones[Math.floor(n/100)] + ' Hundred' + (n%100 ? ' ' + below100(n%100) : '');
+
+ let words = '';
+ if (num >= 10000000) { words += below100(Math.floor(num/10000000)) + ' Crore '; num = num % 10000000; }
+ if (num >= 100000)   { words += below100(Math.floor(num/100000))   + ' Lakh ';  num = num % 100000; }
+ if (num >= 1000)     { words += below100(Math.floor(num/1000))     + ' Thousand '; num = num % 1000; }
+ if (num > 0)         { words += below1000(num); }
+ return words.trim() + ' Rupees only';
+}
+
+// Build the printable HTML for a receipt
+function _generateReceiptHTML(txn){
+ const students = getStudents();
+ const banks = get('bankAccounts');
+ const s = students.find(x => x.id === txn.studentId);
+ const bank = banks.find(b => b.id === txn.bankAccountId);
+ const fmt = n => '₹ ' + (n||0).toLocaleString('en-IN');
+ const amountWords = _amountToWordsINR(txn.amount);
+ const dt = new Date(txn.date || new Date());
+ const dateStr = dt.toLocaleDateString('en-IN', {day:'2-digit', month:'long', year:'numeric'});
+ const balanceAfter = s ? Math.max(0, s.feeBalance || 0) : null;
+
+ // Two copies side by side: one for student/parent, one for office records
+ const buildCopy = (label) => `
+  <div class="receipt-copy">
+   <div class="copy-label">${label}</div>
+   <div class="receipt">
+    <div class="receipt-header">
+     <div class="logo-block">
+      <div class="logo">M</div>
+     </div>
+     <div class="school-info">
+      <div class="school-name">${SCHOOL_INFO.name}</div>
+      <div class="school-meta">Meerut-Baraut Road, Binauli, Baghpat, UP 250345</div>
+      <div class="school-meta">Phone: ${SCHOOL_INFO.phone} &middot; ${SCHOOL_INFO.email}</div>
+     </div>
+    </div>
+
+    <div class="receipt-title">FEE RECEIPT</div>
+
+    <div class="receipt-meta">
+     <div><span class="lbl">Receipt No:</span> <span class="val mono">${txn.receiptNo || '-'}</span></div>
+     <div><span class="lbl">Date:</span> <span class="val">${dateStr}</span></div>
+    </div>
+
+    <div class="receipt-body">
+     <div class="row"><span class="lbl">Received with thanks from:</span></div>
+     ${s ? `
+      <div class="payer-block">
+       <div class="payer-name">${s.name}</div>
+       <div class="payer-meta">Class ${s.class}${s.section ? '-' + s.section : ''} &middot; Roll #${s.rollNo || '-'} &middot; Adm.No: ${s.admissionNo || '-'}</div>
+       ${s.fatherName ? `<div class="payer-meta">D/o ${s.fatherName}</div>` : ''}
+       ${s.pen ? `<div class="payer-meta mono small">PEN: ${s.pen}</div>` : ''}
+      </div>` : `
+      <div class="payer-block">
+       <div class="payer-name">${txn.payerName || '-'}</div>
+       <div class="payer-meta">Outside payer / Donation</div>
+      </div>`}
+
+     <div class="row split">
+      <div><span class="lbl">Towards:</span> <span class="val">${txn.feeHead || 'Tuition Fee'}</span></div>
+      <div><span class="lbl">Mode:</span> <span class="val">${txn.mode || 'Cash'}</span></div>
+     </div>
+
+     ${txn.chequeNo ? `<div class="row"><span class="lbl">Cheque No:</span> <span class="val mono">${txn.chequeNo}</span></div>` : ''}
+     ${bank ? `<div class="row"><span class="lbl">${txn.mode === 'Cheque' ? 'Deposited to:' : 'Bank:'}</span> <span class="val">${bank.bankName} - A/C ${bank.accountNo}</span></div>` : ''}
+     ${txn.notes ? `<div class="row"><span class="lbl">Notes:</span> <span class="val">${txn.notes}</span></div>` : ''}
+
+     <div class="amount-block">
+      <div class="amount-label">Amount</div>
+      <div class="amount-figure">${fmt(txn.amount)}</div>
+      <div class="amount-words">In words: <em>${amountWords}</em></div>
+     </div>
+
+     ${s && balanceAfter !== null ? `<div class="row balance"><span class="lbl">Outstanding balance after this payment:</span> <span class="val ${balanceAfter > 0 ? 'due' : 'cleared'}">${balanceAfter > 0 ? fmt(balanceAfter) : 'Cleared'}</span></div>` : ''}
+    </div>
+
+    <div class="receipt-footer">
+     <div class="signature-block">
+      <div class="signature-line"></div>
+      <div class="signature-label">Authorized Signatory</div>
+     </div>
+     <div class="footer-note">This is a system-generated receipt.<br>Generated by ${currentUser?.name || 'Accountant'}</div>
+    </div>
+   </div>
+  </div>`;
+
+ return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Receipt ${txn.receiptNo} - ${SCHOOL_INFO.shortName}</title>
+<style>
+ @page { size: A4; margin: 1cm; }
+ * { box-sizing: border-box; margin: 0; padding: 0; }
+ body {
+  font-family: 'Manrope', 'Helvetica Neue', Arial, sans-serif;
+  color: #2a1410;
+  background: #f5f5f4;
+  padding: 1.5cm;
+  font-size: 10pt;
+ }
+ .toolbar {
+  position: fixed; top: 10px; right: 10px; z-index: 100;
+  display: flex; gap: 8px;
+ }
+ .toolbar button {
+  padding: 8px 16px; font-size: 14px; font-weight: 600;
+  border: none; border-radius: 8px; cursor: pointer;
+ }
+ .btn-print { background: #7a1e2e; color: white; }
+ .btn-print:hover { background: #5a1622; }
+ .btn-close { background: #e5e5e5; color: #333; }
+
+ .copies-wrap {
+  display: flex; flex-direction: column; gap: 1cm;
+  max-width: 750px; margin: 0 auto;
+ }
+ .receipt-copy {
+  position: relative;
+  background: white;
+  padding: 1.2cm;
+  border: 1px solid #ddd;
+  page-break-inside: avoid;
+ }
+ .copy-label {
+  position: absolute; top: 10px; right: 14px;
+  font-size: 8pt; font-weight: 600; color: #999;
+  text-transform: uppercase; letter-spacing: 1px;
+ }
+ .receipt-header {
+  display: flex; gap: 15px; align-items: center;
+  border-bottom: 2px solid #7a1e2e; padding-bottom: 12px; margin-bottom: 14px;
+ }
+ .logo {
+  width: 56px; height: 56px;
+  background: #7a1e2e; color: #faf6ef;
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'Fraunces', Georgia, serif;
+  font-size: 32px; font-weight: 700;
+  border-radius: 8px;
+  flex-shrink: 0;
+ }
+ .school-name {
+  font-family: 'Fraunces', Georgia, serif;
+  font-size: 18pt; font-weight: 700;
+  color: #7a1e2e; line-height: 1.1;
+ }
+ .school-meta {
+  font-size: 8pt; color: #57433d; margin-top: 3px;
+ }
+ .receipt-title {
+  text-align: center;
+  font-family: 'Fraunces', Georgia, serif;
+  font-size: 16pt; font-weight: 700;
+  color: #c8860d; letter-spacing: 4px;
+  margin-bottom: 16px;
+ }
+ .receipt-meta {
+  display: flex; justify-content: space-between;
+  background: #faf6ef; border-left: 3px solid #c8860d;
+  padding: 8px 12px; margin-bottom: 14px;
+  font-size: 10pt;
+ }
+ .receipt-body { padding: 0 6px; }
+ .lbl { color: #57433d; font-size: 9pt; font-weight: 600; }
+ .val { color: #2a1410; font-weight: 500; }
+ .mono { font-family: 'Courier New', monospace; }
+ .small { font-size: 8pt; }
+ .row { margin: 8px 0; }
+ .row.split { display: flex; justify-content: space-between; }
+ .payer-block {
+  background: #fafaf9; border: 1px solid #e5e5e5;
+  padding: 10px 14px; border-radius: 6px;
+  margin: 8px 0 14px 0;
+ }
+ .payer-name {
+  font-family: 'Fraunces', Georgia, serif;
+  font-size: 14pt; font-weight: 600; color: #2a1410;
+ }
+ .payer-meta { font-size: 9pt; color: #57433d; margin-top: 2px; }
+ .amount-block {
+  background: linear-gradient(to right, #faf6ef, white);
+  border: 2px solid #c8860d;
+  border-radius: 8px;
+  padding: 14px 18px;
+  margin: 14px 0;
+ }
+ .amount-label {
+  font-size: 8pt; color: #c8860d; font-weight: 700;
+  letter-spacing: 2px; text-transform: uppercase;
+ }
+ .amount-figure {
+  font-family: 'Fraunces', Georgia, serif;
+  font-size: 22pt; font-weight: 700; color: #2a1410;
+  margin: 4px 0;
+ }
+ .amount-words {
+  font-size: 9pt; color: #57433d;
+  border-top: 1px dashed #ccc; padding-top: 6px;
+ }
+ .row.balance {
+  background: #fef3f2; border-left: 3px solid #dc2626;
+  padding: 6px 10px; border-radius: 4px;
+  margin-top: 12px;
+ }
+ .row.balance .due { color: #dc2626; font-weight: 700; }
+ .row.balance .cleared { color: #16a34a; font-weight: 700; }
+ .receipt-footer {
+  margin-top: 24px; padding-top: 12px;
+  border-top: 1px dashed #ccc;
+  display: flex; justify-content: space-between; align-items: flex-end;
+ }
+ .signature-block { text-align: center; }
+ .signature-line {
+  width: 180px; border-top: 1px solid #2a1410;
+  margin-bottom: 4px;
+ }
+ .signature-label { font-size: 8pt; color: #57433d; font-style: italic; }
+ .footer-note {
+  font-size: 7pt; color: #999; text-align: right; line-height: 1.3;
+ }
+
+ @media print {
+  body { padding: 0; background: white; }
+  .toolbar { display: none; }
+  .receipt-copy { border: none; padding: 0.5cm; }
+  .copies-wrap { gap: 0.5cm; }
+ }
+</style>
+</head>
+<body>
+ <div class="toolbar">
+  <button class="btn-print" onclick="window.print()">🖨 Print / Save as PDF</button>
+  <button class="btn-close" onclick="window.close()">✕ Close</button>
+ </div>
+ <div class="copies-wrap">
+  ${buildCopy('Student / Parent Copy')}
+  ${buildCopy('Office Copy')}
+ </div>
+ <script>
+  // Auto-trigger print dialog 200ms after load — gives browser time to render fonts
+  window.addEventListener('load', function(){ setTimeout(function(){ window.print(); }, 300); });
+ <\/script>
+</body>
+</html>`;
+}
+
+// Open a printable receipt in a new window for a given transaction id
+function _printReceipt(txnId){
+ const t = getFeeTransactions().find(x => x.id === parseInt(txnId));
+ if (!t) { alert('Receipt not found'); return; }
+ const html = _generateReceiptHTML(t);
+ const win = window.open('', '_blank', 'width=900,height=900');
+ if (!win) {
+  // Pop-up blocked — offer to download HTML instead
+  alert('Pop-up blocked. Please allow pop-ups for this site, then try again.');
+  return;
+ }
+ win.document.write(html);
+ win.document.close();
+}
+
+
 function saveCorrectionRequests(d){ localStorage.setItem('correctionRequests', JSON.stringify(d)); }
 function getAuditLog(){ return JSON.parse(localStorage.getItem('accountingAuditLog') || '[]'); }
 function _logAccountingChange(action, kind, before, after, reason){
@@ -4073,6 +4372,16 @@ function attachAccountantEvents(){
 }
 
 function _attachReceiptEvents(){
+ // Print last receipt banner
+ document.getElementById('rcptPrintLastBtn')?.addEventListener('click', () => {
+  const lastId = localStorage.getItem('_lastReceiptId');
+  if (lastId) _printReceipt(lastId);
+ });
+ document.getElementById('rcptDismissLastBtn')?.addEventListener('click', () => {
+  localStorage.removeItem('_lastReceiptId');
+  renderApp();
+ });
+
  // Toggle student vs other payer fields
  const fromSel = document.getElementById('rcptFrom');
  const otherRow = document.getElementById('rcptOtherNameRow');
@@ -4150,6 +4459,9 @@ function _attachReceiptEvents(){
   tr.push(transaction);
   saveFeeTransactions(tr);
   showToast('Receipt recorded: Rs.' + amt + ' (' + transaction.receiptNo + ')');
+
+  // Save the last receipt id so the post-save banner can offer to print it
+  localStorage.setItem('_lastReceiptId', String(transaction.id));
   renderApp();
  });
 
