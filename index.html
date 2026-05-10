@@ -493,16 +493,9 @@
       </button>
     </div>
     <div class="mt-6 pt-5 border-t border-line">
-      <div class="text-xs text-ink-soft mb-2 font-semibold uppercase tracking-wider">Demo Credentials</div>
-      <div class="text-xs text-ink-soft grid grid-cols-2 gap-x-3 gap-y-1">
-        <div>owner / owner123</div>
-        <div>admin / admin123</div>
-        <div>principal / principal123</div>
-        <div>teacher / teacher123</div>
-        <div>parent / parent123</div>
-        <div>accountant / acc123</div>
-        <div>student / student123</div>
-        <div>neha / teacher123</div>
+      <div class="text-xs text-ink-soft text-center">
+        <i class="fas fa-lock text-burgundy mr-1"></i>
+        Authorised access only. Contact the school office for credentials.
       </div>
     </div>
   </div>
@@ -1440,40 +1433,85 @@ function setupContactForm() {
    (adapted from MDBV School Operations Suite v2)
 ============================================================ */
 
+// ╔══════════════════════════════════════════════════════════════════════════════════╗
+// ║                                                                                  ║
+// ║   ★★★  SCHOOL DATA — KEEP THIS BLOCK WHEN UPDATING THE WEBSITE  ★★★             ║
+// ║                                                                                  ║
+// ║   When a new version of this index.html is generated, COPY THIS BLOCK            ║
+// ║   (everything between BEGIN and END markers below) from your CURRENT live        ║
+// ║   version into the NEW version BEFORE pushing to GitHub. This preserves your     ║
+// ║   real users, students, and teachers across updates.                             ║
+// ║                                                                                  ║
+// ║   Everything OUTSIDE this block is application code that can be safely replaced. ║
+// ║                                                                                  ║
+// ║   These values are used ONLY for first-time visitors with no saved data.         ║
+// ║   Existing users on the site keep their data — we never overwrite localStorage.  ║
+// ║                                                                                  ║
+// ╚══════════════════════════════════════════════════════════════════════════════════╝
+//
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ BEGIN SCHOOL DATA ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const SEED_USERS = [
+  // Replace usernames, passwords, and names with your real accounts.
+  // Roles must be one of: owner, admin, principal, teacher, parent, accountant, student
+{
+  "schoolInfra": "{\"girlsToilets\":8,\"functionalComputers\":45,\"ramps\":true,\"library\":true,\"incinerator\":true,\"lastUpdated\":\"2026-04-01\"}",
+  "calendar": "[{\"id\":1,\"title\":\"CBSE Pre-Board Exam\",\"date\":\"2026-05-10\",\"description\":\"Class 10 & 12\",\"type\":\"Exam\"}]",
+  "payrollSlips": "[]",
+  "complaints": "[]",
+  "feeTransactions": "[{\"id\":1001,\"studentId\":101,\"amount\":5000,\"date\":\"2026-04-05\",\"mode\":\"online\",\"status\":\"paid\",\"receiptNo\":\"RCP001\"},{\"id\":1002,\"studentId\":102,\"amount\":2000,\"date\":\"2026-03-28\",\"mode\":\"cash\",\"status\":\"paid\",\"receiptNo\":\"RCP002\"}]",
+  "routeMovements": "[{\"id\":1,\"vehicleId\":1,\"date\":\"2026-04-24\",\"departure\":\"07:30\",\"arrival\":\"08:00\",\"status\":\"On Time\"}]",
+  "compliance": "[{\"id\":\"udise\",\"name\":\"UDISE+ Reporting\",\"desc\":\"Annual school data submission to MoE\",\"enabled\":true,\"status\":\"compliant\",\"validUntil\":\"2026-12-31\",\"docRef\":\"UD2025UP1234\",\"notes\":\"\",\"category\":\"Statutory\"},{\"id\":\"rte\",\"name\":\"RTE 25% Reservation\",\"desc\":\"Right to Education quota compliance\",\"enabled\":true,\"status\":\"compliant\",\"validUntil\":\"2027-03-31\",\"docRef\":\"RTE/UP/2025\",\"notes\":\"\",\"category\":\"Statutory\"},{\"id\":\"cbse\",\"name\":\"CBSE Affiliation\",\"desc\":\"Primary regulatory affiliation\",\"enabled\":true,\"status\":\"compliant\",\"validUntil\":\"2029-03-31\",\"docRef\":\"CBSE/2022/3530012\",\"notes\":\"\",\"category\":\"Statutory\"},{\"id\":\"mdm\",\"name\":\"Mid-Day Meal Compliance\",\"desc\":\"MDM norms (if applicable)\",\"enabled\":false,\"status\":\"na\",\"validUntil\":\"\",\"docRef\":\"\",\"notes\":\"Not applicable for private school\",\"category\":\"Statutory\"},{\"id\":\"pocso\",\"name\":\"POCSO Committee\",\"desc\":\"Child sexual offences prevention cell\",\"enabled\":true,\"status\":\"compliant\",\"validUntil\":\"2026-08-15\",\"docRef\":\"POCSO/INT/01\",\"notes\":\"Monthly meeting minutes maintained\",\"category\":\"Safety\"},{\"id\":\"antirag\",\"name\":\"Anti-Ragging Committee\",\"desc\":\"CBSE mandated committee for harassment\",\"enabled\":true,\"status\":\"compliant\",\"validUntil\":\"2026-06-30\",\"docRef\":\"ARC/2025\",\"notes\":\"\",\"category\":\"Safety\"},{\"id\":\"posh\",\"name\":\"POSH (Internal Committee)\",\"desc\":\"Sexual Harassment at Workplace Act\",\"enabled\":true,\"status\":\"pending\",\"validUntil\":\"2026-05-15\",\"docRef\":\"POSH/2025\",\"notes\":\"External member nomination pending\",\"category\":\"Safety\"},{\"id\":\"health\",\"name\":\"Health Check-up Records\",\"desc\":\"Annual student health camp\",\"enabled\":true,\"status\":\"pending\",\"validUntil\":\"2026-07-31\",\"docRef\":\"\",\"notes\":\"Camp scheduled for June\",\"category\":\"Safety\"},{\"id\":\"cctv\",\"name\":\"CCTV Monitoring\",\"desc\":\"Coverage of entry/exit/corridors\",\"enabled\":true,\"status\":\"compliant\",\"validUntil\":\"2026-12-31\",\"docRef\":\"CCTV/LOG\",\"notes\":\"24 cameras active\",\"category\":\"Safety\"},{\"id\":\"girlssafe\",\"name\":\"Girls Safety Norms\",\"desc\":\"Balika Suraksha: incinerators, counsellor\",\"enabled\":true,\"status\":\"compliant\",\"validUntil\":\"2026-12-31\",\"docRef\":\"BS/2025\",\"notes\":\"\",\"category\":\"Safety\"},{\"id\":\"firstaid\",\"name\":\"First Aid and Medical Room\",\"desc\":\"Dedicated medical room + nurse\",\"enabled\":true,\"status\":\"compliant\",\"validUntil\":\"2026-12-31\",\"docRef\":\"MR/2025\",\"notes\":\"\",\"category\":\"Safety\"},{\"id\":\"evac\",\"name\":\"Emergency Evacuation Plan\",\"desc\":\"Mock drill every 6 months\",\"enabled\":true,\"status\":\"pending\",\"validUntil\":\"2026-05-30\",\"docRef\":\"\",\"notes\":\"Next drill: May 20\",\"category\":\"Safety\"},{\"id\":\"fire\",\"name\":\"Fire Safety Certificate\",\"desc\":\"NOC from fire department\",\"enabled\":true,\"status\":\"compliant\",\"validUntil\":\"2027-01-20\",\"docRef\":\"FIRE/BGP/2026/102\",\"notes\":\"\",\"category\":\"Infrastructure\"},{\"id\":\"building\",\"name\":\"Building Safety Certificate\",\"desc\":\"Structural stability certificate\",\"enabled\":true,\"status\":\"compliant\",\"validUntil\":\"2028-03-31\",\"docRef\":\"BSC/BGP/2024\",\"notes\":\"\",\"category\":\"Infrastructure\"},{\"id\":\"water\",\"name\":\"Drinking Water and Sanitation\",\"desc\":\"RO + segregated toilets\",\"enabled\":true,\"status\":\"compliant\",\"validUntil\":\"2026-12-31\",\"docRef\":\"\",\"notes\":\"\",\"category\":\"Infrastructure\"},{\"id\":\"nishtha\",\"name\":\"Teacher Training (NISHTHA)\",\"desc\":\"Govt mandated teacher capacity building\",\"enabled\":true,\"status\":\"compliant\",\"validUntil\":\"2026-09-30\",\"docRef\":\"NISHTHA/2025\",\"notes\":\"\",\"category\":\"Academic\"},{\"id\":\"library\",\"name\":\"Library Access (RTE)\",\"desc\":\"Minimum library norms under RTE Act\",\"enabled\":true,\"status\":\"compliant\",\"validUntil\":\"2026-12-31\",\"docRef\":\"\",\"notes\":\"2500+ books\",\"category\":\"Academic\"},{\"id\":\"smc\",\"name\":\"School Management Committee\",\"desc\":\"Parent-Teacher-Community governance\",\"enabled\":true,\"status\":\"compliant\",\"validUntil\":\"2026-10-31\",\"docRef\":\"SMC/2025\",\"notes\":\"Quarterly meetings\",\"category\":\"Governance\"}]",
+  "chatMessages": "[{\"id\":1,\"from\":2,\"to\":6,\"fromName\":\"Rajesh Kumar (Admin)\",\"toName\":\"Dr. Anita Singh (Principal)\",\"text\":\"Good morning maam, the UDISE+ export is ready for your review.\",\"time\":\"2026-04-24T08:15:00\",\"read\":true},{\"id\":2,\"from\":6,\"to\":2,\"fromName\":\"Dr. Anita Singh (Principal)\",\"toName\":\"Rajesh Kumar (Admin)\",\"text\":\"Great, please share the CSV. I will verify by EOD.\",\"time\":\"2026-04-24T08:20:00\",\"read\":false},{\"id\":3,\"from\":3,\"to\":0,\"fromName\":\"Priya Sharma (Teacher)\",\"toName\":\"All Teachers\",\"text\":\"Staff meeting at 3 PM in the conference room.\",\"time\":\"2026-04-24T09:00:00\",\"read\":false,\"group\":\"teachers\"}]",
+  "inventory": "[{\"id\":1,\"name\":\"Whiteboard Markers\",\"category\":\"Stationery\",\"quantity\":50,\"unit\":\"box\",\"location\":\"Store Room\"}]",
+  "enquiries": "[{\"id\":1777030942629,\"name\":\"Vinod Kumar Giri\",\"phone\":\"+919999747444\",\"email\":\"vinod_nhai@yahoo.com\",\"subject\":\"Campus visit\",\"message\":\"let me know the convenient time on 27,04.2026\",\"date\":\"2026-04-24T11:42:22.629Z\"}]",
+  "documents": "[]",
+  "udiseReport": "{\"lastSubmitted\":\"2025-12-10\",\"ackNo\":\"UD2025UP1234\"}",
+  "homeworks": "[{\"id\":1,\"className\":\"10\",\"subject\":\"Mathematics\",\"description\":\"Solve exercise 4.1\",\"dueDate\":\"2026-04-30\",\"teacher\":\"Priya Sharma (Teacher)\",\"submitted\":[]},{\"id\":2,\"className\":\"10\",\"subject\":\"Science\",\"description\":\"Light chapter Q1-Q5\",\"dueDate\":\"2026-04-28\",\"teacher\":\"Neha Gupta (Teacher)\",\"submitted\":[]}]",
+  "users": "[{\"id\":1,\"username\":\"owner\",\"password\":\"owner123\",\"role\":\"owner\",\"name\":\"Mr. Vinod Kumar Giri (Owner)\"},{\"id\":2,\"username\":\"admin\",\"password\":\"admin123\",\"role\":\"admin\",\"name\":\"Rajesh Kumar (Admin)\"},{\"id\":3,\"username\":\"teacher\",\"password\":\"teacher123\",\"role\":\"teacher\",\"name\":\"Priya Sharma (Teacher)\",\"teacherId\":1},{\"id\":4,\"username\":\"parent\",\"password\":\"parent123\",\"role\":\"parent\",\"name\":\"Suman Lata (Parent)\"},{\"id\":5,\"username\":\"accountant\",\"password\":\"acc123\",\"role\":\"accountant\",\"name\":\"Manoj Gupta (Accountant)\"},{\"id\":6,\"username\":\"principal\",\"password\":\"principal123\",\"role\":\"principal\",\"name\":\"Dr. Anita Singh (Principal)\"},{\"id\":7,\"username\":\"student\",\"password\":\"student123\",\"role\":\"student\",\"name\":\"Aaradhya Singh\",\"studentId\":101},{\"id\":8,\"username\":\"neha\",\"password\":\"teacher123\",\"role\":\"teacher\",\"name\":\"Neha Gupta (Teacher)\",\"teacherId\":2}]",
+  "examMarks": "[{\"id\":1,\"studentId\":101,\"examName\":\"Unit Test 1\",\"subject\":\"Mathematics\",\"marks\":42,\"maxMarks\":50,\"date\":\"2026-03-10\"},{\"id\":2,\"studentId\":101,\"examName\":\"Unit Test 1\",\"subject\":\"Science\",\"marks\":45,\"maxMarks\":50,\"date\":\"2026-03-12\"}]",
+  "expenses": "[{\"id\":1,\"date\":\"2026-04-23\",\"category\":\"Stationery\",\"description\":\"Printer paper\",\"amount\":1200,\"mode\":\"Cash\"}]",
+  "gallery": "[{\"id\":1101,\"src\":\"assets/img/about.jpg\",\"title\":\"School entrance\",\"category\":\"Campus\",\"addedAt\":\"2026-04-01\"},{\"id\":1102,\"src\":\"assets/img/campus1.jpeg\",\"title\":\"Main campus view\",\"category\":\"Campus\",\"addedAt\":\"2026-04-01\"},{\"id\":1103,\"src\":\"assets/img/campus2.jpeg\",\"title\":\"School building\",\"category\":\"Campus\",\"addedAt\":\"2026-04-01\"},{\"id\":1104,\"src\":\"assets/img/campus3.jpeg\",\"title\":\"Courtyard\",\"category\":\"Campus\",\"addedAt\":\"2026-04-01\"},{\"id\":1105,\"src\":\"assets/img/campus4.jpeg\",\"title\":\"Campus grounds\",\"category\":\"Campus\",\"addedAt\":\"2026-04-01\"},{\"id\":1106,\"src\":\"assets/img/activity1.jpeg\",\"title\":\"School activity\",\"category\":\"Activities\",\"addedAt\":\"2026-04-01\"},{\"id\":1107,\"src\":\"assets/img/activity2.jpeg\",\"title\":\"Cultural programme\",\"category\":\"Activities\",\"addedAt\":\"2026-04-01\"},{\"id\":1108,\"src\":\"assets/img/activity3.jpeg\",\"title\":\"Student event\",\"category\":\"Activities\",\"addedAt\":\"2026-04-01\"},{\"id\":1109,\"src\":\"assets/img/activity4.jpeg\",\"title\":\"Annual function\",\"category\":\"Activities\",\"addedAt\":\"2026-04-01\"},{\"id\":1110,\"src\":\"assets/img/activity5.jpeg\",\"title\":\"Sports day\",\"category\":\"Activities\",\"addedAt\":\"2026-04-01\"},{\"id\":1111,\"src\":\"assets/img/activity6.jpeg\",\"title\":\"Class activity\",\"category\":\"Activities\",\"addedAt\":\"2026-04-01\"}]",
+  "schemaVersion": "4",
+  "teachers": "[{\"id\":1,\"name\":\"Priya Sharma\",\"subject\":\"Mathematics\",\"qualification\":\"M.Sc B.Ed\",\"udiseTeacherId\":\"UP098765\",\"trainingDate\":\"2025-06-10\",\"salary\":45000,\"bankAccount\":\"XXXX1234\",\"phone\":\"9876500001\"},{\"id\":2,\"name\":\"Neha Gupta\",\"subject\":\"Science\",\"qualification\":\"M.Sc B.Ed\",\"udiseTeacherId\":\"UP098764\",\"trainingDate\":\"2025-07-15\",\"salary\":42000,\"bankAccount\":\"XXXX5678\",\"phone\":\"9876500002\"}]",
+  "bankAccounts": "[{\"id\":1,\"bankName\":\"State Bank of India\",\"accountNo\":\"1234567890\",\"branch\":\"Binauli\",\"ifsc\":\"SBIN0012345\",\"balance\":450000}]",
+  "bankTransactions": "[]",
+  "busTracking": "{\"route1\":{\"lat\":28.95,\"lng\":77.62,\"lastUpdate\":\"2026-04-23 08:15 AM\",\"status\":\"On Time\"}}",
+  "vehicles": "[{\"id\":1,\"vehicleNo\":\"UP15 AB 1234\",\"type\":\"Bus\",\"capacity\":50,\"driver\":\"Ramesh\",\"route\":\"Binauli-Baghpat\",\"status\":\"Active\"}]",
+  "disclosureDocs": "[{\"id\":\"doc1\",\"key\":\"affiliation\",\"name\":\"Copy of affiliation / upgradation letter (CBSE)\",\"url\":\"\"},{\"id\":\"doc2\",\"key\":\"society\",\"name\":\"Copy of societies / trust / company registration\",\"url\":\"assets/docs/trust-deed.pdf\"},{\"id\":\"doc3\",\"key\":\"state_noc\",\"name\":\"Copy of NOC issued by State Government\",\"url\":\"assets/docs/State%20NOC.pdf\"},{\"id\":\"doc4\",\"key\":\"noc\",\"name\":\"Copy of NOC (district / education department)\",\"url\":\"assets/docs/NOC.pdf\"},{\"id\":\"doc5\",\"key\":\"rte\",\"name\":\"Copy of recognition certificate under RTE Act, 2009\",\"url\":\"\"},{\"id\":\"doc6\",\"key\":\"building\",\"name\":\"Copy of building safety certificate\",\"url\":\"assets/docs/building-safety.pdf\"},{\"id\":\"doc7\",\"key\":\"fire\",\"name\":\"Copy of fire safety certificate\",\"url\":\"assets/docs/fire-safety-new.pdf\"},{\"id\":\"doc8\",\"key\":\"fire_old\",\"name\":\"Fire safety certificate (previous)\",\"url\":\"assets/docs/fire-safety.pdf\"},{\"id\":\"doc9\",\"key\":\"fire_noc\",\"name\":\"Fire NOC (initial)\",\"url\":\"assets/docs/fire.pdf\"},{\"id\":\"doc10\",\"key\":\"water1\",\"name\":\"Water, health and sanitation certificate\",\"url\":\"assets/docs/water-safety.jpeg\"},{\"id\":\"doc11\",\"key\":\"water2\",\"name\":\"Water testing report\",\"url\":\"assets/docs/water.jpeg\"},{\"id\":\"doc12\",\"key\":\"land\",\"name\":\"Land documents (ownership / lease)\",\"url\":\"assets/docs/land.pdf\"},{\"id\":\"doc13\",\"key\":\"fees_all\",\"name\":\"Fee structure — current academic year\",\"url\":\"assets/docs/fees.pdf\"},{\"id\":\"doc14\",\"key\":\"fees_nur5\",\"name\":\"Fee structure — Nursery to Class 5\",\"url\":\"assets/docs/nur-5.pdf\"},{\"id\":\"doc15\",\"key\":\"fees_primary\",\"name\":\"Fee structure — Primary\",\"url\":\"assets/docs/primary.pdf\"},{\"id\":\"doc16\",\"key\":\"fees_68\",\"name\":\"Fee structure — Classes 6 to 8\",\"url\":\"assets/docs/6-8.pdf\"},{\"id\":\"doc17\",\"key\":\"calendar\",\"name\":\"Annual academic calendar\",\"url\":\"assets/docs/calendar.pdf\"},{\"id\":\"doc18\",\"key\":\"pta\",\"name\":\"List of PTA / SMC members\",\"url\":\"\"}]",
+  "maintenance": "[{\"id\":1,\"vehicleId\":1,\"date\":\"2026-04-10\",\"type\":\"Oil Change\",\"cost\":3500,\"nextDue\":\"2026-07-10\"}]",
+  "attendanceRecords": "{\"101\":{\"2026-04-20\":\"P\",\"2026-04-21\":\"P\",\"2026-04-22\":\"A\",\"2026-04-23\":\"P\"},\"102\":{\"2026-04-20\":\"P\",\"2026-04-21\":\"P\",\"2026-04-22\":\"A\",\"2026-04-23\":\"P\"},\"103\":{\"2026-04-20\":\"P\",\"2026-04-21\":\"P\",\"2026-04-22\":\"A\",\"2026-04-23\":\"P\"},\"104\":{\"2026-04-20\":\"P\",\"2026-04-21\":\"P\",\"2026-04-22\":\"A\",\"2026-04-23\":\"P\"},\"105\":{\"2026-04-20\":\"P\",\"2026-04-21\":\"P\",\"2026-04-22\":\"A\",\"2026-04-23\":\"P\"}}",
+  "students": "[{\"id\":101,\"name\":\"Aaradhya Singh\",\"registrationNo\":\"MDB2023001\",\"admissionNo\":\"MDB2023001\",\"class\":\"10\",\"section\":\"A\",\"rollNo\":1,\"feeBalance\":12500,\"parentId\":4,\"fatherName\":\"Sudheer Tomar\",\"parentName\":\"Suman Lata\",\"parentPhone\":\"9876543210\",\"village\":\"Fazalpur\",\"caste\":\"General\",\"bpl\":false,\"cwsn\":false,\"aadhaar\":\"XXXX-XXXX-1234\",\"gender\":\"Female\",\"dob\":\"2010-03-15\",\"bloodGroup\":\"O+\",\"address\":\"Binauli, Baghpat\",\"admissionDate\":\"2023-04-01\",\"annualFees\":24000,\"decidedFees\":18000,\"transportMonthly\":800},{\"id\":102,\"name\":\"Divyanshi Verma\",\"registrationNo\":\"MDB2023002\",\"admissionNo\":\"MDB2023002\",\"class\":\"10\",\"section\":\"A\",\"rollNo\":2,\"feeBalance\":5000,\"parentId\":4,\"fatherName\":\"Sandeep Verma\",\"parentName\":\"Rekha Verma\",\"parentPhone\":\"9876543211\",\"village\":\"Baghpat\",\"caste\":\"OBC\",\"bpl\":true,\"cwsn\":false,\"aadhaar\":\"XXXX-XXXX-5678\",\"gender\":\"Female\",\"dob\":\"2010-05-22\",\"bloodGroup\":\"A+\",\"address\":\"Baghpat\",\"admissionDate\":\"2023-04-01\",\"annualFees\":24000,\"decidedFees\":20000,\"transportMonthly\":500},{\"id\":103,\"name\":\"Kavya Chaudhary\",\"registrationNo\":\"MDB2021015\",\"admissionNo\":\"MDB2021015\",\"class\":\"12\",\"section\":\"B\",\"rollNo\":5,\"feeBalance\":21000,\"parentId\":4,\"fatherName\":\"Mahesh Chaudhary\",\"parentName\":\"Anita Chaudhary\",\"parentPhone\":\"9876543212\",\"village\":\"Baraut\",\"caste\":\"SC\",\"bpl\":false,\"cwsn\":false,\"aadhaar\":\"XXXX-XXXX-9101\",\"gender\":\"Female\",\"dob\":\"2008-08-09\",\"bloodGroup\":\"B+\",\"address\":\"Baraut\",\"admissionDate\":\"2021-04-01\",\"annualFees\":32000,\"decidedFees\":28000,\"transportMonthly\":0},{\"id\":104,\"name\":\"Riya Sharma\",\"registrationNo\":\"MDB2024007\",\"admissionNo\":\"MDB2024007\",\"class\":\"9\",\"section\":\"A\",\"rollNo\":3,\"feeBalance\":8000,\"parentId\":4,\"fatherName\":\"Suresh Sharma\",\"parentName\":\"Sunita Sharma\",\"parentPhone\":\"9876543213\",\"village\":\"Binauli\",\"caste\":\"General\",\"bpl\":false,\"cwsn\":false,\"aadhaar\":\"XXXX-XXXX-1122\",\"gender\":\"Female\",\"dob\":\"2011-11-30\",\"bloodGroup\":\"AB+\",\"address\":\"Binauli\",\"admissionDate\":\"2024-04-01\",\"annualFees\":22000,\"decidedFees\":20000,\"transportMonthly\":500},{\"id\":105,\"name\":\"Anushka Tomar\",\"registrationNo\":\"MDB2022010\",\"admissionNo\":\"MDB2022010\",\"class\":\"11\",\"section\":\"A\",\"rollNo\":4,\"feeBalance\":0,\"parentId\":4,\"fatherName\":\"Ramesh Tomar\",\"parentName\":\"Ramesh Tomar\",\"parentPhone\":\"9876543214\",\"village\":\"Baghpat\",\"caste\":\"General\",\"bpl\":false,\"cwsn\":true,\"aadhaar\":\"XXXX-XXXX-2211\",\"gender\":\"Female\",\"dob\":\"2009-02-18\",\"bloodGroup\":\"O-\",\"address\":\"Baghpat\",\"admissionDate\":\"2022-04-01\",\"annualFees\":30000,\"decidedFees\":0,\"transportMonthly\":0}]"
+}
+];
+
+const SEED_STUDENTS = [
+  // Empty by default. Add students through the admin panel
+  // (Data Management tab → Add Student) or paste your student records here.
+];
+
+const SEED_TEACHERS = [
+  // Empty by default. Add teachers through the admin panel (Teachers tab).
+];
+
+// Optional auto-populate flag — set to false to skip ALL initial seeds (truly blank install)
+const ENABLE_SEED_DATA = true;
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ END SCHOOL DATA ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 function initDB(){
- // Schema v4 migration: pre-seeds gallery and disclosureDocs with relative paths to
- // PDFs and photos already hosted at mdbv-edu.github.io/assets/docs and /assets/img.
- // Admin can add/edit/delete via portal; new uploads go directly to the GitHub repo.
- if (localStorage.getItem('schemaVersion') !== '4') {
-  ['users','students','feeTransactions','homeworks','complaints','busTracking','teachers',
-   'schoolInfra','udiseReport','examMarks','payrollSlips','attendanceRecords','inventory',
-   'vehicles','routeMovements','maintenance','expenses','bankAccounts','bankTransactions',
-   'calendar','documents','chatMessages','compliance','gallery','disclosureDocs'].forEach(k => localStorage.removeItem(k));
-  localStorage.setItem('schemaVersion','4');
- }
- if(!localStorage.getItem('users')){
-  localStorage.setItem('users',JSON.stringify([
-   {id:1,username:'owner',password:'owner123',role:'owner',name:'Mr. Vinod Kumar Giri (Owner)'},
-   {id:2,username:'admin',password:'admin123',role:'admin',name:'Rajesh Kumar (Admin)'},
-   {id:3,username:'teacher',password:'teacher123',role:'teacher',name:'Priya Sharma (Teacher)',teacherId:1},
-   {id:4,username:'parent',password:'parent123',role:'parent',name:'Suman Lata (Parent)'},
-   {id:5,username:'accountant',password:'acc123',role:'accountant',name:'Manoj Gupta (Accountant)'},
-   {id:6,username:'principal',password:'principal123',role:'principal',name:'Dr. Anita Singh (Principal)'},
-   {id:7,username:'student',password:'student123',role:'student',name:'Aaradhya Singh',studentId:101},
-   {id:8,username:'neha',password:'teacher123',role:'teacher',name:'Neha Gupta (Teacher)',teacherId:2}
-  ]));
- }
- if(!localStorage.getItem('students')){
-  localStorage.setItem('students',JSON.stringify([
-   {id:101,name:'Aaradhya Singh',registrationNo:'MDB2023001',admissionNo:'MDB2023001',class:'10',section:'A',rollNo:1,feeBalance:12500,parentId:4,fatherName:'Sudheer Tomar',parentName:'Suman Lata',parentPhone:'9876543210',village:'Fazalpur',caste:'General',bpl:false,cwsn:false,aadhaar:'XXXX-XXXX-1234',gender:'Female',dob:'2010-03-15',bloodGroup:'O+',address:'Binauli, Baghpat',admissionDate:'2023-04-01',annualFees:24000,decidedFees:18000,transportMonthly:800},
-   {id:102,name:'Divyanshi Verma',registrationNo:'MDB2023002',admissionNo:'MDB2023002',class:'10',section:'A',rollNo:2,feeBalance:5000,parentId:4,fatherName:'Sandeep Verma',parentName:'Rekha Verma',parentPhone:'9876543211',village:'Baghpat',caste:'OBC',bpl:true,cwsn:false,aadhaar:'XXXX-XXXX-5678',gender:'Female',dob:'2010-05-22',bloodGroup:'A+',address:'Baghpat',admissionDate:'2023-04-01',annualFees:24000,decidedFees:20000,transportMonthly:500},
-   {id:103,name:'Kavya Chaudhary',registrationNo:'MDB2021015',admissionNo:'MDB2021015',class:'12',section:'B',rollNo:5,feeBalance:21000,parentId:4,fatherName:'Mahesh Chaudhary',parentName:'Anita Chaudhary',parentPhone:'9876543212',village:'Baraut',caste:'SC',bpl:false,cwsn:false,aadhaar:'XXXX-XXXX-9101',gender:'Female',dob:'2008-08-09',bloodGroup:'B+',address:'Baraut',admissionDate:'2021-04-01',annualFees:32000,decidedFees:28000,transportMonthly:0},
-   {id:104,name:'Riya Sharma',registrationNo:'MDB2024007',admissionNo:'MDB2024007',class:'9',section:'A',rollNo:3,feeBalance:8000,parentId:4,fatherName:'Suresh Sharma',parentName:'Sunita Sharma',parentPhone:'9876543213',village:'Binauli',caste:'General',bpl:false,cwsn:false,aadhaar:'XXXX-XXXX-1122',gender:'Female',dob:'2011-11-30',bloodGroup:'AB+',address:'Binauli',admissionDate:'2024-04-01',annualFees:22000,decidedFees:20000,transportMonthly:500},
-   {id:105,name:'Anushka Tomar',registrationNo:'MDB2022010',admissionNo:'MDB2022010',class:'11',section:'A',rollNo:4,feeBalance:0,parentId:4,fatherName:'Ramesh Tomar',parentName:'Ramesh Tomar',parentPhone:'9876543214',village:'Baghpat',caste:'General',bpl:false,cwsn:true,aadhaar:'XXXX-XXXX-2211',gender:'Female',dob:'2009-02-18',bloodGroup:'O-',address:'Baghpat',admissionDate:'2022-04-01',annualFees:30000,decidedFees:0,transportMonthly:0}
-  ]));
- }
- // Disclosure documents — pre-wired to PDFs already in the GitHub repo at /assets/docs/.
- // Relative paths so they work both locally and on github.io. Admin can edit URLs in portal.
+ // NON-DESTRUCTIVE: only seeds keys that don't exist. Never wipes existing data.
+ // The schemaVersion is informational only — bumping it does NOT erase anything.
+ if (!localStorage.getItem('schemaVersion')) localStorage.setItem('schemaVersion','5');
+
+ if (!ENABLE_SEED_DATA) return;
+
+ if(!localStorage.getItem('users'))    localStorage.setItem('users',    JSON.stringify(SEED_USERS));
+ if(!localStorage.getItem('students')) localStorage.setItem('students', JSON.stringify(SEED_STUDENTS));
+ if(!localStorage.getItem('teachers')) localStorage.setItem('teachers', JSON.stringify(SEED_TEACHERS));
+
+ // Public-facing content seeds (Disclosure documents and Gallery photos) — pre-wired
+ // to existing files in /assets/docs/ and /assets/img/. Admin can edit through portal.
  if(!localStorage.getItem('disclosureDocs')){
   localStorage.setItem('disclosureDocs',JSON.stringify([
    {id:'doc1', key:'affiliation', name:'Copy of affiliation / upgradation letter (CBSE)',                       url:''},
@@ -1496,7 +1534,6 @@ function initDB(){
    {id:'doc18',key:'pta',         name:'List of PTA / SMC members',                                             url:''}
   ]));
  }
- // Gallery photos — pre-seeded from existing /assets/img/ files in the repo.
  if(!localStorage.getItem('gallery')){
   localStorage.setItem('gallery',JSON.stringify([
    {id:1101, src:'assets/img/about.jpg',       title:'School entrance',                category:'Campus',     addedAt:'2026-04-01'},
@@ -1512,29 +1549,16 @@ function initDB(){
    {id:1111, src:'assets/img/activity6.jpeg',  title:'Class activity',                 category:'Activities', addedAt:'2026-04-01'}
   ]));
  }
- if(!localStorage.getItem('feeTransactions'))localStorage.setItem('feeTransactions',JSON.stringify([
-  {id:1001,studentId:101,amount:5000,date:'2026-04-05',mode:'online',status:'paid',receiptNo:'RCP001'},
-  {id:1002,studentId:102,amount:2000,date:'2026-03-28',mode:'cash',status:'paid',receiptNo:'RCP002'}
- ]));
- if(!localStorage.getItem('homeworks'))localStorage.setItem('homeworks',JSON.stringify([
-  {id:1,className:'10',subject:'Mathematics',description:'Solve exercise 4.1',dueDate:'2026-04-30',teacher:'Priya Sharma (Teacher)',submitted:[]},
-  {id:2,className:'10',subject:'Science',description:'Light chapter Q1-Q5',dueDate:'2026-04-28',teacher:'Neha Gupta (Teacher)',submitted:[]}
- ]));
- if(!localStorage.getItem('complaints'))localStorage.setItem('complaints','[]');
- if(!localStorage.getItem('busTracking'))localStorage.setItem('busTracking',JSON.stringify({route1:{lat:28.95,lng:77.62,lastUpdate:'2026-04-23 08:15 AM',status:'On Time'}}));
- if(!localStorage.getItem('teachers'))localStorage.setItem('teachers',JSON.stringify([
-  {id:1,name:'Priya Sharma',subject:'Mathematics',qualification:'M.Sc B.Ed',udiseTeacherId:'UP098765',trainingDate:'2025-06-10',salary:45000,bankAccount:'XXXX1234',phone:'9876500001'},
-  {id:2,name:'Neha Gupta',subject:'Science',qualification:'M.Sc B.Ed',udiseTeacherId:'UP098764',trainingDate:'2025-07-15',salary:42000,bankAccount:'XXXX5678',phone:'9876500002'}
- ]));
- if(!localStorage.getItem('schoolInfra'))localStorage.setItem('schoolInfra',JSON.stringify({girlsToilets:8,functionalComputers:45,ramps:true,library:true,incinerator:true,lastUpdated:'2026-04-01'}));
- if(!localStorage.getItem('udiseReport'))localStorage.setItem('udiseReport',JSON.stringify({lastSubmitted:'2025-12-10',ackNo:'UD2025UP1234'}));
- if(!localStorage.getItem('examMarks'))localStorage.setItem('examMarks',JSON.stringify([
-  {id:1,studentId:101,examName:'Unit Test 1',subject:'Mathematics',marks:42,maxMarks:50,date:'2026-03-10'},
-  {id:2,studentId:101,examName:'Unit Test 1',subject:'Science',marks:45,maxMarks:50,date:'2026-03-12'}
- ]));
- if(!localStorage.getItem('payrollSlips'))localStorage.setItem('payrollSlips','[]');
+ if(!localStorage.getItem('feeTransactions')) localStorage.setItem('feeTransactions','[]');
+ if(!localStorage.getItem('homeworks'))       localStorage.setItem('homeworks','[]');
+ if(!localStorage.getItem('complaints'))      localStorage.setItem('complaints','[]');
+ if(!localStorage.getItem('busTracking'))     localStorage.setItem('busTracking',JSON.stringify({route1:{lat:28.95,lng:77.62,lastUpdate:'',status:''}}));
+ if(!localStorage.getItem('schoolInfra'))     localStorage.setItem('schoolInfra',JSON.stringify({girlsToilets:8,functionalComputers:45,ramps:true,library:true,incinerator:true,lastUpdated:'2026-04-01'}));
+ if(!localStorage.getItem('udiseReport'))     localStorage.setItem('udiseReport',JSON.stringify({lastSubmitted:'',ackNo:''}));
+ if(!localStorage.getItem('examMarks'))       localStorage.setItem('examMarks','[]');
+ if(!localStorage.getItem('payrollSlips'))    localStorage.setItem('payrollSlips','[]');
  if(!localStorage.getItem('attendanceRecords')){
-  let r={};JSON.parse(localStorage.getItem('students')).forEach(s=>{r[s.id]={'2026-04-20':'P','2026-04-21':'P','2026-04-22':'A','2026-04-23':'P'}});
+  let r={};JSON.parse(localStorage.getItem('students')).forEach(s=>{r[s.id]={}});
   localStorage.setItem('attendanceRecords',JSON.stringify(r));
  }
  if(!localStorage.getItem('inventory'))localStorage.setItem('inventory',JSON.stringify([{id:1,name:'Whiteboard Markers',category:'Stationery',quantity:50,unit:'box',location:'Store Room'}]));
@@ -1709,6 +1733,7 @@ function renderOwnerDashboard(){
 function renderAdminPanel(){
  const tabs=[
   {id:'dashboard',label:'Dashboard',icon:'gauge-high'},
+  {id:'users',label:'Users',icon:'user-shield'},
   {id:'students',label:'Students',icon:'user-graduate'},
   {id:'teachers',label:'Teachers',icon:'chalkboard-teacher'},
   {id:'datamanagement',label:'Data',icon:'database'},
@@ -1722,7 +1747,8 @@ function renderAdminPanel(){
   {id:'bank',label:'Bank',icon:'building-columns'},
   {id:'calendar',label:'Calendar',icon:'calendar-days'},
   {id:'documents',label:'Documents',icon:'folder-open'},
-  {id:'reports',label:'Reports',icon:'chart-bar'}
+  {id:'reports',label:'Reports',icon:'chart-bar'},
+  {id:'backup',label:'Backup',icon:'cloud-arrow-down'}
  ];
  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
   <div class="flex flex-wrap justify-between items-center gap-2">
@@ -1739,6 +1765,7 @@ function renderAdminPanel(){
 function renderAdminTabContent(){
  switch(activeAdminTab){
   case 'dashboard':return renderAdminDashboardTab();
+  case 'users':return renderUsersTab();
   case 'students':return renderStudentsTab();
   case 'teachers':return renderTeachersTab();
   case 'datamanagement':return renderDataManagement();
@@ -1753,6 +1780,7 @@ function renderAdminTabContent(){
   case 'calendar':return renderCalendar();
   case 'documents':return renderDocuments();
   case 'reports':return renderReports();
+  case 'backup':return renderBackupTab();
   default:return '<div>Select a tab</div>';
  }
 }
@@ -2599,6 +2627,8 @@ function attachActiveAdminTabEvents(){
  else if(activeAdminTab==='datamanagement')attachDataManagementEvents();
  else if(activeAdminTab==='gallery')attachGalleryAdminEvents();
  else if(activeAdminTab==='disclosureDocs')attachDisclosureDocsEvents();
+ else if(activeAdminTab==='users')attachUsersTabEvents();
+ else if(activeAdminTab==='backup')attachBackupEvents();
  else attachGenericModuleEvents();
  attachUniversalCloseEvents();
 }
@@ -3353,6 +3383,297 @@ function attachDisclosureDocsEvents(){
   document.getElementById('ddAddModal').classList.add('hidden');
   showToast('Document added');
   refresh();
+ });
+}
+
+/* ============================================================
+   USERS MANAGEMENT TAB — owner/admin can add/edit/delete login accounts
+   without touching the HTML file. Changes save to localStorage immediately.
+============================================================ */
+function renderUsersTab(){
+ const users = getUsers();
+ const myId = currentUser?.id;
+ const canManage = ['owner','admin'].includes(currentUser?.role);
+ if (!canManage) {
+  return `<div class="text-center py-8 text-gray-500">
+   <i class="fas fa-lock text-3xl mb-3"></i>
+   <p>Only Owner and Admin roles can manage users.</p>
+  </div>`;
+ }
+ return `<div>
+  <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+   <h2 class="text-lg font-bold"><i class="fas fa-user-shield text-indigo-600 mr-1"></i>User Accounts</h2>
+   <button id="addUserBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-plus mr-1"></i>Add User</button>
+  </div>
+  <div class="bg-amber-50 border-l-4 border-amber-400 p-3 rounded mb-4 text-sm text-amber-900">
+   <i class="fas fa-info-circle mr-1"></i>
+   <b>Important:</b> Changes here save to your browser only. After making changes, go to the <b>Backup</b> tab to download a JSON backup. To make changes permanent across all visitors, also update the <code class="bg-white px-1 rounded text-xs">SEED_USERS</code> block at the top of <code class="bg-white px-1 rounded text-xs">index.html</code> in your GitHub repo and push.
+  </div>
+  <div class="overflow-x-auto"><table class="border text-sm w-full">
+   <thead><tr><th>ID</th><th>Username</th><th>Password</th><th>Role</th><th>Display Name</th><th>Linked ID</th><th>Actions</th></tr></thead>
+   <tbody>
+    ${users.map(u => `<tr ${u.id === myId ? 'style="background:#fef3c7;"' : ''}>
+     <td class="text-xs text-gray-600">${u.id}${u.id === myId ? ' <span class="pill pill-amber">YOU</span>' : ''}</td>
+     <td class="font-medium">${escapeHTML(u.username || '')}</td>
+     <td><span class="font-mono text-xs">${'•'.repeat(Math.min(8, (u.password || '').length))}</span></td>
+     <td><span class="pill pill-${u.role === 'owner' ? 'red' : u.role === 'admin' ? 'amber' : u.role === 'principal' ? 'blue' : 'gray'}">${u.role}</span></td>
+     <td>${escapeHTML(u.name || '')}</td>
+     <td class="text-xs text-gray-600">${u.teacherId ? 'Teacher #' + u.teacherId : u.studentId ? 'Student #' + u.studentId : '—'}</td>
+     <td class="whitespace-nowrap">
+      <button class="editUserBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${u.id}">Edit</button>
+      ${u.id !== myId ? `<button class="delUserBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${u.id}">Delete</button>` : '<span class="text-xs text-gray-500 ml-1">(self)</span>'}
+     </td>
+    </tr>`).join('')}
+   </tbody>
+  </table></div>
+
+  <div id="userModal" class="hidden modal"><div class="modal-content" style="max-width:500px">
+   <h3 class="text-lg font-bold mb-3" id="userModalTitle">Add User</h3>
+   <input type="hidden" id="userModalId">
+   <div class="space-y-3">
+    <div><label class="text-xs font-medium">Display Name *</label><input id="userModalName" placeholder="e.g. Lavita Pradhan"></div>
+    <div><label class="text-xs font-medium">Username *</label><input id="userModalUsername" placeholder="e.g. lavita" autocomplete="off"></div>
+    <div><label class="text-xs font-medium">Password *</label><input type="text" id="userModalPassword" placeholder="Set a strong password" autocomplete="off"></div>
+    <div><label class="text-xs font-medium">Role *</label><select id="userModalRole">
+     <option value="owner">Owner</option>
+     <option value="admin">Admin</option>
+     <option value="principal">Principal</option>
+     <option value="teacher">Teacher</option>
+     <option value="parent">Parent</option>
+     <option value="accountant">Accountant</option>
+     <option value="student">Student</option>
+    </select></div>
+    <div id="teacherIdRow" style="display:none"><label class="text-xs font-medium">Linked Teacher ID</label><input type="number" id="userModalTeacherId" placeholder="ID from Teachers tab"></div>
+    <div id="studentIdRow" style="display:none"><label class="text-xs font-medium">Linked Student ID</label><input type="number" id="userModalStudentId" placeholder="ID from Students tab"></div>
+   </div>
+   <div class="flex justify-end gap-2 mt-4">
+    <button class="closeModal bg-gray-300 px-4 py-2 rounded-lg text-sm">Cancel</button>
+    <button id="userModalSave" class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm">Save</button>
+   </div>
+  </div></div>
+ </div>`;
+}
+
+function attachUsersTabEvents(){
+ const refresh = () => refreshAdminTabContent();
+ const openUserModal = (existingId) => {
+  ['userModalId','userModalName','userModalUsername','userModalPassword','userModalTeacherId','userModalStudentId']
+    .forEach(f => { const el = document.getElementById(f); if (el) el.value = ''; });
+  document.getElementById('userModalRole').value = 'teacher';
+  document.getElementById('teacherIdRow').style.display = '';
+  document.getElementById('studentIdRow').style.display = 'none';
+
+  if (existingId) {
+   const u = getUsers().find(x => x.id === parseInt(existingId));
+   if (u) {
+    document.getElementById('userModalTitle').innerText = 'Edit User';
+    document.getElementById('userModalId').value = u.id;
+    document.getElementById('userModalName').value = u.name || '';
+    document.getElementById('userModalUsername').value = u.username || '';
+    document.getElementById('userModalPassword').value = u.password || '';
+    document.getElementById('userModalRole').value = u.role || 'teacher';
+    document.getElementById('userModalTeacherId').value = u.teacherId || '';
+    document.getElementById('userModalStudentId').value = u.studentId || '';
+   }
+  } else {
+   document.getElementById('userModalTitle').innerText = 'Add User';
+  }
+  // Show/hide linked-id rows based on role
+  const roleSel = document.getElementById('userModalRole');
+  const updateLinkedRows = () => {
+   document.getElementById('teacherIdRow').style.display = roleSel.value === 'teacher' ? '' : 'none';
+   document.getElementById('studentIdRow').style.display = roleSel.value === 'student' ? '' : 'none';
+  };
+  roleSel.onchange = updateLinkedRows;
+  updateLinkedRows();
+  document.getElementById('userModal').classList.remove('hidden');
+ };
+ document.getElementById('addUserBtn')?.addEventListener('click', () => openUserModal(null));
+ document.querySelectorAll('.editUserBtn').forEach(b => b.addEventListener('click', () => openUserModal(b.dataset.id)));
+ document.querySelectorAll('.delUserBtn').forEach(b => b.addEventListener('click', () => {
+  const u = getUsers().find(x => x.id === parseInt(b.dataset.id));
+  if (!confirm(`Delete user "${u?.name || u?.username}"? They won't be able to log in anymore.`)) return;
+  set('users', getUsers().filter(x => x.id !== parseInt(b.dataset.id)));
+  showToast('User deleted');
+  refresh();
+ }));
+ document.getElementById('userModalSave')?.addEventListener('click', () => {
+  const name = document.getElementById('userModalName').value.trim();
+  const username = document.getElementById('userModalUsername').value.trim();
+  const password = document.getElementById('userModalPassword').value;
+  const role = document.getElementById('userModalRole').value;
+  if (!name) { alert('Display name required'); return; }
+  if (!username) { alert('Username required'); return; }
+  if (!password) { alert('Password required'); return; }
+  const id = document.getElementById('userModalId').value;
+  const users = getUsers();
+  // Check for duplicate username (except when editing the same user)
+  const dupe = users.find(u => u.username === username && (!id || u.id !== parseInt(id)));
+  if (dupe) { alert(`Username "${username}" is already taken`); return; }
+  const data = { name, username, password, role };
+  const teacherId = parseInt(document.getElementById('userModalTeacherId').value);
+  const studentId = parseInt(document.getElementById('userModalStudentId').value);
+  if (role === 'teacher' && teacherId) data.teacherId = teacherId;
+  if (role === 'student' && studentId) data.studentId = studentId;
+  if (id) {
+   const i = users.findIndex(x => x.id === parseInt(id));
+   if (i > -1) users[i] = { ...users[i], ...data };
+   showToast('User updated');
+  } else {
+   data.id = Math.max(0, ...users.map(u => u.id)) + 1;
+   users.push(data);
+   showToast('User added');
+  }
+  set('users', users);
+  document.getElementById('userModal').classList.add('hidden');
+  refresh();
+ });
+}
+
+/* ============================================================
+   BACKUP / RESTORE TAB — export and import all localStorage data as JSON
+============================================================ */
+function renderBackupTab(){
+ const keys = Object.keys(localStorage);
+ const totalBytes = keys.reduce((s, k) => s + (localStorage.getItem(k) || '').length, 0);
+ const sizeKB = Math.round(totalBytes / 1024);
+ return `<div>
+  <h2 class="text-lg font-bold mb-4"><i class="fas fa-cloud-arrow-down text-indigo-600 mr-1"></i>Backup &amp; Restore</h2>
+
+  <div class="bg-blue-50 border-l-4 border-blue-400 p-3 rounded mb-5 text-sm text-blue-900">
+   <i class="fas fa-info-circle mr-1"></i>
+   <b>Why backup matters:</b> All your data (users, students, fees, attendance, etc.) lives in this browser's local storage. If the browser cache is cleared, the device is replaced, or you switch browsers, the data is lost. Backup regularly (weekly recommended) and keep the JSON file safe.
+  </div>
+
+  <div class="grid md:grid-cols-2 gap-4">
+
+   <div class="border rounded-lg p-5">
+    <h3 class="font-semibold mb-3"><i class="fas fa-download text-emerald-600 mr-1"></i>Export Backup</h3>
+    <p class="text-sm text-gray-600 mb-3">Download a complete snapshot of all data in this browser as a JSON file.</p>
+    <div class="bg-gray-50 p-3 rounded mb-3 text-xs">
+     <div><b>${keys.length}</b> data keys</div>
+     <div><b>~${sizeKB} KB</b> total size</div>
+    </div>
+    <button id="backupExportBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full">
+     <i class="fas fa-download mr-1"></i>Download Full Backup
+    </button>
+    <button id="backupExportUsersBtn" class="bg-blue-100 hover:bg-blue-200 text-blue-900 px-4 py-2 rounded-lg text-sm font-medium w-full mt-2">
+     <i class="fas fa-user-shield mr-1"></i>Export Users Only (for SEED_USERS)
+    </button>
+   </div>
+
+   <div class="border rounded-lg p-5">
+    <h3 class="font-semibold mb-3"><i class="fas fa-upload text-amber-600 mr-1"></i>Restore Backup</h3>
+    <p class="text-sm text-gray-600 mb-3">Upload a previously-exported JSON file to restore data. Choose the merge strategy:</p>
+    <div class="space-y-2 mb-3 text-sm">
+     <label class="flex items-start gap-2">
+      <input type="radio" name="restoreMode" value="merge" class="mt-1 w-auto" checked>
+      <span><b>Merge</b> — keep current data, only add keys from backup that don't exist now (safest)</span>
+     </label>
+     <label class="flex items-start gap-2">
+      <input type="radio" name="restoreMode" value="overwrite" class="mt-1 w-auto">
+      <span><b>Overwrite</b> — replace current data with backup (use if backup is newer)</span>
+     </label>
+     <label class="flex items-start gap-2">
+      <input type="radio" name="restoreMode" value="reset" class="mt-1 w-auto">
+      <span><b>Reset and replace</b> — wipe everything first, then load backup (full restore)</span>
+     </label>
+    </div>
+    <input type="file" id="backupFileInput" accept=".json,application/json" class="mb-2">
+    <button id="backupImportBtn" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full">
+     <i class="fas fa-upload mr-1"></i>Restore from File
+    </button>
+   </div>
+
+  </div>
+
+  <div class="mt-6 border-t pt-5">
+   <h3 class="font-semibold mb-3"><i class="fas fa-trash text-red-600 mr-1"></i>Danger Zone</h3>
+   <div class="bg-red-50 border border-red-200 p-4 rounded-lg">
+    <p class="text-sm text-red-900 mb-3"><b>Reset to factory defaults:</b> Wipes ALL data in this browser and reloads the page. The seed values from the SCHOOL_DATA block will repopulate. <b>Make a backup first.</b></p>
+    <button id="backupResetBtn" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
+     <i class="fas fa-trash-can mr-1"></i>Reset All Data
+    </button>
+   </div>
+  </div>
+
+  <div class="mt-6 text-xs text-gray-500">
+   <p><b>Backup file format:</b> Plain JSON with one entry per localStorage key. Open it in any text editor to inspect or hand-edit. The file is fully portable across devices and browsers.</p>
+  </div>
+ </div>`;
+}
+
+function attachBackupEvents(){
+ document.getElementById('backupExportBtn')?.addEventListener('click', () => {
+  const data = {};
+  Object.keys(localStorage).forEach(k => { data[k] = localStorage.getItem(k); });
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'mdbv-backup-' + new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19) + '.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  showToast('Backup downloaded — keep it safe!');
+ });
+
+ document.getElementById('backupExportUsersBtn')?.addEventListener('click', () => {
+  const users = getUsers();
+  // Generate a SEED_USERS block ready to paste into the HTML
+  const lines = ['const SEED_USERS = ['];
+  users.forEach((u, i) => {
+   const obj = `  {id: ${u.id}, username: ${JSON.stringify(u.username)}, password: ${JSON.stringify(u.password)}, role: ${JSON.stringify(u.role)}, name: ${JSON.stringify(u.name)}${u.teacherId ? ', teacherId: ' + u.teacherId : ''}${u.studentId ? ', studentId: ' + u.studentId : ''}}${i < users.length - 1 ? ',' : ''}`;
+   lines.push(obj);
+  });
+  lines.push('];');
+  const text = lines.join('\n');
+  const blob = new Blob([text], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'SEED_USERS-' + new Date().toISOString().slice(0,10) + '.txt';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  showToast('SEED_USERS block downloaded — paste into index.html when updating');
+ });
+
+ document.getElementById('backupImportBtn')?.addEventListener('click', () => {
+  const file = document.getElementById('backupFileInput').files[0];
+  if (!file) { alert('Please choose a backup file first'); return; }
+  const mode = document.querySelector('input[name="restoreMode"]:checked').value;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+   try {
+    const data = JSON.parse(e.target.result);
+    if (typeof data !== 'object' || data === null) throw new Error('Backup file is not valid JSON object');
+    let restored = 0, skipped = 0;
+    if (mode === 'reset') {
+     localStorage.clear();
+    }
+    Object.keys(data).forEach(k => {
+     if (mode === 'merge' && localStorage.getItem(k) !== null) {
+      skipped++;
+     } else {
+      localStorage.setItem(k, data[k]);
+      restored++;
+     }
+    });
+    let msg = `Restored ${restored} keys`;
+    if (skipped) msg += ` (${skipped} kept from current)`;
+    showToast(msg);
+    // Force a full reload to apply restored state cleanly
+    setTimeout(() => location.reload(), 800);
+   } catch (err) {
+    alert('Failed to parse backup file: ' + err.message);
+   }
+  };
+  reader.readAsText(file);
+ });
+
+ document.getElementById('backupResetBtn')?.addEventListener('click', () => {
+  if (!confirm('⚠️ Wipe ALL data in this browser? This cannot be undone (unless you have a backup).')) return;
+  if (!confirm('Are you absolutely sure? Click Cancel to abort.')) return;
+  localStorage.clear();
+  showToast('All data wiped. Reloading…');
+  setTimeout(() => location.reload(), 800);
  });
 }
 
