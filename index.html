@@ -1820,10 +1820,17 @@ function renderAdminDashboardTab(){
 }
 
 /* ---------- STUDENTS MODULE ---------- */
+// Canonical class list — used everywhere a class dropdown appears
+const ALL_CLASSES = ['Pre Nursery','Nursery','LKG','UKG','1','2','3','4','5','6','7','8','9','10','11','12'];
+const ALL_SECTIONS = ['A','B','C','D'];
+
 function renderStudentsTab(){
  const all=getStudents();
- const classes=[...new Set(all.map(s=>s.class))].sort();
- const sections=[...new Set(all.map(s=>s.section))].sort();
+ // Always show the full canonical list, plus any extras found in data (custom class names)
+ const extraClasses = [...new Set(all.map(s => s.class).filter(c => c && !ALL_CLASSES.includes(c)))];
+ const classes = [...ALL_CLASSES, ...extraClasses];
+ const extraSections = [...new Set(all.map(s => s.section).filter(s => s && !ALL_SECTIONS.includes(s)))].sort();
+ const sections = [...ALL_SECTIONS, ...extraSections];
  const filt=all.filter(s=>{
   if(studentFilter.search&&!(s.name.toLowerCase().includes(studentFilter.search.toLowerCase())||String(s.rollNo).includes(studentFilter.search)||(s.admissionNo||'').toLowerCase().includes(studentFilter.search.toLowerCase())))return false;
   if(studentFilter.class!=='all'&&s.class!==studentFilter.class)return false;
@@ -1875,8 +1882,8 @@ function renderStudentsTab(){
    <div class="grid grid-cols-2 gap-3">
     <div><label class="text-xs font-medium">Full Name *</label><input id="stuName"></div>
     <div><label class="text-xs font-medium">Admission No</label><input id="stuAdmNo"></div>
-    <div><label class="text-xs font-medium">Class *</label><select id="stuClass">${['Nursery','LKG','UKG','1','2','3','4','5','6','7','8','9','10','11','12'].map(c=>`<option>${c}</option>`).join('')}</select></div>
-    <div><label class="text-xs font-medium">Section *</label><select id="stuSection">${['A','B','C','D'].map(c=>`<option>${c}</option>`).join('')}</select></div>
+    <div><label class="text-xs font-medium">Class *</label><select id="stuClass">${ALL_CLASSES.map(c=>`<option>${c}</option>`).join('')}</select></div>
+    <div><label class="text-xs font-medium">Section *</label><select id="stuSection">${ALL_SECTIONS.map(c=>`<option>${c}</option>`).join('')}</select></div>
     <div><label class="text-xs font-medium">Roll No</label><input type="number" id="stuRoll"></div>
     <div><label class="text-xs font-medium">Gender</label><select id="stuGender"><option>Female</option><option>Male</option><option>Other</option></select></div>
     <div><label class="text-xs font-medium">Date of Birth</label><input type="date" id="stuDob"></div>
@@ -2055,7 +2062,7 @@ function renderTeachersTab(){
 function renderDataManagement(){
  const students=getStudents(),hws=getHomeworks(),marks=getExamMarks(),comps=getComplaints();
  // Class ordering — primary, then numeric grades
- const classOrder = ['Pre Nursery','Nursery','LKG','UKG','1','2','3','4','5','6','7','8','9','10','11','12'];
+ const classOrder = ALL_CLASSES;
  const grouped = {};
  students.forEach(s => { (grouped[s.class] = grouped[s.class] || []).push(s); });
  const sortedClasses = Object.keys(grouped).sort((a,b) => {
@@ -2145,8 +2152,8 @@ function renderDataManagement(){
     <div><label class="text-xs font-medium">Full Name *</label><input id="dmStuName"></div>
     <div><label class="text-xs font-medium">Registration No</label><input id="dmStuRegNo"></div>
     <div><label class="text-xs font-medium">Admission No</label><input id="dmStuAdmNo"></div>
-    <div><label class="text-xs font-medium">Class *</label><select id="dmStuClass">${['Pre Nursery','Nursery','LKG','UKG','1','2','3','4','5','6','7','8','9','10','11','12'].map(c=>`<option>${c}</option>`).join('')}</select></div>
-    <div><label class="text-xs font-medium">Section</label><select id="dmStuSection"><option>A</option><option>B</option><option>C</option><option>D</option></select></div>
+    <div><label class="text-xs font-medium">Class *</label><select id="dmStuClass">${ALL_CLASSES.map(c=>`<option>${c}</option>`).join('')}</select></div>
+    <div><label class="text-xs font-medium">Section</label><select id="dmStuSection">${ALL_SECTIONS.map(c=>`<option>${c}</option>`).join('')}</select></div>
     <div><label class="text-xs font-medium">Roll No</label><input type="number" id="dmStuRoll"></div>
     <div><label class="text-xs font-medium">Father's Name</label><input id="dmStuFather"></div>
     <div><label class="text-xs font-medium">Mother's Name</label><input id="dmStuMother"></div>
@@ -2330,7 +2337,7 @@ function renderTeacherPanel(){
    <div class="bg-white p-4 rounded-xl shadow-sm">
     <h3 class="font-semibold mb-3"><i class="fas fa-pen text-indigo-600 mr-1"></i>Exam Marks Entry</h3>
     <div class="grid grid-cols-2 gap-2">
-     <select id="examClassT"><option value="">Class</option>${[...new Set(students.map(s=>s.class))].map(c=>`<option>${c}</option>`).join('')}</select>
+     <select id="examClassT"><option value="">Class</option>${ALL_CLASSES.map(c=>`<option>${c}</option>`).join('')}</select>
      <select id="examSubjectT"><option>Mathematics</option><option>Science</option><option>English</option><option>Hindi</option><option>Social Science</option></select>
     </div>
     <input id="examNameT" placeholder="Exam name (Unit Test 1)" class="mt-2">
@@ -2351,7 +2358,7 @@ function renderTeacherPanel(){
   </div>
   <div class="bg-white p-4 rounded-xl shadow-sm mt-4">
    <h3 class="font-semibold mb-3"><i class="fas fa-calendar-check text-green-600 mr-1"></i>Attendance (today: ${new Date().toISOString().slice(0,10)})</h3>
-   <select id="attClassSelect" class="mb-3" style="max-width:200px"><option value="">Select class</option>${[...new Set(students.map(s=>s.class))].map(c=>`<option>${c}</option>`).join('')}</select>
+   <select id="attClassSelect" class="mb-3" style="max-width:200px"><option value="">Select class</option>${ALL_CLASSES.map(c=>`<option>${c}</option>`).join('')}</select>
    <div id="attStudentContainer" class="space-y-1"></div>
    <button id="saveAttendanceBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm mt-3">Save Attendance</button>
   </div>
@@ -3834,7 +3841,7 @@ function exportLoginSheet() {
   const cls = s?.class || 'Unknown';
   (byClass[cls] = byClass[cls] || []).push({ user: u, student: s });
  });
- const classOrder = ['Pre Nursery','Nursery','LKG','UKG','1','2','3','4','5','6','7','8','9','10','11','12','Unknown'];
+ const classOrder = [...ALL_CLASSES, 'Unknown'];
  classOrder.forEach(cls => {
   if (!byClass[cls]) return;
   html += `<tr><td colspan="6" style="background:#fef3c7;font-weight:bold;padding:5px;">Class ${cls} (${byClass[cls].length})</td></tr>`;
