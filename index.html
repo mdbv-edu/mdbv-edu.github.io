@@ -2381,45 +2381,800 @@ function renderPrincipalTabContent(){
 }
 
 /* ---------- TEACHER PANEL ---------- */
+/* ============================================================
+   TEACHER PANEL — full workstation with 5 tabs
+   - Dashboard: today's quick actions + summary
+   - Attendance: mark + view history with auto-sync to all reports
+   - Homework: post with file attachments + WhatsApp broadcast
+   - Marks: entry per class/exam + history
+   - My Class: student roster + parent broadcast
+============================================================ */
+
+let activeTeacherTab = 'dashboard';
+let attendanceMode = 'mark'; // 'mark' or 'view'
+let teacherClassFilter = ''; // currently-selected class for attendance/homework/marks
+
 function renderTeacherPanel(){
- const students=getStudents();
- const hws=getHomeworks().filter(h=>h.teacher===currentUser.name);
+ const tabs = [
+  {id:'dashboard',  label:'Dashboard',  icon:'gauge-high'},
+  {id:'attendance', label:'Attendance', icon:'calendar-check'},
+  {id:'homework',   label:'Homework',   icon:'book-open'},
+  {id:'marks',      label:'Marks',      icon:'pen-to-square'},
+  {id:'class',      label:'My Class',   icon:'users'}
+ ];
  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
-  <div class="flex justify-between items-center mb-4">
-   <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-chalkboard-teacher text-purple-600 mr-2"></i>Teacher Panel</h1>
+  <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+   <div>
+    <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-chalkboard-teacher text-purple-600 mr-2"></i>Teacher Panel</h1>
+    <div class="text-xs text-gray-600 mt-0.5">${currentUser.name} · ${new Date().toLocaleDateString('en-IN', {weekday:'long', day:'numeric', month:'long', year:'numeric'})}</div>
+   </div>
    <button id="logoutTeacherBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
   </div>
-  <div class="bg-white rounded-xl p-4 shadow-sm mb-4"><p class="text-gray-700">Welcome, <b>${currentUser.name}</b></p></div>
-  <div class="grid md:grid-cols-2 gap-4">
-   <div class="bg-white p-4 rounded-xl shadow-sm">
-    <h3 class="font-semibold mb-3"><i class="fas fa-pen text-indigo-600 mr-1"></i>Exam Marks Entry</h3>
-    <div class="grid grid-cols-2 gap-2">
-     <select id="examClassT"><option value="">Class</option>${ALL_CLASSES.map(c=>`<option>${c}</option>`).join('')}</select>
-     <select id="examSubjectT"><option>Mathematics</option><option>Science</option><option>English</option><option>Hindi</option><option>Social Science</option></select>
+  <div class="flex flex-wrap gap-1 border-b pb-2 mb-4 overflow-x-auto">
+   ${tabs.map(t => `<button class="tch-tab px-3 py-2 rounded-t-lg text-sm font-medium whitespace-nowrap ${activeTeacherTab===t.id?'bg-purple-600 text-white':'bg-gray-100 hover:bg-gray-200 text-gray-700'}" data-tab="${t.id}"><i class="fas fa-${t.icon} mr-1"></i>${t.label}</button>`).join('')}
+  </div>
+  <div id="tchTabContent">${renderTeacherTabContent()}</div>
+ </div>`;
+}
+
+function renderTeacherTabContent(){
+ switch(activeTeacherTab){
+  case 'dashboard':  return renderTchDashboard();
+  case 'attendance': return renderTchAttendance();
+  case 'homework':   return renderTchHomework();
+  case 'marks':      return renderTchMarks();
+  case 'class':      return renderTchClass();
+  default: return renderTchDashboard();
+ }
+}
+
+/* ---------- TAB 1: DASHBOARD ---------- */
+function renderTchDashboard(){
+ const today = new Date().toISOString().slice(0,10);
+ const students = getStudents();
+ const ar = getAttendanceRecords();
+ const myHws = getHomeworks().filter(h => h.teacherId === currentUser.id || h.teacher === currentUser.name);
+ const myMarks = getExamMarks().filter(m => m.teacherId === currentUser.id || m.teacher === currentUser.name);
+
+ // Compute attendance status today across classes
+ const presentToday = students.filter(s => ar[s.id]?.[today] === 'P').length;
+ const absentToday = students.filter(s => ar[s.id]?.[today] === 'A').length;
+ const pendingToday = students.length - presentToday - absentToday;
+
+ // Recent homework
+ const recentHws = myHws.slice(-3).reverse();
+
+ return `<div>
+  <div class="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-xl p-4 mb-4">
+   <div class="flex flex-wrap items-center justify-between gap-2">
+    <div>
+     <h2 class="font-display text-2xl text-purple-900">Welcome, ${currentUser.name}</h2>
+     <div class="text-sm text-purple-700 mt-1">Here's your overview for today</div>
     </div>
-    <input id="examNameT" placeholder="Exam name (Unit Test 1)" class="mt-2">
-    <input type="number" id="examMaxT" placeholder="Max marks" class="mt-2">
-    <div id="studentMarksContainer" class="space-y-2 mt-3 max-h-48 overflow-y-auto"></div>
-    <button id="submitMarksBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm mt-3">Save Marks</button>
-   </div>
-   <div class="bg-white p-4 rounded-xl shadow-sm">
-    <h3 class="font-semibold mb-3"><i class="fas fa-book text-amber-600 mr-1"></i>Post Homework</h3>
-    <input id="hwClassT" placeholder="Class (e.g. 10)">
-    <input id="hwSubjectT" placeholder="Subject" class="mt-2">
-    <textarea id="hwDescT" placeholder="Description" rows="2" class="mt-2"></textarea>
-    <input type="date" id="hwDueT" class="mt-2">
-    <button id="addHomeworkBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-sm mt-3"><i class="fas fa-plus mr-1"></i>Post Homework</button>
-    <h4 class="font-semibold mt-4 text-sm">My Posted Homework</h4>
-    <ul class="text-sm mt-2 space-y-1">${hws.map(h=>`<li>Class ${h.className} - ${h.subject}: ${h.description} (Due ${fmtDate(h.dueDate)})</li>`).join('')||'<li class="text-gray-500">None</li>'}</ul>
+    <div class="text-right">
+     <div class="text-xs text-purple-600">Today</div>
+     <div class="font-bold text-purple-900">${new Date().toLocaleDateString('en-IN', {day:'numeric', month:'long', year:'numeric'})}</div>
+    </div>
    </div>
   </div>
-  <div class="bg-white p-4 rounded-xl shadow-sm mt-4">
-   <h3 class="font-semibold mb-3"><i class="fas fa-calendar-check text-green-600 mr-1"></i>Attendance (today: ${new Date().toISOString().slice(0,10)})</h3>
-   <select id="attClassSelect" class="mb-3" style="max-width:200px"><option value="">Select class</option>${ALL_CLASSES.map(c=>`<option>${c}</option>`).join('')}</select>
-   <div id="attStudentContainer" class="space-y-1"></div>
-   <button id="saveAttendanceBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm mt-3">Save Attendance</button>
+
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+   <div class="bg-emerald-50 border border-emerald-200 p-3 rounded-lg">
+    <div class="text-xs text-emerald-700 font-semibold uppercase">Present Today</div>
+    <div class="text-2xl font-bold text-emerald-900 mt-1">${presentToday}</div>
+    <div class="text-xs text-emerald-700 mt-1">of ${students.length} students</div>
+   </div>
+   <div class="bg-rose-50 border border-rose-200 p-3 rounded-lg">
+    <div class="text-xs text-rose-700 font-semibold uppercase">Absent Today</div>
+    <div class="text-2xl font-bold text-rose-900 mt-1">${absentToday}</div>
+   </div>
+   <div class="bg-amber-50 border border-amber-200 p-3 rounded-lg">
+    <div class="text-xs text-amber-700 font-semibold uppercase">Not Marked</div>
+    <div class="text-2xl font-bold text-amber-900 mt-1">${pendingToday}</div>
+    <div class="text-xs text-amber-700 mt-1">${pendingToday > 0 ? 'Mark attendance →' : 'All marked ✓'}</div>
+   </div>
+   <div class="bg-indigo-50 border border-indigo-200 p-3 rounded-lg">
+    <div class="text-xs text-indigo-700 font-semibold uppercase">My Homework</div>
+    <div class="text-2xl font-bold text-indigo-900 mt-1">${myHws.length}</div>
+    <div class="text-xs text-indigo-700 mt-1">posted total</div>
+   </div>
+  </div>
+
+  <div class="grid md:grid-cols-3 gap-3 mb-4">
+   <button class="tchQuickAction bg-white hover:bg-emerald-50 border-2 border-emerald-200 hover:border-emerald-400 p-4 rounded-lg text-left transition" data-tab="attendance">
+    <i class="fas fa-calendar-check text-3xl text-emerald-600 mb-2"></i>
+    <div class="font-semibold">Mark Attendance</div>
+    <div class="text-xs text-gray-600 mt-1">Record today's attendance class-wise</div>
+   </button>
+   <button class="tchQuickAction bg-white hover:bg-amber-50 border-2 border-amber-200 hover:border-amber-400 p-4 rounded-lg text-left transition" data-tab="homework">
+    <i class="fas fa-book-open text-3xl text-amber-600 mb-2"></i>
+    <div class="font-semibold">Post Homework</div>
+    <div class="text-xs text-gray-600 mt-1">With files and WhatsApp broadcast</div>
+   </button>
+   <button class="tchQuickAction bg-white hover:bg-purple-50 border-2 border-purple-200 hover:border-purple-400 p-4 rounded-lg text-left transition" data-tab="marks">
+    <i class="fas fa-pen-to-square text-3xl text-purple-600 mb-2"></i>
+    <div class="font-semibold">Enter Marks</div>
+    <div class="text-xs text-gray-600 mt-1">After exams or unit tests</div>
+   </button>
+  </div>
+
+  <div class="grid lg:grid-cols-2 gap-4">
+   <div class="bg-white border rounded-lg p-4">
+    <h3 class="font-semibold mb-2"><i class="fas fa-book-open text-amber-600 mr-1"></i>Recent Homework</h3>
+    ${recentHws.length === 0 ? '<div class="text-sm text-gray-500 py-3">No homework posted yet</div>' : `
+    <ul class="space-y-2">${recentHws.map(h => `
+     <li class="text-sm border-b pb-2">
+      <div class="font-medium">Class ${h.className} · ${h.subject}</div>
+      <div class="text-gray-600 text-xs">${h.description || ''}</div>
+      <div class="text-xs text-gray-500 mt-1">Due ${fmtDate(h.dueDate)} ${h.attachmentName ? '· <i class="fas fa-paperclip"></i> ' + h.attachmentName : ''}</div>
+     </li>`).join('')}</ul>`}
+   </div>
+   <div class="bg-white border rounded-lg p-4">
+    <h3 class="font-semibold mb-2"><i class="fas fa-pen-to-square text-purple-600 mr-1"></i>Marks Activity</h3>
+    ${myMarks.length === 0 ? '<div class="text-sm text-gray-500 py-3">No marks entered yet</div>' : `
+    <div class="text-sm">
+     <div class="text-gray-700">${myMarks.length} mark${myMarks.length === 1 ? '' : 's'} recorded</div>
+     <div class="text-xs text-gray-600 mt-2">Recent exams: ${[...new Set(myMarks.slice(-10).map(m => m.examName))].slice(0,5).join(', ')}</div>
+    </div>`}
+   </div>
   </div>
  </div>`;
+}
+
+/* ---------- TAB 2: ATTENDANCE ---------- */
+function renderTchAttendance(){
+ return `<div>
+  <div class="flex flex-wrap gap-2 mb-4">
+   <button class="att-mode px-4 py-2 rounded-lg text-sm font-medium ${attendanceMode==='mark'?'bg-emerald-600 text-white':'bg-gray-100 hover:bg-gray-200'}" data-mode="mark"><i class="fas fa-pen-to-square mr-1"></i>Mark Attendance</button>
+   <button class="att-mode px-4 py-2 rounded-lg text-sm font-medium ${attendanceMode==='view'?'bg-blue-600 text-white':'bg-gray-100 hover:bg-gray-200'}" data-mode="view"><i class="fas fa-chart-bar mr-1"></i>View / Reports</button>
+  </div>
+  ${attendanceMode === 'mark' ? renderTchAttendanceMark() : renderTchAttendanceView()}
+ </div>`;
+}
+
+function renderTchAttendanceMark(){
+ return `<div class="bg-white border rounded-lg p-4">
+  <div class="grid md:grid-cols-3 gap-3 mb-4">
+   <div>
+    <label class="text-xs font-medium">Class *</label>
+    <select id="attMarkClass">
+     <option value="">— Select class —</option>
+     ${ALL_CLASSES.map(c => `<option ${teacherClassFilter===c?'selected':''}>${c}</option>`).join('')}
+    </select>
+   </div>
+   <div>
+    <label class="text-xs font-medium">Date</label>
+    <input type="date" id="attMarkDate" value="${new Date().toISOString().slice(0,10)}">
+   </div>
+   <div class="flex items-end gap-2">
+    <button id="attMarkAllPresent" class="bg-emerald-100 hover:bg-emerald-200 text-emerald-800 px-3 py-2 rounded-lg text-xs font-medium flex-1"><i class="fas fa-check mr-1"></i>All Present</button>
+    <button id="attMarkAllAbsent" class="bg-rose-100 hover:bg-rose-200 text-rose-800 px-3 py-2 rounded-lg text-xs font-medium flex-1"><i class="fas fa-xmark mr-1"></i>All Absent</button>
+   </div>
+  </div>
+  <div id="attMarkRoster" class="space-y-1 mb-3"></div>
+  <div class="flex justify-end gap-2 pt-3 border-t">
+   <button id="attMarkSave" class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-lg text-sm font-medium" disabled><i class="fas fa-save mr-1"></i>Save Attendance</button>
+  </div>
+ </div>`;
+}
+
+function renderTchAttendanceView(){
+ const today = new Date().toISOString().slice(0,10);
+ const monthAgo = new Date(); monthAgo.setDate(monthAgo.getDate() - 30);
+ return `<div class="bg-white border rounded-lg p-4">
+  <div class="grid md:grid-cols-4 gap-3 mb-4">
+   <div>
+    <label class="text-xs font-medium">Class</label>
+    <select id="attViewClass">
+     <option value="">— Select class —</option>
+     ${ALL_CLASSES.map(c => `<option>${c}</option>`).join('')}
+    </select>
+   </div>
+   <div>
+    <label class="text-xs font-medium">From</label>
+    <input type="date" id="attViewFrom" value="${monthAgo.toISOString().slice(0,10)}">
+   </div>
+   <div>
+    <label class="text-xs font-medium">To</label>
+    <input type="date" id="attViewTo" value="${today}">
+   </div>
+   <div class="flex items-end">
+    <button id="attViewExport" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-xs font-medium w-full"><i class="fas fa-file-excel mr-1"></i>Export</button>
+   </div>
+  </div>
+  <div id="attViewResults"><div class="text-sm text-gray-500 py-3 text-center">Pick a class above to view attendance history</div></div>
+ </div>`;
+}
+
+/* ---------- TAB 3: HOMEWORK ---------- */
+function renderTchHomework(){
+ const myHws = getHomeworks().filter(h => h.teacherId === currentUser.id || h.teacher === currentUser.name);
+ return `<div>
+  <div class="bg-white border rounded-lg p-4 mb-4">
+   <h3 class="font-semibold mb-3"><i class="fas fa-book-open text-amber-600 mr-1"></i>Post Homework / Notes</h3>
+   <div class="grid md:grid-cols-2 gap-3 mb-3">
+    <div>
+     <label class="text-xs font-medium">Class *</label>
+     <select id="hwClass">
+      <option value="">— Select class —</option>
+      ${ALL_CLASSES.map(c => `<option>${c}</option>`).join('')}
+     </select>
+    </div>
+    <div>
+     <label class="text-xs font-medium">Subject *</label>
+     <input id="hwSubject" placeholder="e.g. Mathematics, Science, English">
+    </div>
+    <div>
+     <label class="text-xs font-medium">Due Date</label>
+     <input type="date" id="hwDue" value="${new Date(Date.now()+86400000*3).toISOString().slice(0,10)}">
+    </div>
+    <div>
+     <label class="text-xs font-medium">Attach File <span class="text-gray-500">(PDF/Image, max 1 MB)</span></label>
+     <input type="file" id="hwFile" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx">
+    </div>
+    <div class="md:col-span-2">
+     <label class="text-xs font-medium">Description / Instructions *</label>
+     <textarea id="hwDesc" rows="3" placeholder="What students need to do..."></textarea>
+    </div>
+   </div>
+   <div class="flex flex-wrap items-center gap-3 pt-3 border-t">
+    <label class="text-sm flex items-center gap-2 cursor-pointer">
+     <input type="checkbox" id="hwBroadcast" class="w-auto">
+     <span><i class="fab fa-whatsapp text-emerald-600 mr-1"></i>Send to parents via WhatsApp after posting</span>
+    </label>
+    <button id="hwSaveBtn" class="bg-amber-600 hover:bg-amber-700 text-white px-5 py-2 rounded-lg text-sm font-medium ml-auto"><i class="fas fa-plus mr-1"></i>Post Homework</button>
+   </div>
+  </div>
+
+  <!-- WhatsApp links container (shows after broadcast) -->
+  <div id="hwBroadcastResults" class="hidden bg-white border rounded-lg p-4 mb-4">
+   <div class="flex justify-between items-center mb-3">
+    <h3 class="font-bold"><i class="fab fa-whatsapp text-emerald-600 mr-1"></i>Send to parents — click each link</h3>
+    <button id="hwBroadcastHide" class="text-gray-500 text-sm hover:text-gray-700">✕ Hide</button>
+   </div>
+   <div id="hwBroadcastLinks" class="space-y-1"></div>
+  </div>
+
+  <div class="bg-white border rounded-lg p-4">
+   <h3 class="font-semibold mb-3"><i class="fas fa-list text-gray-600 mr-1"></i>My Posted Homework</h3>
+   ${myHws.length === 0 ? '<div class="text-sm text-gray-500 py-3">No homework posted yet</div>' : `
+   <div class="space-y-2">
+    ${myHws.slice().reverse().map(h => `
+     <div class="border rounded-lg p-3 hover:bg-gray-50">
+      <div class="flex flex-wrap items-start justify-between gap-2 mb-2">
+       <div>
+        <div class="font-semibold">Class ${h.className} · ${h.subject || 'General'}</div>
+        <div class="text-xs text-gray-600">Due ${fmtDate(h.dueDate)} · Posted ${fmtDate(h.date || h.dueDate)}</div>
+       </div>
+       <div class="flex gap-1">
+        ${h.attachmentData ? `<a href="${h.attachmentData}" download="${h.attachmentName}" class="bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs"><i class="fas fa-download mr-1"></i>${h.attachmentName}</a>` : ''}
+        <button class="hwBroadcastBtn bg-emerald-500 hover:bg-emerald-600 text-white px-2 py-1 rounded text-xs" data-id="${h.id}" title="Re-broadcast"><i class="fab fa-whatsapp"></i></button>
+        <button class="hwDelBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs" data-id="${h.id}" title="Delete"><i class="fas fa-trash"></i></button>
+       </div>
+      </div>
+      <div class="text-sm text-gray-700">${(h.description || '').replace(/</g,'&lt;')}</div>
+     </div>`).join('')}
+   </div>`}
+  </div>
+ </div>`;
+}
+
+/* ---------- TAB 4: MARKS ---------- */
+function renderTchMarks(){
+ const myMarks = getExamMarks().filter(m => m.teacherId === currentUser.id || m.teacher === currentUser.name);
+ const exams = [...new Set(myMarks.map(m => m.examName))];
+ return `<div>
+  <div class="bg-white border rounded-lg p-4 mb-4">
+   <h3 class="font-semibold mb-3"><i class="fas fa-pen-to-square text-purple-600 mr-1"></i>Exam Marks Entry</h3>
+   <div class="grid md:grid-cols-2 gap-3 mb-3">
+    <div>
+     <label class="text-xs font-medium">Class *</label>
+     <select id="mkClass">
+      <option value="">— Select class —</option>
+      ${ALL_CLASSES.map(c => `<option>${c}</option>`).join('')}
+     </select>
+    </div>
+    <div>
+     <label class="text-xs font-medium">Subject *</label>
+     <select id="mkSubject"><option>Mathematics</option><option>Science</option><option>English</option><option>Hindi</option><option>Social Science</option><option>Sanskrit</option><option>Computer</option><option>Physical Education</option><option>Drawing</option><option>Other</option></select>
+    </div>
+    <div>
+     <label class="text-xs font-medium">Exam Name *</label>
+     <input id="mkExam" placeholder="e.g. Unit Test 1, Half Yearly, Annual">
+    </div>
+    <div>
+     <label class="text-xs font-medium">Max Marks *</label>
+     <input type="number" id="mkMax" placeholder="e.g. 100" value="100">
+    </div>
+   </div>
+   <div id="mkRoster" class="space-y-1 mb-3"></div>
+   <div class="flex justify-end pt-3 border-t">
+    <button id="mkSaveBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-5 py-2 rounded-lg text-sm font-medium" disabled><i class="fas fa-save mr-1"></i>Save Marks</button>
+   </div>
+  </div>
+
+  <div class="bg-white border rounded-lg p-4">
+   <div class="flex flex-wrap justify-between items-center gap-2 mb-3">
+    <h3 class="font-semibold"><i class="fas fa-chart-line text-blue-600 mr-1"></i>Marks Summary</h3>
+    <div class="flex gap-2">
+     <select id="mkFilterExam" class="text-sm">
+      <option value="">All Exams</option>
+      ${exams.map(e => `<option>${e}</option>`).join('')}
+     </select>
+     <button id="mkExportBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs"><i class="fas fa-file-excel mr-1"></i>Export</button>
+    </div>
+   </div>
+   <div id="mkResults">
+    ${myMarks.length === 0 ? '<div class="text-sm text-gray-500 py-3">No marks entered yet</div>' : ''}
+   </div>
+  </div>
+ </div>`;
+}
+
+/* ---------- TAB 5: MY CLASS ---------- */
+function renderTchClass(){
+ const students = getStudents();
+ const ar = getAttendanceRecords();
+ const today = new Date().toISOString().slice(0,10);
+ // Show all classes the teacher can see (all classes for now)
+ const byClass = {};
+ students.forEach(s => { (byClass[s.class] = byClass[s.class] || []).push(s); });
+ const classes = ALL_CLASSES.filter(c => byClass[c]);
+ return `<div>
+  <div class="bg-white border rounded-lg p-4 mb-4">
+   <h3 class="font-semibold mb-3"><i class="fas fa-users text-indigo-600 mr-1"></i>My Classes & Students</h3>
+   ${classes.length === 0 ? '<div class="text-sm text-gray-500 py-3">No students yet</div>' : `
+   <div class="space-y-2">
+    ${classes.map(cls => {
+     const list = byClass[cls];
+     const presentCount = list.filter(s => ar[s.id]?.[today] === 'P').length;
+     const absentCount = list.filter(s => ar[s.id]?.[today] === 'A').length;
+     return `
+     <details class="border rounded">
+      <summary class="cursor-pointer px-3 py-2 bg-gray-50 hover:bg-gray-100 flex flex-wrap items-center justify-between gap-2 text-sm">
+       <span class="font-semibold">Class ${cls} <span class="text-gray-500">(${list.length} students)</span></span>
+       <div class="flex gap-2 text-xs">
+        <span class="text-emerald-700">Present: <b>${presentCount}</b></span>
+        <span class="text-rose-700">Absent: <b>${absentCount}</b></span>
+        <button class="tchClassBroadcastBtn bg-emerald-500 hover:bg-emerald-600 text-white px-2 py-1 rounded text-xs" data-class="${cls}" onclick="event.stopPropagation();"><i class="fab fa-whatsapp mr-1"></i>Broadcast</button>
+       </div>
+      </summary>
+      <div class="overflow-x-auto p-2">
+       <table class="text-xs w-full border">
+        <thead class="bg-gray-100"><tr><th>Roll</th><th>Name</th><th>Father / Phone</th><th>Today</th><th>Fee Due</th><th>Action</th></tr></thead>
+        <tbody>${list.sort((a,b) => (a.rollNo||0)-(b.rollNo||0)).map(s => `
+         <tr>
+          <td>${s.rollNo||'-'}</td>
+          <td class="font-medium">${s.name}</td>
+          <td>${s.fatherName || s.parentName || '-'}<br><span class="text-gray-500 font-mono">${s.parentPhone || ''}</span></td>
+          <td>${ar[s.id]?.[today] === 'P' ? '<span class="pill pill-green">P</span>' : ar[s.id]?.[today] === 'A' ? '<span class="pill pill-red">A</span>' : '<span class="text-gray-400">—</span>'}</td>
+          <td>${(s.feeBalance||0) > 0 ? `<span class="text-rose-700 font-semibold">Rs.${s.feeBalance.toLocaleString('en-IN')}</span>` : '<span class="text-emerald-600">Clear</span>'}</td>
+          <td>${s.parentPhone ? `<a href="https://wa.me/${_cleanPhone(s.parentPhone)}" target="_blank" class="text-emerald-600 hover:text-emerald-800" title="WhatsApp parent"><i class="fab fa-whatsapp"></i></a>` : ''}</td>
+         </tr>`).join('')}</tbody>
+       </table>
+      </div>
+     </details>`;
+    }).join('')}
+   </div>`}
+  </div>
+ </div>`;
+}
+
+/* ---------- shared helpers for teacher panel ---------- */
+function _cleanPhone(raw){
+ const d = (raw||'').replace(/\D/g,'');
+ if (d.length === 10) return '91' + d;
+ if (d.length === 12 && d.startsWith('91')) return d;
+ if (d.length === 11 && d.startsWith('0')) return '91' + d.slice(1);
+ return d;
+}
+
+/* ---------- TEACHER EVENT HANDLERS ---------- */
+function attachTeacherEvents(){
+ document.getElementById('logoutTeacherBtn')?.addEventListener('click', () => {
+  currentUser = null; chatPanelOpen = false; activeChatWith = null;
+  activeTeacherTab = 'dashboard';
+  renderApp();
+ });
+ document.querySelectorAll('.tch-tab').forEach(b => b.addEventListener('click', () => {
+  activeTeacherTab = b.dataset.tab;
+  renderApp();
+ }));
+ document.querySelectorAll('.tchQuickAction').forEach(b => b.addEventListener('click', () => {
+  activeTeacherTab = b.dataset.tab;
+  renderApp();
+ }));
+
+ if (activeTeacherTab === 'attendance') _attachAttendanceEvents();
+ else if (activeTeacherTab === 'homework') _attachHomeworkEvents();
+ else if (activeTeacherTab === 'marks') _attachMarksEvents();
+ else if (activeTeacherTab === 'class') _attachClassEvents();
+}
+
+function _attachAttendanceEvents(){
+ // Mode toggle
+ document.querySelectorAll('.att-mode').forEach(b => b.addEventListener('click', () => {
+  attendanceMode = b.dataset.mode;
+  renderApp();
+ }));
+
+ if (attendanceMode === 'mark') {
+  const classSel = document.getElementById('attMarkClass');
+  const dateSel = document.getElementById('attMarkDate');
+  const roster = document.getElementById('attMarkRoster');
+  const saveBtn = document.getElementById('attMarkSave');
+
+  const renderRoster = () => {
+   const cls = classSel.value;
+   const date = dateSel.value;
+   if (!cls) {
+    roster.innerHTML = '<div class="text-sm text-gray-500 py-3 text-center">Select a class to load roster</div>';
+    saveBtn.disabled = true;
+    return;
+   }
+   const ar = getAttendanceRecords();
+   const sts = getStudents().filter(s => s.class === cls).sort((a,b) => (a.rollNo||0)-(b.rollNo||0));
+   if (sts.length === 0) {
+    roster.innerHTML = '<div class="text-sm text-gray-500 py-3 text-center">No students in this class</div>';
+    saveBtn.disabled = true;
+    return;
+   }
+   const alreadyMarked = sts.filter(s => ar[s.id]?.[date]).length;
+   roster.innerHTML = `
+    ${alreadyMarked > 0 ? `<div class="bg-blue-50 border border-blue-200 text-blue-800 text-xs p-2 rounded mb-2"><i class="fas fa-info-circle mr-1"></i>Already marked: ${alreadyMarked}/${sts.length} students for this date. Saving will update existing.</div>` : ''}
+    ${sts.map(s => {
+      const existing = ar[s.id]?.[date];
+      return `<div class="flex items-center gap-3 p-2 border rounded hover:bg-gray-50">
+       <span class="w-8 text-xs text-gray-500">#${s.rollNo||'-'}</span>
+       <span class="flex-1 text-sm font-medium">${s.name}</span>
+       <label class="text-sm flex items-center gap-1 cursor-pointer"><input type="radio" name="att_${s.id}" value="P" class="w-auto" ${existing==='P'?'checked':''}> <span class="text-emerald-700">Present</span></label>
+       <label class="text-sm flex items-center gap-1 cursor-pointer"><input type="radio" name="att_${s.id}" value="A" class="w-auto" ${existing==='A'?'checked':''}> <span class="text-rose-700">Absent</span></label>
+       <label class="text-sm flex items-center gap-1 cursor-pointer"><input type="radio" name="att_${s.id}" value="L" class="w-auto" ${existing==='L'?'checked':''}> <span class="text-amber-700">Late</span></label>
+      </div>`;
+     }).join('')}`;
+   saveBtn.disabled = false;
+  };
+
+  classSel?.addEventListener('change', () => { teacherClassFilter = classSel.value; renderRoster(); });
+  dateSel?.addEventListener('change', renderRoster);
+
+  document.getElementById('attMarkAllPresent')?.addEventListener('click', () => {
+   document.querySelectorAll('#attMarkRoster input[value="P"]').forEach(r => r.checked = true);
+  });
+  document.getElementById('attMarkAllAbsent')?.addEventListener('click', () => {
+   document.querySelectorAll('#attMarkRoster input[value="A"]').forEach(r => r.checked = true);
+  });
+
+  saveBtn?.addEventListener('click', () => {
+   const date = dateSel.value;
+   if (!date) { alert('Pick a date'); return; }
+   const ar = getAttendanceRecords();
+   let count = 0;
+   document.querySelectorAll('#attMarkRoster input[type="radio"]:checked').forEach(r => {
+    const sid = parseInt(r.name.slice(4));
+    ar[sid] = ar[sid] || {};
+    ar[sid][date] = r.value;
+    count++;
+   });
+   saveAttendanceRecords(ar);
+   showToast('Attendance saved (' + count + ' students for ' + date + ')');
+  });
+
+  // Initial render if class already selected
+  if (classSel?.value) renderRoster();
+ } else {
+  // VIEW mode
+  const classSel = document.getElementById('attViewClass');
+  const fromSel = document.getElementById('attViewFrom');
+  const toSel = document.getElementById('attViewTo');
+  const results = document.getElementById('attViewResults');
+
+  const renderView = () => {
+   const cls = classSel.value;
+   if (!cls) {
+    results.innerHTML = '<div class="text-sm text-gray-500 py-3 text-center">Pick a class above to view attendance history</div>';
+    return;
+   }
+   const from = fromSel.value, to = toSel.value;
+   const ar = getAttendanceRecords();
+   const sts = getStudents().filter(s => s.class === cls).sort((a,b) => (a.rollNo||0)-(b.rollNo||0));
+   if (sts.length === 0) { results.innerHTML = '<div class="text-sm text-gray-500 py-3">No students</div>'; return; }
+   // Build date list within range
+   const dates = [];
+   if (from && to) {
+    let d = new Date(from);
+    const end = new Date(to);
+    while (d <= end) { dates.push(d.toISOString().slice(0,10)); d.setDate(d.getDate()+1); }
+   }
+   results.innerHTML = `
+    <div class="overflow-x-auto"><table class="text-xs border w-full">
+     <thead class="bg-gray-100"><tr><th class="sticky left-0 bg-gray-100">Roll</th><th class="sticky left-0 bg-gray-100">Name</th>${dates.map(d => `<th>${d.slice(8,10)}/${d.slice(5,7)}</th>`).join('')}<th>Total</th><th>%</th></tr></thead>
+     <tbody>${sts.map(s => {
+       const recs = ar[s.id] || {};
+       let p = 0, a = 0, l = 0;
+       const cells = dates.map(d => {
+         const v = recs[d];
+         if (v === 'P') { p++; return '<td class="text-center text-emerald-600 font-bold">P</td>'; }
+         if (v === 'A') { a++; return '<td class="text-center text-rose-600 font-bold">A</td>'; }
+         if (v === 'L') { l++; return '<td class="text-center text-amber-600 font-bold">L</td>'; }
+         return '<td class="text-center text-gray-300">·</td>';
+       }).join('');
+       const total = p + a + l;
+       const pct = total > 0 ? Math.round((p + l*0.5) / total * 100) : 0;
+       return `<tr><td class="sticky left-0 bg-white">${s.rollNo||'-'}</td><td class="sticky left-0 bg-white font-medium">${s.name}</td>${cells}<td class="text-center font-semibold">${p}/${total}</td><td class="text-center font-semibold ${pct >= 75 ? 'text-emerald-700' : pct >= 50 ? 'text-amber-700' : 'text-rose-700'}">${pct}%</td></tr>`;
+      }).join('')}</tbody>
+    </table></div>
+    <div class="mt-3 text-xs text-gray-600"><b>Legend:</b> <span class="text-emerald-600 font-bold">P</span> Present · <span class="text-rose-600 font-bold">A</span> Absent · <span class="text-amber-600 font-bold">L</span> Late · <span class="text-gray-400">·</span> Not marked. % counts Late as half-day.</div>`;
+  };
+
+  classSel?.addEventListener('change', renderView);
+  fromSel?.addEventListener('change', renderView);
+  toSel?.addEventListener('change', renderView);
+
+  document.getElementById('attViewExport')?.addEventListener('click', () => {
+   const cls = classSel.value;
+   if (!cls) { alert('Pick a class first'); return; }
+   const from = fromSel.value, to = toSel.value;
+   const ar = getAttendanceRecords();
+   const sts = getStudents().filter(s => s.class === cls).sort((a,b) => (a.rollNo||0)-(b.rollNo||0));
+   const dates = [];
+   if (from && to) {
+    let d = new Date(from);
+    const end = new Date(to);
+    while (d <= end) { dates.push(d.toISOString().slice(0,10)); d.setDate(d.getDate()+1); }
+   }
+   let h = `<table border="1"><tr><th>Roll</th><th>Name</th>${dates.map(d=>`<th>${d}</th>`).join('')}<th>Present</th><th>Absent</th><th>%</th></tr>`;
+   sts.forEach(s => {
+    const recs = ar[s.id] || {};
+    let p = 0, a = 0, l = 0;
+    const cells = dates.map(d => { const v = recs[d]||''; if(v==='P')p++; if(v==='A')a++; if(v==='L')l++; return `<td>${v}</td>`; }).join('');
+    const total = p+a+l;
+    const pct = total > 0 ? Math.round((p + l*0.5)/total*100) : 0;
+    h += `<tr><td>${s.rollNo||''}</td><td>${s.name}</td>${cells}<td>${p}</td><td>${a}</td><td>${pct}%</td></tr>`;
+   });
+   h += '</table>';
+   downloadExcel(h, SCHOOL_INFO.shortName + '_Attendance_Class' + cls + '_' + from + '_to_' + to);
+   showToast('Attendance exported');
+  });
+ }
+}
+
+function _attachHomeworkEvents(){
+ // File picker — convert to base64 on selection (with size check)
+ let attachmentData = null, attachmentName = null, attachmentType = null;
+ document.getElementById('hwFile')?.addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (!f) { attachmentData = null; attachmentName = null; return; }
+  if (f.size > 1024*1024) {
+   alert('File too large (' + Math.round(f.size/1024) + ' KB). Max 1 MB.');
+   e.target.value = '';
+   return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+   attachmentData = reader.result;
+   attachmentName = f.name;
+   attachmentType = f.type;
+  };
+  reader.readAsDataURL(f);
+ });
+
+ // Save homework
+ document.getElementById('hwSaveBtn')?.addEventListener('click', () => {
+  const cls = document.getElementById('hwClass').value;
+  const sub = document.getElementById('hwSubject').value.trim();
+  const desc = document.getElementById('hwDesc').value.trim();
+  const due = document.getElementById('hwDue').value;
+  const broadcast = document.getElementById('hwBroadcast').checked;
+  if (!cls) { alert('Select class'); return; }
+  if (!sub) { alert('Enter subject'); return; }
+  if (!desc) { alert('Enter description'); return; }
+
+  const hws = getHomeworks();
+  const hw = {
+   id: Date.now(), className: cls, subject: sub,
+   description: desc, dueDate: due, date: new Date().toISOString().slice(0,10),
+   teacher: currentUser.name, teacherId: currentUser.id, submitted: []
+  };
+  if (attachmentData) {
+   hw.attachmentData = attachmentData;
+   hw.attachmentName = attachmentName;
+   hw.attachmentType = attachmentType;
+  }
+  hws.push(hw);
+  saveHomeworks(hws);
+  showToast('Homework posted');
+
+  if (broadcast) {
+   _generateHomeworkBroadcast(hw);
+  } else {
+   renderApp();
+  }
+ });
+
+ // Hide broadcast results
+ document.getElementById('hwBroadcastHide')?.addEventListener('click', () => {
+  document.getElementById('hwBroadcastResults').classList.add('hidden');
+ });
+
+ // Re-broadcast existing homework
+ document.querySelectorAll('.hwBroadcastBtn').forEach(b => b.addEventListener('click', () => {
+  const hw = getHomeworks().find(h => h.id === parseInt(b.dataset.id));
+  if (hw) _generateHomeworkBroadcast(hw);
+ }));
+
+ // Delete homework
+ document.querySelectorAll('.hwDelBtn').forEach(b => b.addEventListener('click', () => {
+  if (!confirm('Delete this homework?')) return;
+  saveHomeworks(getHomeworks().filter(h => h.id !== parseInt(b.dataset.id)));
+  renderApp();
+ }));
+}
+
+function _generateHomeworkBroadcast(hw){
+ const parents = getStudents().filter(s => s.class === hw.className && s.parentPhone);
+ if (parents.length === 0) { alert('No parents with phone numbers in Class ' + hw.className); return; }
+ const message = `Dear Parent,\n\nHomework for ${hw.subject} (Class ${hw.className})\n\n${hw.description}\n\nDue: ${hw.dueDate}\n\n— ${currentUser.name}\n${SCHOOL_INFO.name}`;
+ const container = document.getElementById('hwBroadcastResults');
+ const list = document.getElementById('hwBroadcastLinks');
+ list.innerHTML = parents.map((s,i) => {
+  const personal = message.replace(/Dear Parent/, 'Dear ' + (s.fatherName || s.parentName || 'Parent'));
+  const url = `https://wa.me/${_cleanPhone(s.parentPhone)}?text=${encodeURIComponent(personal)}`;
+  return `<div class="flex flex-wrap items-center gap-2 py-2 border-b">
+   <div class="flex-1 min-w-0">
+    <div class="text-sm font-medium">${i+1}. ${s.fatherName || s.parentName || 'Parent'} <span class="text-gray-500 text-xs">(${s.name})</span></div>
+    <div class="text-xs text-gray-600 font-mono">${s.parentPhone}</div>
+   </div>
+   <a href="${url}" target="_blank" rel="noopener" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded text-xs font-medium"><i class="fab fa-whatsapp mr-1"></i>Open WhatsApp</a>
+  </div>`;
+ }).join('');
+ container.classList.remove('hidden');
+ container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function _attachMarksEvents(){
+ const classSel = document.getElementById('mkClass');
+ const roster = document.getElementById('mkRoster');
+ const saveBtn = document.getElementById('mkSaveBtn');
+
+ const renderRoster = () => {
+  const cls = classSel.value;
+  if (!cls) {
+   roster.innerHTML = '<div class="text-sm text-gray-500 py-3 text-center">Select a class to load roster</div>';
+   saveBtn.disabled = true;
+   return;
+  }
+  const sts = getStudents().filter(s => s.class === cls).sort((a,b) => (a.rollNo||0)-(b.rollNo||0));
+  if (sts.length === 0) { roster.innerHTML = '<div class="text-sm text-gray-500 py-3">No students</div>'; saveBtn.disabled = true; return; }
+  roster.innerHTML = '<div class="bg-purple-50 text-purple-800 text-xs p-2 rounded mb-2">Enter marks below. Leave blank to skip a student.</div>' + sts.map(s => `
+   <div class="flex items-center gap-3 p-2 border rounded hover:bg-gray-50">
+    <span class="w-8 text-xs text-gray-500">#${s.rollNo||'-'}</span>
+    <span class="flex-1 text-sm font-medium">${s.name}</span>
+    <input type="number" data-sid="${s.id}" class="mkInput w-24" placeholder="Marks" min="0">
+   </div>`).join('');
+  saveBtn.disabled = false;
+ };
+
+ classSel?.addEventListener('change', renderRoster);
+
+ saveBtn?.addEventListener('click', () => {
+  const exam = document.getElementById('mkExam').value.trim();
+  const sub = document.getElementById('mkSubject').value;
+  const max = parseInt(document.getElementById('mkMax').value) || 100;
+  if (!exam) { alert('Enter exam name'); return; }
+  const all = getExamMarks();
+  let count = 0;
+  document.querySelectorAll('.mkInput').forEach(i => {
+   const v = parseInt(i.value);
+   if (!isNaN(v)) {
+    all.push({
+     id: Date.now() + Math.random(),
+     studentId: parseInt(i.dataset.sid),
+     examName: exam, subject: sub,
+     marks: v, maxMarks: max,
+     date: new Date().toISOString().slice(0,10),
+     teacher: currentUser.name, teacherId: currentUser.id
+    });
+    count++;
+   }
+  });
+  if (count === 0) { alert('No marks entered'); return; }
+  saveExamMarks(all);
+  showToast(count + ' marks saved for ' + exam);
+  renderApp();
+ });
+
+ // Render marks summary
+ const renderSummary = () => {
+  const filterExam = document.getElementById('mkFilterExam').value;
+  const all = getExamMarks().filter(m => (m.teacherId === currentUser.id || m.teacher === currentUser.name) && (!filterExam || m.examName === filterExam));
+  const students = getStudents();
+  const out = document.getElementById('mkResults');
+  if (all.length === 0) { out.innerHTML = '<div class="text-sm text-gray-500 py-3">No marks match filter</div>'; return; }
+  // Group by exam + class
+  const groups = {};
+  all.forEach(m => {
+   const s = students.find(x => x.id === m.studentId);
+   const key = m.examName + '|' + (s?.class || '?') + '|' + m.subject;
+   (groups[key] = groups[key] || []).push({ ...m, student: s });
+  });
+  out.innerHTML = Object.entries(groups).map(([key, marks]) => {
+   const [exam, cls, sub] = key.split('|');
+   const max = marks[0].maxMarks;
+   const total = marks.reduce((s,m) => s + m.marks, 0);
+   const avg = total / marks.length;
+   const high = Math.max(...marks.map(m => m.marks));
+   const low = Math.min(...marks.map(m => m.marks));
+   return `
+    <details class="border rounded mb-2">
+     <summary class="cursor-pointer px-3 py-2 bg-gray-50 hover:bg-gray-100 flex flex-wrap items-center justify-between gap-2 text-sm">
+      <span class="font-semibold">${exam} · Class ${cls} · ${sub} <span class="text-gray-500">(${marks.length})</span></span>
+      <span class="text-xs">Avg: <b>${avg.toFixed(1)}/${max}</b> · High: <b>${high}</b> · Low: <b>${low}</b></span>
+     </summary>
+     <div class="overflow-x-auto p-2"><table class="text-xs w-full border">
+      <thead class="bg-gray-100"><tr><th>Roll</th><th>Name</th><th>Marks</th><th>%</th><th>Grade</th></tr></thead>
+      <tbody>${marks.sort((a,b) => (a.student?.rollNo||0)-(b.student?.rollNo||0)).map(m => {
+        const pct = (m.marks / max) * 100;
+        const grade = pct >= 90 ? 'A+' : pct >= 80 ? 'A' : pct >= 70 ? 'B+' : pct >= 60 ? 'B' : pct >= 50 ? 'C' : pct >= 33 ? 'D' : 'F';
+        return `<tr><td>${m.student?.rollNo||'-'}</td><td>${m.student?.name||'?'}</td><td>${m.marks}/${max}</td><td>${pct.toFixed(1)}%</td><td class="font-semibold">${grade}</td></tr>`;
+       }).join('')}</tbody>
+     </table></div>
+    </details>`;
+  }).join('');
+ };
+ document.getElementById('mkFilterExam')?.addEventListener('change', renderSummary);
+ renderSummary();
+
+ // Export marks
+ document.getElementById('mkExportBtn')?.addEventListener('click', () => {
+  const filterExam = document.getElementById('mkFilterExam').value;
+  const all = getExamMarks().filter(m => (m.teacherId === currentUser.id || m.teacher === currentUser.name) && (!filterExam || m.examName === filterExam));
+  const students = getStudents();
+  let h = '<table border="1"><tr><th>Exam</th><th>Class</th><th>Subject</th><th>Roll</th><th>Name</th><th>Marks</th><th>Max</th><th>%</th><th>Date</th></tr>';
+  all.forEach(m => {
+   const s = students.find(x => x.id === m.studentId);
+   const pct = ((m.marks / m.maxMarks) * 100).toFixed(1);
+   h += `<tr><td>${m.examName}</td><td>${s?.class||''}</td><td>${m.subject}</td><td>${s?.rollNo||''}</td><td>${s?.name||''}</td><td>${m.marks}</td><td>${m.maxMarks}</td><td>${pct}%</td><td>${m.date}</td></tr>`;
+  });
+  h += '</table>';
+  downloadExcel(h, SCHOOL_INFO.shortName + '_Marks_' + (filterExam||'all') + '_' + new Date().toISOString().slice(0,10));
+  showToast('Marks exported');
+ });
+}
+
+function _attachClassEvents(){
+ // Broadcast button per class — opens a quick-message modal
+ document.querySelectorAll('.tchClassBroadcastBtn').forEach(b => b.addEventListener('click', e => {
+  e.stopPropagation();
+  const cls = b.dataset.class;
+  const msg = prompt('Message to send to all parents of Class ' + cls + ':');
+  if (!msg || !msg.trim()) return;
+  const parents = getStudents().filter(s => s.class === cls && s.parentPhone);
+  if (parents.length === 0) { alert('No parents with phone numbers in Class ' + cls); return; }
+  // Build a temporary "broadcast results" view at top of page
+  const existing = document.getElementById('tchClassBroadcastResults');
+  if (existing) existing.remove();
+  const div = document.createElement('div');
+  div.id = 'tchClassBroadcastResults';
+  div.className = 'bg-white border rounded-lg p-4 mb-4';
+  div.innerHTML = `<div class="flex justify-between items-center mb-3">
+   <h3 class="font-bold"><i class="fab fa-whatsapp text-emerald-600 mr-1"></i>Send to ${parents.length} parents in Class ${cls}</h3>
+   <button onclick="this.closest('#tchClassBroadcastResults').remove()" class="text-gray-500 hover:text-gray-700 text-sm">✕ Close</button>
+  </div>
+  <div class="space-y-1">${parents.map((s,i) => {
+   const personal = `Dear ${s.fatherName || s.parentName || 'Parent'},\n\n${msg}\n\n— ${currentUser.name}\n${SCHOOL_INFO.name}`;
+   const url = `https://wa.me/${_cleanPhone(s.parentPhone)}?text=${encodeURIComponent(personal)}`;
+   return `<div class="flex flex-wrap items-center gap-2 py-2 border-b">
+    <div class="flex-1 min-w-0">
+     <div class="text-sm font-medium">${i+1}. ${s.fatherName || s.parentName || 'Parent'} <span class="text-gray-500 text-xs">(${s.name})</span></div>
+     <div class="text-xs text-gray-600 font-mono">${s.parentPhone}</div>
+    </div>
+    <a href="${url}" target="_blank" rel="noopener" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded text-xs font-medium"><i class="fab fa-whatsapp mr-1"></i>Open WhatsApp</a>
+   </div>`;
+  }).join('')}</div>`;
+  document.getElementById('tchTabContent').prepend(div);
+  div.scrollIntoView({ behavior: 'smooth', block: 'start' });
+ }));
 }
 
 /* ---------- PARENT PANEL ---------- */
@@ -3978,46 +4733,6 @@ function attachGenericModuleEvents(){
 }
 
 /* ---------- TEACHER / PARENT / STUDENT / ACCOUNTANT EVENTS ---------- */
-function attachTeacherEvents(){
- document.getElementById('logoutTeacherBtn')?.addEventListener('click',()=>{currentUser=null;chatPanelOpen=false;activeChatWith=null;renderApp()});
- document.getElementById('addHomeworkBtn')?.addEventListener('click',()=>{
-  const cl=document.getElementById('hwClassT').value.trim();
-  if(!cl){alert('Class required');return}
-  const hws=getHomeworks();
-  hws.push({id:Date.now(),className:cl,subject:document.getElementById('hwSubjectT').value,description:document.getElementById('hwDescT').value,dueDate:document.getElementById('hwDueT').value,teacher:currentUser.name,submitted:[]});
-  saveHomeworks(hws);showToast('Homework posted');renderApp();
- });
- document.getElementById('examClassT')?.addEventListener('change',()=>{
-  const cl=document.getElementById('examClassT').value;
-  const sts=getStudents().filter(s=>s.class===cl);
-  document.getElementById('studentMarksContainer').innerHTML=sts.map(s=>`<div class="flex items-center gap-2"><span class="text-sm flex-1">${s.name}</span><input type="number" data-sid="${s.id}" class="studentMarkInput w-20" placeholder="Marks"></div>`).join('');
- });
- document.getElementById('submitMarksBtn')?.addEventListener('click',()=>{
-  const en=document.getElementById('examNameT').value.trim();
-  const sub=document.getElementById('examSubjectT').value;
-  const mx=parseInt(document.getElementById('examMaxT').value)||100;
-  if(!en){alert('Exam name required');return}
-  const marks=getExamMarks();let count=0;
-  document.querySelectorAll('.studentMarkInput').forEach(i=>{
-   const v=parseInt(i.value);if(!isNaN(v)){marks.push({id:Date.now()+Math.random(),studentId:parseInt(i.dataset.sid),examName:en,subject:sub,marks:v,maxMarks:mx,date:new Date().toISOString().slice(0,10)});count++}
-  });
-  saveExamMarks(marks);showToast(count+' marks saved');
- });
- document.getElementById('attClassSelect')?.addEventListener('change',()=>{
-  const cl=document.getElementById('attClassSelect').value;
-  const sts=getStudents().filter(s=>s.class===cl);
-  document.getElementById('attStudentContainer').innerHTML=sts.map(s=>`<div class="flex items-center gap-3 p-2 border rounded"><span class="flex-1 text-sm">${s.name} (Roll ${s.rollNo})</span><label class="text-sm"><input type="radio" name="att_${s.id}" value="P" class="w-auto" checked> Present</label><label class="text-sm"><input type="radio" name="att_${s.id}" value="A" class="w-auto"> Absent</label></div>`).join('');
- });
- document.getElementById('saveAttendanceBtn')?.addEventListener('click',()=>{
-  const d=new Date().toISOString().slice(0,10);
-  const ar=getAttendanceRecords();let count=0;
-  document.querySelectorAll('#attStudentContainer div').forEach(div=>{
-   const r=div.querySelector('input[type="radio"]:checked');
-   if(r){const sid=parseInt(r.name.slice(4));ar[sid]=ar[sid]||{};ar[sid][d]=r.value;count++}
-  });
-  saveAttendanceRecords(ar);showToast('Attendance saved ('+count+' students)');
- });
-}
 function attachParentEvents(){
  document.getElementById('logoutParentBtn')?.addEventListener('click',()=>{currentUser=null;chatPanelOpen=false;activeChatWith=null;renderApp()});
  document.getElementById('submitComplaintParent')?.addEventListener('click',()=>{
