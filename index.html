@@ -367,8 +367,9 @@
   <nav class="nav-bar sticky top-0 z-50">
     <div class="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
       <a href="#" class="flex items-center gap-3" onclick="showPage('home'); return false;">
-        <div class="w-11 h-11 bg-burgundy text-cream flex items-center justify-center" style="clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);">
+        <div class="w-11 h-11 bg-burgundy text-cream flex items-center justify-center relative overflow-hidden" style="clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);">
           <span class="font-display font-bold text-lg">M</span>
+          <img src="assets/img/logo.png" alt="" class="absolute inset-0 w-full h-full object-cover" onerror="this.remove();">
         </div>
         <div class="leading-tight">
           <div class="font-display font-semibold text-base text-ink">Murti Devi Balika Vidyapeeth</div>
@@ -418,8 +419,9 @@
     <div class="max-w-7xl mx-auto px-6 py-16 grid md:grid-cols-4 gap-10">
       <div class="md:col-span-2">
         <div class="flex items-center gap-3 mb-5">
-          <div class="w-12 h-12 bg-saffron text-ink flex items-center justify-center" style="clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);">
+          <div class="w-12 h-12 bg-saffron text-ink flex items-center justify-center relative overflow-hidden" style="clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);">
             <span class="font-display font-bold text-xl">M</span>
+            <img src="assets/img/logo.png" alt="" class="absolute inset-0 w-full h-full object-cover" onerror="this.remove();">
           </div>
           <div>
             <div class="font-display text-xl font-semibold">Murti Devi Balika Vidyapeeth</div>
@@ -507,8 +509,9 @@
   <div class="bg-white border-b border-gray-200 sticky top-0 z-40">
     <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
       <div class="flex items-center gap-3">
-        <div class="w-9 h-9 bg-burgundy text-cream flex items-center justify-center" style="clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);">
+        <div class="w-9 h-9 bg-burgundy text-cream flex items-center justify-center relative overflow-hidden" style="clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);">
           <span class="font-display font-bold text-sm">M</span>
+          <img src="assets/img/logo.png" alt="" class="absolute inset-0 w-full h-full object-cover" onerror="this.remove();">
         </div>
         <div>
           <div class="font-display font-semibold text-sm" style="color: #1a1410;">MDBV Portal</div>
@@ -3482,7 +3485,10 @@ function renderParAcademics(students){
          </div>
          <div class="text-sm text-gray-700">${(h.description||'').replace(/</g,'&lt;')}</div>
          <div class="text-xs text-gray-500 mt-1">By ${h.teacher || '?'}</div>
-         ${h.attachmentData ? `<a href="${h.attachmentData}" download="${h.attachmentName}" class="inline-block mt-1 text-xs text-blue-600 hover:underline"><i class="fas fa-download mr-1"></i>${h.attachmentName}</a>` : ''}
+         <div class="mt-2 flex flex-wrap gap-2">
+          <button class="parPrintHwBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-hw="${h.id}" data-stu="${s.id}"><i class="fas fa-file-pdf mr-1"></i>Download Assignment</button>
+          ${h.attachmentData ? `<a href="${h.attachmentData}" download="${h.attachmentName}" class="bg-cyan-600 hover:bg-cyan-700 text-white px-2 py-1 rounded text-xs"><i class="fas fa-paperclip mr-1"></i>${h.attachmentName}</a>` : ''}
+         </div>
         </div>`;
        }).join('')}
      </div>
@@ -3671,7 +3677,8 @@ function renderStuHomework(s){
        <div class="text-xs text-gray-500">By ${h.teacher || '?'} · Posted ${h.date ? fmtDate(h.date) : '-'} · Due <b>${h.dueDate ? fmtDate(h.dueDate) : '-'}</b></div>
       </div>
       <div class="flex flex-col gap-1">
-       ${h.attachmentData ? `<a href="${h.attachmentData}" download="${h.attachmentName}" class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap"><i class="fas fa-download mr-1"></i>Download ${h.attachmentName}</a>` : ''}
+       <button class="stuPrintHwBtn bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap" data-hw="${h.id}" title="Download a printable PDF of this assignment"><i class="fas fa-file-pdf mr-1"></i>Download Assignment</button>
+       ${h.attachmentData ? `<a href="${h.attachmentData}" download="${h.attachmentName}" class="bg-cyan-600 hover:bg-cyan-700 text-white px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap"><i class="fas fa-paperclip mr-1"></i>Teacher's File: ${h.attachmentName}</a>` : ''}
        ${!isSubmitted ? `<button class="stuUploadBtn bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap" data-hw="${h.id}"><i class="fas fa-upload mr-1"></i>Upload Submission</button>` : ''}
       </div>
      </div>
@@ -4373,7 +4380,7 @@ function _generateReceiptHTML(txn){
    <div class="receipt">
     <div class="receipt-header">
      <div class="logo-block">
-      <img src="assets/img/apple-touch-icon.png" alt="MDBV" class="logo-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+      <img src="assets/img/logo.png" alt="MDBV" class="logo-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
       <div class="logo" style="display:none">M</div>
      </div>
      <div class="school-info">
@@ -4427,7 +4434,7 @@ function _generateReceiptHTML(txn){
       <div class="signature-line"></div>
       <div class="signature-label">Authorized Signatory</div>
      </div>
-     <div class="footer-note">This is a system-generated receipt.<br>Generated by ${currentUser?.name || 'Accountant'}</div>
+     <div class="footer-note">This is a system-generated receipt.<br>Generated by ${txn.createdBy || 'Accountant'}${txn.createdByRole ? ' (' + txn.createdByRole.charAt(0).toUpperCase() + txn.createdByRole.slice(1) + ')' : ''}</div>
     </div>
    </div>
   </div>`;
@@ -4481,11 +4488,13 @@ function _generateReceiptHTML(txn){
   border-bottom: 2px solid #7a1e2e; padding-bottom: 12px; margin-bottom: 14px;
  }
  .logo-img {
-  width: 64px; height: 64px;
-  border-radius: 8px;
-  object-fit: cover;
+  width: 70px; height: 70px;
+  border-radius: 6px;
+  object-fit: contain;
+  background: white;
   flex-shrink: 0;
   border: 1px solid #e5e5e5;
+  padding: 2px;
  }
  .logo {
   width: 56px; height: 56px;
@@ -4612,6 +4621,131 @@ function _printReceipt(txnId){
   alert('Pop-up blocked. Please allow pop-ups for this site, then try again.');
   return;
  }
+ win.document.write(html);
+ win.document.close();
+}
+
+/* ============================================================
+   HOMEWORK PRINT — generates a printable assignment sheet
+   regardless of whether the teacher attached a file
+============================================================ */
+function _generateHomeworkHTML(hw, student){
+ const dt = hw.date ? new Date(hw.date).toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'}) : '-';
+ const due = hw.dueDate ? new Date(hw.dueDate).toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'}) : '-';
+ const baseHref = (typeof window !== 'undefined' ? window.location.origin : '') + (typeof window !== 'undefined' ? window.location.pathname.replace(/\/[^\/]*$/, '/') : '/');
+ return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<base href="${baseHref}">
+<title>Homework - ${hw.subject} - ${SCHOOL_INFO.shortName}</title>
+<style>
+ @page { size: A4; margin: 1.5cm; }
+ * { box-sizing: border-box; margin: 0; padding: 0; }
+ body { font-family: 'Manrope', 'Helvetica Neue', Arial, sans-serif; color: #2a1410; background: #f5f5f4; padding: 1.5cm; font-size: 11pt; }
+ .toolbar { position: fixed; top: 10px; right: 10px; z-index: 100; display: flex; gap: 8px; }
+ .toolbar button { padding: 8px 16px; font-size: 14px; font-weight: 600; border: none; border-radius: 8px; cursor: pointer; }
+ .btn-print { background: #7a1e2e; color: white; }
+ .btn-close { background: #e5e5e5; color: #333; }
+ .sheet { max-width: 720px; margin: 0 auto; background: white; padding: 1.5cm; border: 1px solid #ddd; }
+ .header { display: flex; gap: 15px; align-items: center; border-bottom: 2px solid #7a1e2e; padding-bottom: 12px; margin-bottom: 18px; }
+ .logo-img { width: 70px; height: 70px; border-radius: 6px; object-fit: contain; background: white; flex-shrink: 0; border: 1px solid #e5e5e5; padding: 2px; }
+ .logo-fb { width: 56px; height: 56px; background: #7a1e2e; color: #faf6ef; align-items: center; justify-content: center; font-family: 'Fraunces', Georgia, serif; font-size: 32px; font-weight: 700; border-radius: 8px; flex-shrink: 0; }
+ .school-name { font-family: 'Fraunces', Georgia, serif; font-size: 18pt; font-weight: 700; color: #7a1e2e; line-height: 1.1; }
+ .school-meta { font-size: 8pt; color: #57433d; margin-top: 3px; }
+ .title { text-align: center; font-family: 'Fraunces', Georgia, serif; font-size: 18pt; font-weight: 700; color: #c8860d; letter-spacing: 4px; margin-bottom: 14px; }
+ .meta-row { display: flex; justify-content: space-between; background: #faf6ef; border-left: 3px solid #c8860d; padding: 8px 12px; margin-bottom: 14px; font-size: 10pt; }
+ .lbl { color: #57433d; font-weight: 600; font-size: 9pt; }
+ .val { color: #2a1410; font-weight: 500; }
+ .field { margin: 10px 0; }
+ .description-box { background: #fafaf9; border: 1px solid #e5e5e5; padding: 14px 18px; border-radius: 8px; margin: 14px 0; min-height: 100px; }
+ .description-box .lbl { display: block; margin-bottom: 6px; font-size: 8pt; color: #c8860d; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; }
+ .description-text { font-size: 11pt; line-height: 1.6; white-space: pre-wrap; }
+ .due-banner { background: linear-gradient(to right, #fef3c7, white); border: 2px solid #c8860d; border-radius: 8px; padding: 10px 14px; margin: 14px 0; }
+ .due-banner .lbl { font-size: 8pt; color: #c8860d; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; }
+ .due-banner .due-date { font-family: 'Fraunces', Georgia, serif; font-size: 16pt; font-weight: 700; color: #2a1410; margin-top: 2px; }
+ .student-block { background: #eef2ff; border: 1px solid #c7d2fe; padding: 10px 14px; border-radius: 6px; margin: 14px 0; font-size: 10pt; }
+ .work-area { border: 1px dashed #999; border-radius: 6px; padding: 14px; margin-top: 18px; min-height: 4cm; }
+ .work-area-label { font-size: 8pt; color: #999; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 6px; }
+ .footer { margin-top: 18px; padding-top: 10px; border-top: 1px dashed #ccc; display: flex; justify-content: space-between; align-items: flex-end; }
+ .signature-line { width: 200px; border-top: 1px solid #2a1410; margin-bottom: 4px; }
+ .signature-label { font-size: 8pt; color: #57433d; font-style: italic; }
+ .footer-note { font-size: 7pt; color: #999; text-align: right; line-height: 1.3; }
+ @media print { body { padding: 0; background: white; } .toolbar { display: none; } .sheet { border: none; padding: 0; } }
+</style>
+</head>
+<body>
+ <div class="toolbar">
+  <button class="btn-print" onclick="window.print()">🖨 Print / Save as PDF</button>
+  <button class="btn-close" onclick="window.close()">✕ Close</button>
+ </div>
+ <div class="sheet">
+  <div class="header">
+   <img src="assets/img/logo.png" alt="MDBV" class="logo-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+   <div class="logo-fb" style="display:none">M</div>
+   <div>
+    <div class="school-name">${SCHOOL_INFO.name}</div>
+    <div class="school-meta">Meerut-Baraut Road, Binauli, Baghpat, UP 250345</div>
+    <div class="school-meta">Phone: ${SCHOOL_INFO.phone} &middot; ${SCHOOL_INFO.email}</div>
+   </div>
+  </div>
+
+  <div class="title">HOMEWORK ASSIGNMENT</div>
+
+  <div class="meta-row">
+   <div><span class="lbl">Subject:</span> <span class="val">${hw.subject || '-'}</span></div>
+   <div><span class="lbl">Class:</span> <span class="val">${hw.className || '-'}</span></div>
+   <div><span class="lbl">Posted:</span> <span class="val">${dt}</span></div>
+  </div>
+
+  ${student ? `<div class="student-block">
+   <span class="lbl">For:</span> <b>${student.name}</b> &middot; Class ${student.class}${student.section ? '-' + student.section : ''} &middot; Roll #${student.rollNo || '-'} &middot; Adm.No: ${student.admissionNo || '-'}
+  </div>` : ''}
+
+  <div class="description-box">
+   <span class="lbl">Assignment Details</span>
+   <div class="description-text">${(hw.description || 'No description provided.').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
+  </div>
+
+  <div class="due-banner">
+   <span class="lbl">Submit by</span>
+   <div class="due-date">${due}</div>
+  </div>
+
+  <div class="field"><span class="lbl">Assigned by:</span> <span class="val">${hw.teacher || '-'}</span></div>
+
+  ${hw.attachmentName ? `<div class="field"><span class="lbl">Reference file shared:</span> <span class="val">${hw.attachmentName} (download separately from the student portal)</span></div>` : ''}
+
+  <div class="work-area">
+   <div class="work-area-label">Student's work / answer</div>
+  </div>
+
+  <div class="footer">
+   <div>
+    <div class="signature-line"></div>
+    <div class="signature-label">Parent's Signature</div>
+   </div>
+   <div class="footer-note">
+    System-generated assignment sheet<br>
+    Print or save as PDF for paper submission<br>
+    ${SCHOOL_INFO.name}
+   </div>
+  </div>
+ </div>
+ <script>
+  window.addEventListener('load', function(){ setTimeout(function(){ window.print(); }, 300); });
+ <\/script>
+</body>
+</html>`;
+}
+
+function _printHomework(hwId, studentId){
+ const hw = getHomeworks().find(h => h.id === parseInt(hwId));
+ if (!hw) { alert('Homework not found'); return; }
+ const student = studentId ? getStudents().find(s => s.id === parseInt(studentId)) : null;
+ const html = _generateHomeworkHTML(hw, student);
+ const win = window.open('', '_blank', 'width=900,height=900');
+ if (!win) { alert('Pop-up blocked. Please allow pop-ups for this site.'); return; }
  win.document.write(html);
  win.document.close();
 }
@@ -4973,7 +5107,10 @@ function _attachReceiptEvents(){
    status: 'paid',
    chequeNo: chequeNo || undefined,
    bankAccountId: bankAccId || undefined,
-   notes: notes || undefined
+   notes: notes || undefined,
+   createdBy: currentUser?.name || 'Accountant',
+   createdByRole: currentUser?.role || 'accountant',
+   createdAt: new Date().toISOString()
   };
 
   if (from.startsWith('student:')) {
@@ -5943,6 +6080,13 @@ function attachParentEvents(){
   }));
  }
 
+ // Academics tab — print homework assignment
+ if (activeParentTab === 'academics') {
+  document.querySelectorAll('.parPrintHwBtn').forEach(b => b.addEventListener('click', () => {
+   _printHomework(b.dataset.hw, b.dataset.stu);
+  }));
+ }
+
  // Complaint tab — submit
  if (activeParentTab === 'complaint') {
   document.getElementById('submitComplaintParent')?.addEventListener('click',()=>{
@@ -6020,6 +6164,11 @@ function attachStudentEvents(){
    localStorage.setItem('homeworkSubmissions', JSON.stringify(subs));
    showToast('Submission removed');
    renderApp();
+  }));
+
+  // Print/download printable assignment sheet (works whether teacher attached a file or not)
+  document.querySelectorAll('.stuPrintHwBtn').forEach(b => b.addEventListener('click', () => {
+   _printHomework(b.dataset.hw, currentUser.studentId);
   }));
  }
 
