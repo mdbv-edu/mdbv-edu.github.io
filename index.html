@@ -1695,7 +1695,7 @@ function initDB(){
  ]);
 
  // Empty array tables (ready for real-world data)
- ['feeTransactions','homeworks','complaints','examMarks','payrollSlips','inventory','vehicles','routeMovements','maintenance','expenses','bankAccounts','bankTransactions','correctionRequests','accountingAuditLog','messageLog','ptmEvents','homeworkSubmissions','teacherAuditLog','calendar','documents','chatMessages'].forEach(t => seedArray(t, []));
+ ['feeTransactions','homeworks','complaints','examMarks','payrollSlips','inventory','vehicles','routeMovements','maintenance','expenses','bankAccounts','bankTransactions','correctionRequests','accountingAuditLog','messageLog','ptmEvents','homeworkSubmissions','teacherAuditLog','calendar','documents','chatMessages','notices','feeStructures'].forEach(t => seedArray(t, []));
 
  // Singleton-object tables (correctly use setObject so they don't get stored as arrays)
  seedObject('busTracking',   {route1:{lat:null,lng:null,lastUpdate:'',status:''}});
@@ -1796,6 +1796,8 @@ const DB_SCHEMA = {
  enquiries:           { type: 'array', desc: 'Admissions enquiry form submissions' },
  disclosureDocs:      { type: 'array', desc: 'Mandatory disclosure PDFs list' },
  gallery:             { type: 'array', desc: 'Gallery image entries' },
+ notices:             { type: 'array', desc: 'Notice board announcements' },
+ feeStructures:       { type: 'array', desc: 'Fee plans per class per academic session' },
 
  // ---- Singleton objects (one document, not a list) ----
  schoolInfra:         { type: 'object', desc: 'Infrastructure data (toilets, computers, etc.)' },
@@ -2296,6 +2298,36 @@ function renderOwnerDashboard(){
   </div>`;
  }
 
+ // Notice board management sub-view
+ if (ownerView === 'notices') {
+  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+    <div>
+     <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
+     <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-crown text-amber-500 mr-2"></i>Owner · Notice Board</h1>
+     <p class="text-gray-600 text-xs">${currentUser.name}</p>
+    </div>
+    <button id="logoutBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
+   </div>
+   ${renderNoticesTab()}
+  </div>`;
+ }
+
+ // Fee structure management sub-view
+ if (ownerView === 'feestructure') {
+  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+    <div>
+     <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
+     <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-crown text-amber-500 mr-2"></i>Owner · Fee Structure</h1>
+     <p class="text-gray-600 text-xs">${currentUser.name}</p>
+    </div>
+    <button id="logoutBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
+   </div>
+   ${renderFeeStructureTab()}
+  </div>`;
+ }
+
  const st=getStudents(),tc=getTeachers(),c=getComplaints(),inf=getSchoolInfra();
  const tot=st.reduce((a,x)=>a+(x.feeBalance||0),0);
  const pend=c.filter(x=>x.status==='open').length;
@@ -2312,6 +2344,7 @@ function renderOwnerDashboard(){
    <div><h1 class="text-2xl font-bold text-gray-900"><i class="fas fa-crown text-amber-500 mr-2"></i>Owner Dashboard</h1><p class="text-gray-600 text-sm">Welcome, ${currentUser.name} - Binauli, Baghpat</p></div>
    <button id="logoutBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-4 py-2 rounded-lg font-medium text-sm"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
   </div>
+  ${renderNoticesForCurrentUser(3)}
   <div class="grid grid-cols-2 md:grid-cols-4 gap-4 my-6">
    <div class="bg-white p-4 rounded-xl shadow-sm card-hover border"><i class="fas fa-rupee-sign text-green-600 text-xl"></i><p class="text-xs text-gray-500 mt-2">Outstanding Fees</p><p class="text-2xl font-bold text-gray-900">Rs.${tot.toLocaleString('en-IN')}</p></div>
    <div class="bg-white p-4 rounded-xl shadow-sm card-hover border"><i class="fas fa-user-graduate text-indigo-600 text-xl"></i><p class="text-xs text-gray-500 mt-2">Total Students</p><p class="text-2xl font-bold text-gray-900">${st.length}</p></div>
@@ -2325,6 +2358,7 @@ function renderOwnerDashboard(){
     ${pen?`<span class="pill pill-amber">${pen} Pending</span>`:''}
     ${exp?`<span class="pill pill-red">${exp} Expiring &lt; 30 days</span>`:''}
     <button id="ownerOpenComplianceBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium ml-auto"><i class="fas fa-edit mr-1"></i>Manage Compliance</button>
+    <button id="ownerOpenNoticesBtn" class="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-thumbtack mr-1"></i>Manage Notices</button>
    </div>
    <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3 text-xs">
     ${comp.slice(0,8).map(c=>{const cls=c.status==='compliant'?'text-emerald-700':c.status==='pending'?'text-amber-700':'text-gray-500';const ic=c.status==='compliant'?'check-circle':c.status==='pending'?'clock':'minus-circle';return `<div class="${cls}"><i class="fas fa-${ic} mr-1"></i>${c.name}</div>`}).join('')}
@@ -2395,6 +2429,30 @@ function renderOwnerDashboard(){
     </button>
    </div>
   </div>
+  <!-- Second row: Fee Structure + Notices quick-access -->
+  <div class="grid md:grid-cols-2 gap-4 mt-4">
+   <div class="bg-gradient-to-r from-amber-50 to-yellow-50 border-2 border-amber-200 rounded-xl p-5">
+    <h2 class="font-semibold mb-1"><i class="fas fa-indian-rupee-sign text-amber-600 mr-2"></i>Fee Structure</h2>
+    <p class="text-sm text-gray-700">Define annual fees per class. Students auto-inherit their class plan on enrolment.</p>
+    <div class="flex flex-wrap gap-2 mt-2 text-xs">
+     <span class="text-gray-700"><i class="fas fa-file-invoice-dollar mr-1"></i>${getFeeStructures().length} class plan${getFeeStructures().length===1?'':'s'} set</span>
+     ${getFeeStructures().length < ALL_CLASSES.length ? `<span class="pill pill-amber">${ALL_CLASSES.length - getFeeStructures().length} classes without fees</span>` : '<span class="text-emerald-700"><i class="fas fa-circle-check mr-1"></i>All classes configured</span>'}
+    </div>
+    <button id="ownerOpenFeeStructBtn" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
+     <i class="fas fa-arrow-right-to-bracket mr-1"></i>Manage Fee Structure
+    </button>
+   </div>
+   <div class="bg-gradient-to-r from-rose-50 to-orange-50 border-2 border-orange-200 rounded-xl p-5">
+    <h2 class="font-semibold mb-1"><i class="fas fa-thumbtack text-orange-600 mr-2"></i>Notice Board</h2>
+    <p class="text-sm text-gray-700">Post announcements to students, parents, teachers or the whole school.</p>
+    <div class="flex flex-wrap gap-2 mt-2 text-xs">
+     <span class="text-gray-700"><i class="fas fa-bell mr-1"></i>${getNotices().filter(n=>!n.expiry||n.expiry>=new Date().toISOString().slice(0,10)).length} active notice${getNotices().filter(n=>!n.expiry||n.expiry>=new Date().toISOString().slice(0,10)).length===1?'':'s'}</span>
+    </div>
+    <button id="ownerOpenNoticesBtn" class="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
+     <i class="fas fa-arrow-right-to-bracket mr-1"></i>Manage Notices
+    </button>
+   </div>
+  </div>
 
   <div class="bg-white rounded-xl shadow-sm p-5 mt-6">
    <h2 class="font-semibold mb-3"><i class="fas fa-file-alt text-gray-600 mr-2"></i>Recent Exam Marks</h2>
@@ -2447,6 +2505,10 @@ function renderAdminPanel(){
   {id:'teachers',label:'Teachers',icon:'chalkboard-teacher'},
   {id:'datamanagement',label:'Data',icon:'database'},
   {id:'compliance',label:'Compliance',icon:'shield-halved'},
+  {id:'notices',label:'Notice Board',icon:'thumbtack'},
+  {id:'feestructure',label:'Fee Structure',icon:'indian-rupee-sign'},
+  {id:'reportcards',label:'Report Cards',icon:'file-lines'},
+  {id:'enquiries',label:'Admissions',icon:'user-plus'},
   {id:'broadcast',label:'Broadcast',icon:'bullhorn'},
   {id:'gallery',label:'Gallery',icon:'images'},
   {id:'disclosureDocs',label:'Disclosure PDFs',icon:'file-pdf'},
@@ -2490,6 +2552,10 @@ function renderAdminTabContent(){
   case 'teachers':return renderTeachersTab();
   case 'datamanagement':return renderDataManagement();
   case 'compliance':return renderComplianceTab();
+  case 'notices':return renderNoticesTab();
+  case 'feestructure':return renderFeeStructureTab();
+  case 'reportcards':return renderReportCardsTab();
+  case 'enquiries':return renderEnquiriesTab();
   case 'broadcast':return renderBroadcastTab();
   case 'gallery':return renderGalleryAdminTab();
   case 'disclosureDocs':return renderDisclosureDocsTab();
@@ -2509,6 +2575,7 @@ function renderAdminDashboardTab(){
  const s=getStudents(),t=getTeachers(),c=getComplaints(),comp=getCompliance();
  const unread=getChatMessages().filter(m=>m.to===currentUser.id&&!m.read).length;
  return `<div>
+  ${renderNoticesForCurrentUser(3)}
   <h2 class="text-lg font-bold mb-4">At a glance</h2>
   <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
    <div class="bg-indigo-50 p-4 rounded-lg"><div class="text-xs text-indigo-700 font-semibold">STUDENTS</div><div class="text-2xl font-bold text-indigo-900">${s.length}</div></div>
@@ -2728,6 +2795,166 @@ function generateStudentIDCard(s){
  w.document.close();
 }
 
+/* ============================================================
+   REPORT CARD GENERATION
+   Builds a printable term report: subject-wise marks, grades,
+   percentage, attendance %, and a remark. CBSE-style grading.
+============================================================ */
+// CBSE-style grade from percentage
+function gradeFromPercent(pct){
+ if (pct >= 91) return { grade: 'A1', remark: 'Outstanding' };
+ if (pct >= 81) return { grade: 'A2', remark: 'Excellent' };
+ if (pct >= 71) return { grade: 'B1', remark: 'Very Good' };
+ if (pct >= 61) return { grade: 'B2', remark: 'Good' };
+ if (pct >= 51) return { grade: 'C1', remark: 'Fair' };
+ if (pct >= 41) return { grade: 'C2', remark: 'Satisfactory' };
+ if (pct >= 33) return { grade: 'D', remark: 'Needs Improvement' };
+ return { grade: 'E', remark: 'Unsatisfactory' };
+}
+
+// Compute attendance % for a student (optionally within a date range)
+function attendancePercent(studentId, fromDate, toDate){
+ const rec = getAttendanceRecords()[studentId] || {};
+ let present = 0, total = 0;
+ Object.keys(rec).forEach(date => {
+  if (fromDate && date < fromDate) return;
+  if (toDate && date > toDate) return;
+  const v = rec[date];
+  if (v === 'P' || v === 'A' || v === 'L') { // counted days
+   total++;
+   if (v === 'P' || v === 'L') present++; // leave counts as present-ish? treat L as present
+  }
+ });
+ return total > 0 ? { percent: Math.round((present/total)*100), present, total } : { percent: null, present: 0, total: 0 };
+}
+
+// Generate the report card for a student & exam term
+function generateReportCard(student, examName){
+ const s = student;
+ const school = SCHOOL_INFO;
+ const allMarks = getExamMarks().filter(m => m.studentId === s.id && (!examName || m.examName === examName));
+ if (allMarks.length === 0) { alert(`No marks found for ${s.name}${examName ? ' in '+examName : ''}.`); return; }
+
+ // Group by subject (in case of duplicates, take latest)
+ const bySubject = {};
+ allMarks.forEach(m => { bySubject[m.subject] = m; });
+ const subjects = Object.keys(bySubject).sort();
+
+ let totalObtained = 0, totalMax = 0;
+ const rows = subjects.map(subj => {
+  const m = bySubject[subj];
+  const obt = parseInt(m.marks) || 0;
+  const max = parseInt(m.maxMarks) || 100;
+  totalObtained += obt; totalMax += max;
+  const pct = max > 0 ? Math.round((obt/max)*100) : 0;
+  const g = gradeFromPercent(pct);
+  return { subject: subj, obt, max, pct, grade: g.grade };
+ });
+
+ const overallPct = totalMax > 0 ? Math.round((totalObtained/totalMax)*100) : 0;
+ const overallGrade = gradeFromPercent(overallPct);
+ const att = attendancePercent(s.id);
+ const session = currentSession();
+ const photo = s.photo || '';
+ const initialsTxt = (s.name||'?').split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
+ const examTitle = examName || 'Consolidated Report';
+
+ const w = window.open('', '_blank', 'width=820,height=1000');
+ if (!w) { alert('Please allow popups to print the report card.'); return; }
+
+ const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+ <title>Report Card - ${s.name}</title>
+ <style>
+  *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',Arial,sans-serif}
+  body{background:#e5e7eb;padding:24px;display:flex;flex-direction:column;align-items:center;gap:18px}
+  .sheet{width:760px;background:#fff;box-shadow:0 8px 28px rgba(0,0,0,.15);border:6px double #7a1e2e;padding:0}
+  .head{background:linear-gradient(135deg,#7a1e2e,#9a2740);color:#faf6ef;padding:18px 24px;display:flex;align-items:center;gap:16px}
+  .head img{width:64px;height:64px;object-fit:contain;background:#fff;border-radius:50%;padding:4px}
+  .head .t1{font-size:22px;font-weight:800;line-height:1.1}
+  .head .t2{font-size:11px;opacity:.92;margin-top:3px}
+  .head .t3{font-size:13px;font-weight:600;margin-top:6px;background:rgba(255,255,255,.18);display:inline-block;padding:2px 10px;border-radius:4px}
+  .stuband{display:flex;justify-content:space-between;align-items:center;padding:16px 24px;border-bottom:2px solid #eee;gap:16px}
+  .stuinfo{flex:1}
+  .stuinfo .nm{font-size:20px;font-weight:800;color:#1a1410}
+  .stugrid{display:grid;grid-template-columns:repeat(2,1fr);gap:4px 24px;margin-top:8px;font-size:12px}
+  .stugrid .lbl{color:#888}
+  .stuphoto{width:84px;height:100px;border:2px solid #c8860d;border-radius:6px;overflow:hidden;background:#faf6ef;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .stuphoto img{width:100%;height:100%;object-fit:cover}
+  .stuphoto .ini{font-size:32px;font-weight:800;color:#7a1e2e}
+  table{width:100%;border-collapse:collapse;margin:0}
+  th,td{padding:9px 12px;text-align:left;font-size:13px;border-bottom:1px solid #eee}
+  thead th{background:#faf6ef;color:#7a1e2e;font-weight:700;text-transform:uppercase;font-size:11px;letter-spacing:.04em}
+  td.num,th.num{text-align:center}
+  tfoot td{font-weight:800;background:#f8f8f8;border-top:2px solid #7a1e2e}
+  .summary{display:grid;grid-template-columns:repeat(3,1fr);gap:0;border-top:2px solid #7a1e2e}
+  .summary .box{padding:16px;text-align:center;border-right:1px solid #eee}
+  .summary .box:last-child{border-right:0}
+  .summary .v{font-size:26px;font-weight:800;color:#7a1e2e}
+  .summary .l{font-size:11px;color:#888;text-transform:uppercase;margin-top:2px}
+  .remark{padding:14px 24px;font-size:13px;border-top:1px solid #eee}
+  .remark b{color:#7a1e2e}
+  .sign{display:flex;justify-content:space-between;padding:36px 24px 20px;font-size:12px}
+  .sign .s{text-align:center;border-top:1px solid #999;padding-top:5px;width:160px;color:#555}
+  .foot{background:#1f3a2b;color:#faf6ef;text-align:center;font-size:10px;padding:8px}
+  .gradekey{font-size:9.5px;color:#999;padding:6px 24px;border-top:1px dashed #ddd}
+  .btns{display:flex;gap:10px}
+  button{padding:10px 22px;border:0;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer}
+  .pr{background:#7a1e2e;color:#fff}.cl{background:#ddd;color:#333}
+  @media print{body{background:#fff;padding:0}.btns{display:none}.sheet{box-shadow:none;border:6px double #7a1e2e;page-break-inside:avoid}}
+ </style></head><body>
+  <div class="sheet">
+   <div class="head">
+    <img src="assets/img/logo.png" onerror="this.style.display='none'">
+    <div>
+     <div class="t1">${school.name}</div>
+     <div class="t2">${school.addressLine1}, ${school.addressLine2} - ${school.pincode} &bull; Ph: ${school.phone}</div>
+     <div class="t3">REPORT CARD &bull; ${examTitle} &bull; Session ${session}</div>
+    </div>
+   </div>
+   <div class="stuband">
+    <div class="stuinfo">
+     <div class="nm">${s.name}</div>
+     <div class="stugrid">
+      <div><span class="lbl">Class:</span> <b>${s.class||'-'} ${s.section?'- '+s.section:''}</b></div>
+      <div><span class="lbl">Roll No:</span> <b>${s.rollNo||'-'}</b></div>
+      <div><span class="lbl">Admission No:</span> <b>${s.admissionNo||'-'}</b></div>
+      <div><span class="lbl">Father/Guardian:</span> <b>${s.parentName||'-'}</b></div>
+      <div><span class="lbl">Date of Birth:</span> <b>${s.dob?new Date(s.dob).toLocaleDateString('en-IN'):'-'}</b></div>
+      <div><span class="lbl">PEN:</span> <b>${s.pen||'-'}</b></div>
+     </div>
+    </div>
+    <div class="stuphoto">${photo?`<img src="${photo}">`:`<div class="ini">${initialsTxt}</div>`}</div>
+   </div>
+   <table>
+    <thead><tr><th>Subject</th><th class="num">Marks Obtained</th><th class="num">Max Marks</th><th class="num">%</th><th class="num">Grade</th></tr></thead>
+    <tbody>
+     ${rows.map(r => `<tr><td>${r.subject}</td><td class="num">${r.obt}</td><td class="num">${r.max}</td><td class="num">${r.pct}%</td><td class="num"><b>${r.grade}</b></td></tr>`).join('')}
+    </tbody>
+    <tfoot><tr><td>TOTAL</td><td class="num">${totalObtained}</td><td class="num">${totalMax}</td><td class="num">${overallPct}%</td><td class="num">${overallGrade.grade}</td></tr></tfoot>
+   </table>
+   <div class="summary">
+    <div class="box"><div class="v">${overallPct}%</div><div class="l">Overall</div></div>
+    <div class="box"><div class="v">${overallGrade.grade}</div><div class="l">Grade</div></div>
+    <div class="box"><div class="v">${att.percent !== null ? att.percent+'%' : 'N/A'}</div><div class="l">Attendance${att.total ? ` (${att.present}/${att.total})` : ''}</div></div>
+   </div>
+   <div class="remark"><b>Result:</b> ${overallPct >= 33 ? 'PASS' : 'NEEDS IMPROVEMENT'} &nbsp;&bull;&nbsp; <b>Remark:</b> ${overallGrade.remark}. ${overallPct >= 75 ? 'Keep up the excellent work!' : overallPct >= 50 ? 'Good effort — continue working hard.' : 'More focus and practice recommended.'}</div>
+   <div class="gradekey">Grading: A1 (91-100) &bull; A2 (81-90) &bull; B1 (71-80) &bull; B2 (61-70) &bull; C1 (51-60) &bull; C2 (41-50) &bull; D (33-40) &bull; E (below 33)</div>
+   <div class="sign">
+    <div class="s">Class Teacher</div>
+    <div class="s">Principal</div>
+    <div class="s">Parent / Guardian</div>
+   </div>
+   <div class="foot">This is a computer-generated report card from ${school.name}. Generated on ${new Date().toLocaleDateString('en-IN')}.</div>
+  </div>
+  <div class="btns">
+   <button class="pr" onclick="window.print()">Print / Save PDF</button>
+   <button class="cl" onclick="window.close()">Close</button>
+  </div>
+ </body></html>`;
+ w.document.write(html);
+ w.document.close();
+}
+
 function renderStudentProfile(id){
  const s=getStudents().find(x=>x.id===parseInt(id));
  if(!s)return '<div>Student not found</div>';
@@ -2761,8 +2988,21 @@ function renderStudentProfile(id){
    <tbody>${fees.map(f=>`<tr><td>${f.receiptNo}</td><td>${fmtDate(f.date)}</td><td>${f.mode}</td><td>Rs.${f.amount.toLocaleString('en-IN')}</td><td><span class="pill pill-green">${f.status}</span></td></tr>`).join('')||'<tr><td colspan="5" class="text-center text-gray-500 py-4">No payments</td></tr>'}</tbody></table>
   </div>`;
  } else if(t==='marks'){
-  body=`<table class="border text-sm"><thead><tr><th>Exam</th><th>Subject</th><th>Score</th><th>Max</th><th>%</th><th>Date</th></tr></thead>
-  <tbody>${marks.map(m=>`<tr><td>${m.examName}</td><td>${m.subject}</td><td>${m.marks}</td><td>${m.maxMarks}</td><td>${Math.round((m.marks/m.maxMarks)*100)}%</td><td>${fmtDate(m.date)}</td></tr>`).join('')||'<tr><td colspan="6" class="text-center text-gray-500 py-4">No marks</td></tr>'}</tbody></table>`;
+  const examList = [...new Set(marks.map(m=>m.examName).filter(Boolean))];
+  body=`<div>
+   <div class="flex flex-wrap justify-between items-center gap-2 mb-3">
+    <h4 class="font-semibold text-sm">Exam Marks</h4>
+    ${marks.length>0?`<div class="flex gap-2 items-center">
+     <select id="profileRcExam" class="text-sm" style="width:auto">
+      <option value="">Consolidated</option>
+      ${examList.map(e=>`<option>${escapeHTML(e)}</option>`).join('')}
+     </select>
+     <button id="profileRcBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium" data-id="${s.id}"><i class="fas fa-file-lines mr-1"></i>Report Card</button>
+    </div>`:''}
+   </div>
+   <table class="border text-sm"><thead><tr><th>Exam</th><th>Subject</th><th>Score</th><th>Max</th><th>%</th><th>Date</th></tr></thead>
+   <tbody>${marks.map(m=>`<tr><td>${m.examName}</td><td>${m.subject}</td><td>${m.marks}</td><td>${m.maxMarks}</td><td>${Math.round((m.marks/m.maxMarks)*100)}%</td><td>${fmtDate(m.date)}</td></tr>`).join('')||'<tr><td colspan="6" class="text-center text-gray-500 py-4">No marks</td></tr>'}</tbody></table>
+  </div>`;
  } else if(t==='attendance'){
   body=`<div>
    <div class="bg-indigo-50 p-3 rounded-lg mb-3"><b>Attendance:</b> ${pr}/${tot} days - <b>${tot?Math.round(pr/tot*100):0}%</b></div>
@@ -3106,6 +3346,599 @@ function renderBank(){
   <div id="transModal" class="hidden modal"><div class="modal-content"><h3 class="font-bold mb-3">Add Transaction</h3><div class="space-y-2"><input type="hidden" id="transAccId"><select id="transType"><option>Credit</option><option>Debit</option></select><input id="transDesc" placeholder="Description"><input type="number" id="transAmount" placeholder="Amount"><input type="date" id="transDate"></div><div class="flex justify-end gap-2 mt-3"><button class="closeModal bg-gray-300 px-3 py-1.5 rounded">Cancel</button><button id="saveTransModal" class="bg-indigo-600 text-white px-3 py-1.5 rounded">Save</button></div></div></div>
  </div>`;
 }
+/* ============================================================
+   NOTICE BOARD
+   Notices target audiences (all / staff / teachers / parents / students
+   / specific class) with priority and optional expiry. They surface on
+   every relevant user's dashboard via renderNoticesForCurrentUser().
+============================================================ */
+function getNotices(){ return DB.getAll('notices'); }
+function saveNotices(d){ DB.setAll('notices', d); }
+
+// Return notices visible to the current user, freshest first, excluding expired.
+function getVisibleNotices(){
+ const u = currentUser;
+ if (!u) return [];
+ const today = new Date().toISOString().slice(0,10);
+ return getNotices()
+  .filter(n => {
+   if (n.expiry && n.expiry < today) return false; // expired
+   const aud = n.audience || 'all';
+   if (aud === 'all') return true;
+   if (aud === 'staff') return ['owner','admin','principal','accountant','teacher'].includes(u.role);
+   if (aud === 'teachers') return u.role === 'teacher' || ['owner','admin','principal'].includes(u.role);
+   if (aud === 'parents') return u.role === 'parent' || ['owner','admin','principal'].includes(u.role);
+   if (aud === 'students') return u.role === 'student' || ['owner','admin','principal'].includes(u.role);
+   if (aud.startsWith('class:')) {
+    const cls = aud.slice(6);
+    // staff see all; parents/students see if their (child's) class matches
+    if (['owner','admin','principal','teacher'].includes(u.role)) return true;
+    if (u.role === 'student') { const s = getStudents().find(x => x.id === u.studentId); return s && s.class === cls; }
+    if (u.role === 'parent') { const kids = (typeof _findChildrenForParent==='function') ? _findChildrenForParent(u) : []; return kids.some(k => k.class === cls); }
+    return false;
+   }
+   return true;
+  })
+  .sort((a,b) => {
+   // pinned/high priority first, then newest
+   const pr = { high: 0, normal: 1, low: 2 };
+   const pa = pr[a.priority||'normal'], pb = pr[b.priority||'normal'];
+   if (pa !== pb) return pa - pb;
+   return (b.createdAt||'').localeCompare(a.createdAt||'');
+  });
+}
+
+// Compact notice board widget for dashboards
+function renderNoticesForCurrentUser(limit){
+ const notices = getVisibleNotices();
+ if (notices.length === 0) return '';
+ const shown = limit ? notices.slice(0, limit) : notices;
+ const priColor = p => p==='high' ? 'border-rose-400 bg-rose-50' : p==='low' ? 'border-gray-300 bg-gray-50' : 'border-amber-300 bg-amber-50';
+ const priBadge = p => p==='high' ? '<span class="pill pill-red">Important</span>' : '';
+ return `<div class="bg-white rounded-xl shadow-sm p-4 mb-4 border-l-4 border-amber-400">
+  <div class="flex items-center justify-between mb-2">
+   <h2 class="font-semibold"><i class="fas fa-thumbtack text-amber-600 mr-2"></i>Notice Board</h2>
+   ${notices.length > (limit||notices.length) ? `<span class="text-xs text-gray-500">${notices.length} notices</span>` : ''}
+  </div>
+  <div class="space-y-2">
+   ${shown.map(n => `<div class="border-l-4 ${priColor(n.priority)} rounded p-2.5">
+    <div class="flex items-start justify-between gap-2">
+     <div class="font-semibold text-sm text-gray-900">${escapeHTML(n.title)} ${priBadge(n.priority)}</div>
+     <div class="text-xs text-gray-400 whitespace-nowrap">${n.createdAt ? fmtDate(n.createdAt) : ''}</div>
+    </div>
+    ${n.body ? `<div class="text-sm text-gray-700 mt-1 whitespace-pre-wrap">${escapeHTML(n.body)}</div>` : ''}
+    <div class="text-xs text-gray-400 mt-1">— ${escapeHTML(n.by||'School')}${n.expiry ? ` · valid till ${fmtDate(n.expiry)}` : ''}</div>
+   </div>`).join('')}
+  </div>
+ </div>`;
+}
+
+// Admin/owner/principal management tab
+function renderNoticesTab(){
+ const notices = getNotices().sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''));
+ const today = new Date().toISOString().slice(0,10);
+ const classOptions = ALL_CLASSES.map(c => `<option value="class:${c}">Only Class ${c}</option>`).join('');
+ return `<div>
+  <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+   <h2 class="text-lg font-bold"><i class="fas fa-thumbtack text-amber-600 mr-1"></i>Notice Board</h2>
+   <button id="addNoticeBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-plus mr-1"></i>Post Notice</button>
+  </div>
+  <p class="text-sm text-gray-600 mb-4">Notices appear on the dashboards of the audience you choose. Important notices show at the top with a red highlight. Set an expiry date to auto-hide a notice after it's no longer relevant.</p>
+
+  ${notices.length === 0 ? `<div class="text-center text-gray-500 py-8 bg-gray-50 rounded-lg"><i class="fas fa-thumbtack text-2xl mb-2 block"></i>No notices posted yet. Click "Post Notice" to add one.</div>` : `
+  <div class="space-y-2">
+   ${notices.map(n => {
+     const expired = n.expiry && n.expiry < today;
+     const audLabel = n.audience === 'all' ? 'Everyone' : n.audience === 'staff' ? 'All Staff' : n.audience === 'teachers' ? 'Teachers' : n.audience === 'parents' ? 'Parents' : n.audience === 'students' ? 'Students' : (n.audience||'').startsWith('class:') ? 'Class '+n.audience.slice(6) : 'Everyone';
+     return `<div class="border rounded-lg p-3 ${expired?'opacity-50':''}">
+      <div class="flex items-start justify-between gap-2">
+       <div class="flex-1">
+        <div class="font-semibold">${escapeHTML(n.title)}
+         ${n.priority==='high'?'<span class="pill pill-red ml-1">Important</span>':''}
+         ${expired?'<span class="pill pill-gray ml-1">Expired</span>':''}
+        </div>
+        ${n.body?`<div class="text-sm text-gray-700 mt-1 whitespace-pre-wrap">${escapeHTML(n.body)}</div>`:''}
+        <div class="text-xs text-gray-500 mt-1">
+         <i class="fas fa-users mr-1"></i>${audLabel}
+         &bull; posted ${n.createdAt?fmtDate(n.createdAt):'-'} by ${escapeHTML(n.by||'-')}
+         ${n.expiry?` &bull; expires ${fmtDate(n.expiry)}`:''}
+        </div>
+       </div>
+       <div class="flex gap-1 flex-shrink-0">
+        <button class="editNoticeBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${n.id}" title="Edit"><i class="fas fa-edit"></i></button>
+        <button class="delNoticeBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs" data-id="${n.id}" title="Delete"><i class="fas fa-trash"></i></button>
+       </div>
+      </div>
+     </div>`;
+   }).join('')}
+  </div>`}
+
+  <div id="noticeModal" class="hidden modal"><div class="modal-content" style="max-width:560px">
+   <h3 class="text-lg font-bold mb-3" id="noticeModalTitle">Post Notice</h3>
+   <input type="hidden" id="ntcId">
+   <div class="space-y-3">
+    <div><label class="text-xs font-medium">Title *</label><input id="ntcTitle" placeholder="e.g. School closed on Friday"></div>
+    <div><label class="text-xs font-medium">Details</label><textarea id="ntcBody" rows="4" placeholder="Full announcement text..."></textarea></div>
+    <div class="grid grid-cols-2 gap-3">
+     <div>
+      <label class="text-xs font-medium">Audience *</label>
+      <select id="ntcAudience">
+       <option value="all">Everyone</option>
+       <option value="staff">All Staff</option>
+       <option value="teachers">Teachers only</option>
+       <option value="parents">Parents only</option>
+       <option value="students">Students only</option>
+       ${classOptions}
+      </select>
+     </div>
+     <div>
+      <label class="text-xs font-medium">Priority</label>
+      <select id="ntcPriority"><option value="normal">Normal</option><option value="high">Important (top, red)</option><option value="low">Low</option></select>
+     </div>
+     <div>
+      <label class="text-xs font-medium">Expiry Date (optional)</label>
+      <input type="date" id="ntcExpiry">
+     </div>
+    </div>
+   </div>
+   <div class="flex justify-end gap-2 mt-4">
+    <button class="closeModal bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded-lg text-sm font-medium">Cancel</button>
+    <button id="saveNoticeBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium">Post</button>
+   </div>
+  </div></div>
+ </div>`;
+}
+
+function attachFeeStructureEvents(){
+ const refresh = () => {
+  if (currentUser?.role === 'owner') renderApp();
+  else refreshAdminTabContent();
+ };
+
+ // Live total preview as user types in modal
+ const updatePreview = () => {
+  let total = 0;
+  const heads = FEE_HEADS.filter(h => h !== 'Late Fee');
+  heads.forEach((h, i) => { total += parseInt(document.getElementById(`fsHead_${i}`)?.value) || 0; });
+  const prev = document.getElementById('fsTotalPreview');
+  if (prev) prev.textContent = total > 0 ? `Annual Total: Rs.${total.toLocaleString('en-IN')}` : '';
+ };
+
+ // Attach input listeners for live preview (after modal opens)
+ const attachPreviewListeners = () => {
+  const heads = FEE_HEADS.filter(h => h !== 'Late Fee');
+  heads.forEach((h, i) => document.getElementById(`fsHead_${i}`)?.addEventListener('input', updatePreview));
+  document.getElementById('fsTransport')?.addEventListener('input', updatePreview);
+ };
+
+ const openPlanModal = (cls) => {
+  // Clear all head inputs
+  const heads = FEE_HEADS.filter(h => h !== 'Late Fee');
+  heads.forEach((h, i) => { const el = document.getElementById(`fsHead_${i}`); if (el) el.value = ''; });
+  const trEl = document.getElementById('fsTransport'); if (trEl) trEl.value = '';
+  const idEl = document.getElementById('fsPlanId'); if (idEl) idEl.value = '';
+  const sessEl = document.getElementById('fsSession'); if (sessEl) sessEl.value = currentSession();
+  document.getElementById('fsTotalPreview').textContent = '';
+
+  if (cls) {
+   document.getElementById('feeStructModalTitle').innerText = `Fee Plan — Class ${cls}`;
+   document.getElementById('fsClass').value = cls;
+   // Load existing plan if any
+   const plan = getFeeStructureForClass(cls);
+   if (plan) {
+    const idE = document.getElementById('fsPlanId'); if (idE) idE.value = plan.id;
+    if (sessEl) sessEl.value = plan.session || currentSession();
+    heads.forEach((h, i) => {
+     const it = (plan.items||[]).find(x => x.head === h);
+     const el = document.getElementById(`fsHead_${i}`); if (el) el.value = it?.amount || '';
+    });
+    if (trEl) trEl.value = plan.transport || '';
+    updatePreview();
+   }
+  } else {
+   document.getElementById('feeStructModalTitle').innerText = 'Add Fee Plan';
+  }
+  attachPreviewListeners();
+  document.getElementById('feeStructModal').classList.remove('hidden');
+ };
+
+ document.getElementById('feeStructAddBtn')?.addEventListener('click', () => openPlanModal(null));
+ document.querySelectorAll('.editFeeStructBtn').forEach(b => b.addEventListener('click', () => openPlanModal(b.dataset.class)));
+ document.querySelectorAll('.addFeeStructBtn').forEach(b => b.addEventListener('click', () => openPlanModal(b.dataset.class)));
+
+ document.getElementById('saveFeeStructBtn')?.addEventListener('click', () => {
+  const cls = document.getElementById('fsClass').value;
+  const session = document.getElementById('fsSession').value.trim();
+  if (!cls || !session) { alert('Class and session are required'); return; }
+
+  const heads = FEE_HEADS.filter(h => h !== 'Late Fee');
+  const items = heads
+   .map((h, i) => ({ head: h, amount: parseInt(document.getElementById(`fsHead_${i}`)?.value) || 0 }))
+   .filter(x => x.amount > 0); // only save non-zero heads
+
+  const transport = parseInt(document.getElementById('fsTransport')?.value) || 0;
+  const plans = getFeeStructures();
+  const existingId = document.getElementById('fsPlanId')?.value;
+  if (existingId) {
+   const i = plans.findIndex(p => p.id === parseInt(existingId));
+   if (i > -1) { plans[i] = { ...plans[i], class: cls, session, items, transport, lastUpdated: new Date().toISOString().slice(0,10) }; }
+  } else {
+   plans.push({ id: Date.now(), class: cls, session, items, transport, createdAt: new Date().toISOString().slice(0,10), lastUpdated: new Date().toISOString().slice(0,10) });
+  }
+  saveFeeStructures(plans);
+  document.getElementById('feeStructModal').classList.add('hidden');
+  showToast(`Fee plan for Class ${cls} saved`);
+  refresh();
+ });
+
+ document.getElementById('feeStructApplyAllBtn')?.addEventListener('click', () => {
+  const plans = getFeeStructures();
+  if (plans.length === 0) { alert('No fee plans defined yet. Add plans first.'); return; }
+  const students = getStudents();
+  let updated = 0;
+  const updatedStudents = students.map(s => {
+   const plan = getFeeStructureForClass(s.class);
+   if (plan) {
+    const total = planTotal(plan);
+    const changed = s.annualFees !== total;
+    if (changed) {
+     updated++;
+     return { ...s, annualFees: total, decidedFees: s.decidedFees || total, feeBalance: s.feeBalance !== undefined ? s.feeBalance : total };
+    }
+   }
+   return s;
+  });
+  if (updated === 0) { showToast('All students already match the current plans'); return; }
+  if (!confirm(`Update fee amounts for ${updated} student(s) based on their class fee plans?\n\nThis will update annualFees for matching students. Individual decidedFees (concessions) already set will be preserved.\n\nContinue?`)) return;
+  saveStudents(updatedStudents);
+  showToast(`Updated annual fees for ${updated} students`);
+  refresh();
+ });
+}
+
+function renderReportCardsTab(){
+ const marks = getExamMarks();
+ const exams = [...new Set(marks.map(m => m.examName).filter(Boolean))];
+ const students = getStudents();
+ const classes = ALL_CLASSES.filter(c => students.some(s => s.class === c));
+ return `<div>
+  <h2 class="text-lg font-bold mb-1"><i class="fas fa-file-lines text-indigo-600 mr-1"></i>Report Cards</h2>
+  <p class="text-sm text-gray-600 mb-4">Generate printable report cards from entered exam marks. Pick a term and class, then print individually or for the whole class.</p>
+
+  ${exams.length === 0 ? `<div class="bg-amber-50 border-l-4 border-amber-400 p-4 rounded text-sm text-amber-900"><i class="fas fa-info-circle mr-1"></i>No exam marks have been entered yet. Teachers enter marks via their <b>Marks</b> tab. Once marks exist, report cards can be generated here.</div>` : `
+
+  <div class="bg-white border rounded-lg p-4 mb-4">
+   <div class="grid md:grid-cols-3 gap-3 items-end">
+    <div>
+     <label class="text-xs font-medium">Exam / Term</label>
+     <select id="rcExam">
+      <option value="">Consolidated (all exams)</option>
+      ${exams.map(e => `<option>${escapeHTML(e)}</option>`).join('')}
+     </select>
+    </div>
+    <div>
+     <label class="text-xs font-medium">Class</label>
+     <select id="rcClass">
+      <option value="">— Select a class —</option>
+      ${classes.map(c => `<option>${c}</option>`).join('')}
+     </select>
+    </div>
+    <div>
+     <button id="rcLoadBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full"><i class="fas fa-list mr-1"></i>Show Students</button>
+    </div>
+   </div>
+  </div>
+
+  <div id="rcStudentList"></div>
+  `}
+ </div>`;
+}
+
+function attachReportCardsEvents(){
+ const loadList = () => {
+  const cls = document.getElementById('rcClass')?.value;
+  const exam = document.getElementById('rcExam')?.value;
+  const container = document.getElementById('rcStudentList');
+  if (!container) return;
+  if (!cls) { container.innerHTML = '<div class="text-sm text-gray-500 py-3">Select a class and click "Show Students".</div>'; return; }
+  const students = getStudents().filter(s => s.class === cls).sort((a,b) => (a.rollNo||0)-(b.rollNo||0));
+  const marks = getExamMarks();
+  if (students.length === 0) { container.innerHTML = '<div class="text-sm text-gray-500 py-3">No students in this class.</div>'; return; }
+
+  container.innerHTML = `
+   <div class="bg-white border rounded-lg p-4">
+    <div class="flex flex-wrap justify-between items-center gap-2 mb-3">
+     <h3 class="font-semibold">Class ${cls} — ${students.length} students ${exam ? '· '+escapeHTML(exam) : '· Consolidated'}</h3>
+     <button id="rcGenAllBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-print mr-1"></i>Print All (${students.length})</button>
+    </div>
+    <div class="overflow-x-auto">
+     <table class="text-sm w-full border">
+      <thead class="bg-gray-100"><tr><th class="text-left p-2">Roll</th><th class="text-left p-2">Name</th><th class="text-center p-2">Marks Entered</th><th class="text-center p-2">Action</th></tr></thead>
+      <tbody>
+       ${students.map(s => {
+         const cnt = marks.filter(m => m.studentId === s.id && (!exam || m.examName === exam)).length;
+         return `<tr class="border-t">
+          <td class="p-2">${s.rollNo||'-'}</td>
+          <td class="p-2 font-medium">${escapeHTML(s.name)}</td>
+          <td class="p-2 text-center">${cnt > 0 ? `<span class="pill pill-green">${cnt} subjects</span>` : '<span class="pill pill-gray">none</span>'}</td>
+          <td class="p-2 text-center">
+           ${cnt > 0 ? `<button class="rcGenOneBtn bg-indigo-500 hover:bg-indigo-600 text-white px-3 py-1 rounded text-xs" data-id="${s.id}"><i class="fas fa-file-lines mr-1"></i>Report Card</button>` : '<span class="text-xs text-gray-400">no marks</span>'}
+          </td>
+         </tr>`;
+       }).join('')}
+      </tbody>
+     </table>
+    </div>
+   </div>`;
+
+  // Wire per-student buttons
+  container.querySelectorAll('.rcGenOneBtn').forEach(b => b.addEventListener('click', () => {
+   const s = getStudents().find(x => x.id === parseInt(b.dataset.id));
+   if (s) generateReportCard(s, exam || null);
+  }));
+  // Print all
+  document.getElementById('rcGenAllBtn')?.addEventListener('click', () => {
+   const withMarks = students.filter(s => marks.some(m => m.studentId === s.id && (!exam || m.examName === exam)));
+   if (withMarks.length === 0) { alert('No students in this class have marks for the selected term.'); return; }
+   if (!confirm(`Open ${withMarks.length} report cards for printing? Each opens in a new tab — allow popups. You can then print each (or use your browser's print-all).`)) return;
+   // Stagger slightly to avoid popup blocker
+   withMarks.forEach((s, i) => setTimeout(() => generateReportCard(s, exam || null), i * 400));
+  });
+ };
+
+ document.getElementById('rcLoadBtn')?.addEventListener('click', loadList);
+}
+
+/* ============================================================
+   ADMISSIONS ENQUIRY PIPELINE
+   Manages enquiries submitted via the public form through stages:
+   new → contacted → visited → admitted / closed.
+============================================================ */
+function getEnquiries(){ return DB.getAll('enquiries'); }
+function saveEnquiries(d){ DB.setAll('enquiries', d); }
+
+const ENQUIRY_STAGES = [
+ { id: 'new',       label: 'New',       color: 'blue' },
+ { id: 'contacted', label: 'Contacted', color: 'amber' },
+ { id: 'visited',   label: 'Visited',   color: 'purple' },
+ { id: 'admitted',  label: 'Admitted',  color: 'green' },
+ { id: 'closed',    label: 'Closed',    color: 'gray' }
+];
+
+function renderEnquiriesTab(){
+ const enquiries = getEnquiries().sort((a,b) => (b.date||'').localeCompare(a.date||''));
+ const stageCount = id => enquiries.filter(e => (e.stage || 'new') === id).length;
+
+ return `<div>
+  <div class="flex flex-wrap justify-between items-center gap-2 mb-3">
+   <div>
+    <h2 class="text-lg font-bold"><i class="fas fa-user-plus text-indigo-600 mr-1"></i>Admissions Enquiries</h2>
+    <p class="text-xs text-gray-500">Track enquiries from first contact to admission. Enquiries from the public website land here automatically.</p>
+   </div>
+   <div class="flex gap-2">
+    <button id="enqAddBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-plus mr-1"></i>Add Enquiry</button>
+    <button id="enqExportBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-file-excel mr-1"></i>Export</button>
+   </div>
+  </div>
+
+  <!-- Stage summary -->
+  <div class="grid grid-cols-2 md:grid-cols-5 gap-2 mb-4">
+   ${ENQUIRY_STAGES.map(st => `<div class="bg-${st.color}-50 border border-${st.color}-200 p-3 rounded-lg text-center">
+    <div class="text-2xl font-bold text-${st.color}-800">${stageCount(st.id)}</div>
+    <div class="text-xs text-${st.color}-700 font-semibold uppercase">${st.label}</div>
+   </div>`).join('')}
+  </div>
+
+  ${enquiries.length === 0 ? `
+   <div class="bg-gray-50 border rounded-lg p-8 text-center text-gray-500">
+    <i class="fas fa-inbox text-3xl mb-2 block"></i>
+    No enquiries yet. They'll appear here when someone submits the enquiry form on your website, or click "Add Enquiry" to log a walk-in/phone enquiry.
+   </div>
+  ` : `
+   <div class="flex gap-2 mb-3">
+    <select id="enqStageFilter" class="text-sm" style="width:auto">
+     <option value="">All stages</option>
+     ${ENQUIRY_STAGES.map(st => `<option value="${st.id}">${st.label} (${stageCount(st.id)})</option>`).join('')}
+    </select>
+   </div>
+   <div class="overflow-x-auto">
+    <table class="text-sm w-full border">
+     <thead class="bg-gray-100"><tr>
+      <th class="text-left p-2">Date</th><th class="text-left p-2">Name</th><th class="text-left p-2">Contact</th>
+      <th class="text-left p-2">Interest</th><th class="text-left p-2">Stage</th><th class="text-center p-2">Actions</th>
+     </tr></thead>
+     <tbody id="enqTableBody">
+      ${enquiries.map(e => {
+        const stage = e.stage || 'new';
+        const st = ENQUIRY_STAGES.find(x => x.id === stage) || ENQUIRY_STAGES[0];
+        return `<tr class="border-t align-top" data-stage="${stage}">
+         <td class="p-2 text-xs whitespace-nowrap">${e.date ? fmtDate(e.date) : '-'}</td>
+         <td class="p-2 font-medium">${escapeHTML(e.name||'-')}${e.childClass?`<br><span class="text-xs text-gray-500">for Class ${escapeHTML(e.childClass)}</span>`:''}</td>
+         <td class="p-2 text-xs">${e.phone?`<a href="https://wa.me/${_cleanPhone(e.phone)}" target="_blank" class="text-emerald-600 hover:underline"><i class="fab fa-whatsapp mr-1"></i>${escapeHTML(e.phone)}</a>`:''}${e.email?`<br><span class="text-gray-500">${escapeHTML(e.email)}</span>`:''}</td>
+         <td class="p-2 text-xs">${escapeHTML(e.subject||e.message||'-').slice(0,40)}</td>
+         <td class="p-2"><span class="pill pill-${st.color==='gray'?'gray':st.color==='green'?'green':st.color==='blue'?'blue':st.color==='amber'?'amber':'gray'}">${st.label}</span></td>
+         <td class="p-2 text-center whitespace-nowrap">
+          <button class="enqEditBtn text-blue-600 hover:text-blue-800" data-id="${e.id}" title="Edit / update stage"><i class="fas fa-edit"></i></button>
+          <button class="enqDelBtn text-red-600 hover:text-red-800 ml-2" data-id="${e.id}" title="Delete"><i class="fas fa-trash"></i></button>
+         </td>
+        </tr>`;
+      }).join('')}
+     </tbody>
+    </table>
+   </div>
+  `}
+
+  <!-- Enquiry modal -->
+  <div id="enqModal" class="hidden modal"><div class="modal-content" style="max-width:520px">
+   <h3 class="text-lg font-bold mb-3" id="enqModalTitle">Add Enquiry</h3>
+   <input type="hidden" id="enqId">
+   <div class="grid grid-cols-2 gap-3">
+    <div><label class="text-xs font-medium">Parent/Enquirer Name *</label><input id="enqName"></div>
+    <div><label class="text-xs font-medium">Phone</label><input id="enqPhone"></div>
+    <div><label class="text-xs font-medium">Email</label><input id="enqEmail"></div>
+    <div><label class="text-xs font-medium">Class Interested In</label><select id="enqChildClass"><option value="">—</option>${ALL_CLASSES.map(c=>`<option>${c}</option>`).join('')}</select></div>
+    <div class="col-span-2"><label class="text-xs font-medium">Notes / Message</label><textarea id="enqMessage" rows="2"></textarea></div>
+    <div class="col-span-2"><label class="text-xs font-medium">Stage</label>
+     <select id="enqStage">${ENQUIRY_STAGES.map(st=>`<option value="${st.id}">${st.label}</option>`).join('')}</select>
+    </div>
+    <div class="col-span-2"><label class="text-xs font-medium">Follow-up Note (internal)</label><input id="enqFollowup" placeholder="e.g. Called on 5th, visiting Saturday"></div>
+   </div>
+   <div class="flex justify-end gap-2 mt-4">
+    <button class="closeModal bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded-lg text-sm">Cancel</button>
+    <button id="enqSaveBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium">Save</button>
+   </div>
+  </div></div>
+ </div>`;
+}
+
+function attachEnquiriesTabEvents(){
+ const refresh = () => {
+  if (currentUser?.role === 'owner') renderApp();
+  else refreshAdminTabContent();
+ };
+
+ // Stage filter
+ document.getElementById('enqStageFilter')?.addEventListener('change', e => {
+  const st = e.target.value;
+  document.querySelectorAll('#enqTableBody tr').forEach(row => {
+   row.style.display = (!st || row.dataset.stage === st) ? '' : 'none';
+  });
+ });
+
+ const openModal = (existingId) => {
+  ['enqId','enqName','enqPhone','enqEmail','enqMessage','enqFollowup'].forEach(f => { const el = document.getElementById(f); if (el) el.value=''; });
+  document.getElementById('enqChildClass').value = '';
+  document.getElementById('enqStage').value = 'new';
+  if (existingId) {
+   const e = getEnquiries().find(x => x.id === parseInt(existingId));
+   if (e) {
+    document.getElementById('enqModalTitle').innerText = 'Update Enquiry';
+    document.getElementById('enqId').value = e.id;
+    document.getElementById('enqName').value = e.name || '';
+    document.getElementById('enqPhone').value = e.phone || '';
+    document.getElementById('enqEmail').value = e.email || '';
+    document.getElementById('enqChildClass').value = e.childClass || '';
+    document.getElementById('enqMessage').value = e.message || e.subject || '';
+    document.getElementById('enqStage').value = e.stage || 'new';
+    document.getElementById('enqFollowup').value = e.followup || '';
+   }
+  } else {
+   document.getElementById('enqModalTitle').innerText = 'Add Enquiry';
+  }
+  document.getElementById('enqModal').classList.remove('hidden');
+ };
+
+ document.getElementById('enqAddBtn')?.addEventListener('click', () => openModal(null));
+ document.querySelectorAll('.enqEditBtn').forEach(b => b.addEventListener('click', () => openModal(b.dataset.id)));
+ document.querySelectorAll('.enqDelBtn').forEach(b => b.addEventListener('click', () => {
+  if (!confirm('Delete this enquiry?')) return;
+  saveEnquiries(getEnquiries().filter(x => x.id !== parseInt(b.dataset.id)));
+  showToast('Enquiry deleted');
+  refresh();
+ }));
+ document.getElementById('enqSaveBtn')?.addEventListener('click', () => {
+  const name = document.getElementById('enqName').value.trim();
+  if (!name) { alert('Name is required'); return; }
+  const id = document.getElementById('enqId').value;
+  const data = {
+   name,
+   phone: document.getElementById('enqPhone').value.trim(),
+   email: document.getElementById('enqEmail').value.trim(),
+   childClass: document.getElementById('enqChildClass').value,
+   message: document.getElementById('enqMessage').value.trim(),
+   stage: document.getElementById('enqStage').value,
+   followup: document.getElementById('enqFollowup').value.trim()
+  };
+  const all = getEnquiries();
+  if (id) {
+   const i = all.findIndex(x => x.id === parseInt(id));
+   if (i > -1) all[i] = { ...all[i], ...data };
+   showToast('Enquiry updated');
+  } else {
+   data.id = Date.now();
+   data.date = new Date().toISOString();
+   data.sent = true; // manually added, no email needed
+   all.push(data);
+   showToast('Enquiry added');
+  }
+  saveEnquiries(all);
+  document.getElementById('enqModal').classList.add('hidden');
+  refresh();
+ });
+
+ // Export
+ document.getElementById('enqExportBtn')?.addEventListener('click', () => {
+  const all = getEnquiries().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  let h = '<table border="1"><tr><th>Date</th><th>Name</th><th>Phone</th><th>Email</th><th>Class</th><th>Stage</th><th>Message</th><th>Follow-up</th></tr>';
+  all.forEach(e => h += `<tr><td>${e.date?new Date(e.date).toLocaleDateString('en-IN'):''}</td><td>${e.name||''}</td><td>${e.phone||''}</td><td>${e.email||''}</td><td>${e.childClass||''}</td><td>${e.stage||'new'}</td><td>${(e.message||e.subject||'').replace(/</g,'')}</td><td>${e.followup||''}</td></tr>`);
+  h += '</table>';
+  downloadExcel(h, 'Enquiries_' + new Date().toISOString().slice(0,10));
+ });
+}
+
+function attachNoticesTabEvents(){
+ const refresh = () => {
+  if (currentUser?.role === 'owner') { renderApp(); }
+  else if (activeAdminTab === 'notices') { refreshAdminTabContent(); }
+  else { refreshPrincipalTabContent(); }
+ };
+ const openNoticeModal = (existingId) => {
+  ['ntcId','ntcTitle','ntcBody','ntcExpiry'].forEach(f => { const el = document.getElementById(f); if (el) el.value = ''; });
+  document.getElementById('ntcAudience').value = 'all';
+  document.getElementById('ntcPriority').value = 'normal';
+  if (existingId) {
+   const n = getNotices().find(x => x.id === parseInt(existingId));
+   if (n) {
+    document.getElementById('noticeModalTitle').innerText = 'Edit Notice';
+    document.getElementById('ntcId').value = n.id;
+    document.getElementById('ntcTitle').value = n.title || '';
+    document.getElementById('ntcBody').value = n.body || '';
+    document.getElementById('ntcAudience').value = n.audience || 'all';
+    document.getElementById('ntcPriority').value = n.priority || 'normal';
+    document.getElementById('ntcExpiry').value = n.expiry || '';
+   }
+  } else {
+   document.getElementById('noticeModalTitle').innerText = 'Post Notice';
+  }
+  document.getElementById('noticeModal').classList.remove('hidden');
+ };
+ document.getElementById('addNoticeBtn')?.addEventListener('click', () => openNoticeModal(null));
+ document.querySelectorAll('.editNoticeBtn').forEach(b => b.addEventListener('click', () => openNoticeModal(b.dataset.id)));
+ document.querySelectorAll('.delNoticeBtn').forEach(b => b.addEventListener('click', () => {
+  if (!confirm('Delete this notice?')) return;
+  saveNotices(getNotices().filter(x => x.id !== parseInt(b.dataset.id)));
+  showToast('Notice deleted');
+  refresh();
+ }));
+ document.getElementById('saveNoticeBtn')?.addEventListener('click', () => {
+  const title = document.getElementById('ntcTitle').value.trim();
+  if (!title) { alert('Title is required'); return; }
+  const id = document.getElementById('ntcId').value;
+  const data = {
+   title,
+   body: document.getElementById('ntcBody').value.trim(),
+   audience: document.getElementById('ntcAudience').value,
+   priority: document.getElementById('ntcPriority').value,
+   expiry: document.getElementById('ntcExpiry').value || ''
+  };
+  const notices = getNotices();
+  if (id) {
+   const i = notices.findIndex(x => x.id === parseInt(id));
+   if (i > -1) notices[i] = { ...notices[i], ...data };
+   showToast('Notice updated');
+  } else {
+   data.id = Date.now();
+   data.createdAt = new Date().toISOString().slice(0,10);
+   data.by = currentUser?.name || 'School';
+   notices.push(data);
+   showToast('Notice posted');
+  }
+  saveNotices(notices);
+  document.getElementById('noticeModal').classList.add('hidden');
+  refresh();
+ });
+}
+
 function renderCalendar(){
  const events=get('calendar');
  return `<div>
@@ -3142,6 +3975,7 @@ function renderPrincipalPanel(){
   {id:'students',label:'Students',icon:'user-graduate'},
   {id:'teachers',label:'Teachers',icon:'chalkboard-teacher'},
   {id:'compliance',label:'Compliance',icon:'shield-halved'},
+  {id:'notices',label:'Notice Board',icon:'thumbtack'},
   {id:'calendar',label:'Calendar',icon:'calendar-days'},
   {id:'reports',label:'Reports',icon:'chart-bar'}
  ];
@@ -3161,6 +3995,7 @@ function renderPrincipalTabContent(){
  const s=getStudents(),t=getTeachers(),ev=get('calendar'),comp=getCompliance();
  if(activePrincipalTab==='dashboard'){
   return `<div>
+   ${renderNoticesForCurrentUser(3)}
    <h2 class="text-lg font-bold mb-4">Welcome, ${currentUser.name}</h2>
    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
     <div class="bg-indigo-50 p-4 rounded-lg"><div class="text-xs font-semibold text-indigo-700">STUDENTS</div><div class="text-2xl font-bold">${s.length}</div></div>
@@ -3176,6 +4011,7 @@ function renderPrincipalTabContent(){
  } else if(activePrincipalTab==='students')return renderStudentsTab();
  else if(activePrincipalTab==='teachers')return renderTeachersTab();
  else if(activePrincipalTab==='compliance')return renderComplianceTab();
+ else if(activePrincipalTab==='notices')return renderNoticesTab();
  else if(activePrincipalTab==='calendar')return renderCalendar();
  else if(activePrincipalTab==='reports')return `<div>
   <h2 class="text-lg font-bold mb-3"><i class="fas fa-chart-bar mr-1"></i>Reports</h2>
@@ -3283,6 +4119,7 @@ function renderTchDashboard(){
  const recentHws = myHws.slice(-3).reverse();
 
  return `<div>
+  ${renderNoticesForCurrentUser(3)}
   <div class="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-xl p-4 mb-4">
    <div class="flex flex-wrap items-center justify-between gap-2">
     <div>
@@ -4132,6 +4969,7 @@ function renderParentPanel(){
   <div class="flex flex-wrap gap-1 border-b pb-2 mb-4 overflow-x-auto">
    ${tabs.map(t => `<button class="par-tab px-3 py-2 rounded-t-lg text-sm font-medium whitespace-nowrap ${activeParentTab===t.id?'bg-indigo-600 text-white':'bg-gray-100 hover:bg-gray-200 text-gray-700'}" data-tab="${t.id}"><i class="fas fa-${t.icon} mr-1"></i>${t.label}</button>`).join('')}
   </div>
+  ${activeParentTab==='dashboard' ? renderNoticesForCurrentUser(3) : ''}
   <div id="parTabContent">${renderParentTabContent(students)}</div>
  </div>`;
 }
@@ -4287,7 +5125,10 @@ function renderParAcademics(students){
     </details>
 
     <details class="mb-3 border rounded" ${myMarks.length ? 'open' : ''}>
-     <summary class="cursor-pointer px-3 py-2 bg-gray-50 font-medium text-sm">Marks (${myMarks.length})</summary>
+     <summary class="cursor-pointer px-3 py-2 bg-gray-50 font-medium text-sm flex justify-between items-center">
+      <span>Marks (${myMarks.length})</span>
+      ${myMarks.length ? `<button class="parRcBtn bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1 rounded text-xs font-medium" data-id="${s.id}" onclick="event.stopPropagation();"><i class="fas fa-file-lines mr-1"></i>Report Card</button>` : ''}
+     </summary>
      <div class="p-3">
       ${myMarks.length === 0 ? '<div class="text-sm text-gray-500">No marks recorded yet</div>' : `
        <table class="text-sm w-full border">
@@ -4423,10 +5264,11 @@ function renderStudentPanel(){
   </div>
   <div class="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-xl p-5 text-white shadow-lg mb-5">
    <div class="flex items-center gap-4">
-    <div class="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center font-bold text-2xl">${initials(s.name)}</div>
+    ${s.photo ? `<img src="${s.photo}" class="w-16 h-16 rounded-full object-cover border-2 border-white/40">` : `<div class="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center font-bold text-2xl">${initials(s.name)}</div>`}
     <div><div class="text-2xl font-bold">${s.name}</div><div class="opacity-90 text-sm">Class ${s.class}-${s.section} - Roll ${s.rollNo} - Adm: ${s.admissionNo||'-'}</div></div>
    </div>
   </div>
+  ${activeStudentTab==='dashboard' ? renderNoticesForCurrentUser(3) : ''}
   <div class="flex flex-wrap gap-1 border-b pb-2 mb-4 overflow-x-auto">
    ${tabs.map(t => `<button class="stu-tab px-3 py-2 rounded-t-lg text-sm font-medium whitespace-nowrap ${activeStudentTab===t.id?'bg-indigo-600 text-white':'bg-gray-100 hover:bg-gray-200 text-gray-700'}" data-tab="${t.id}"><i class="fas fa-${t.icon} mr-1"></i>${t.label}</button>`).join('')}
   </div>
@@ -4465,7 +5307,10 @@ function renderStuDashboard(s){
   </div>
   <div class="grid md:grid-cols-2 gap-4">
    <div class="bg-white p-4 rounded-xl shadow-sm">
-    <h3 class="font-semibold mb-3"><i class="fas fa-chart-line text-indigo-600 mr-1"></i>My Marks</h3>
+    <div class="flex justify-between items-center mb-3">
+     <h3 class="font-semibold"><i class="fas fa-chart-line text-indigo-600 mr-1"></i>My Marks</h3>
+     ${marks.length>0?`<button id="stuRcBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-file-lines mr-1"></i>My Report Card</button>`:''}
+    </div>
     <table class="text-sm w-full"><thead class="bg-gray-50"><tr><th class="text-left p-2">Exam</th><th class="text-left p-2">Subject</th><th class="text-left p-2">Score</th><th class="text-left p-2">%</th></tr></thead>
     <tbody>${marks.map(m=>{
      const pct = Math.round((m.marks/m.maxMarks)*100);
@@ -4621,6 +5466,166 @@ const FEE_HEADS = [
   'Uniform', 'Transport', 'Exam Fee', 'Activity/Event',
   'Library', 'Late Fee', 'Other'
 ];
+
+/* ============================================================
+   FEE STRUCTURE
+   Defines annual fees per class per session.
+   Structure: { id, session, class, items:[{head, amount}], transport, lastUpdated }
+   When a student is saved/added, their fees auto-populate from their class's plan.
+   Individual concessions can be overridden per student.
+============================================================ */
+function getFeeStructures(){ return DB.getAll('feeStructures'); }
+function saveFeeStructures(d){ DB.setAll('feeStructures', d); }
+
+// Get the active fee plan for a given class (current session)
+function getFeeStructureForClass(cls, session){
+ const all = getFeeStructures();
+ const sess = session || currentSession();
+ // Match by class + session, fall back to any plan for that class
+ return all.find(p => p.class === cls && p.session === sess)
+  || all.find(p => p.class === cls)
+  || null;
+}
+
+// Current academic session string e.g. "2025-26"
+function currentSession(){
+ const y = new Date().getFullYear();
+ const m = new Date().getMonth(); // 0=Jan
+ // Indian academic year: April-March. If month < 3 (Jan-Mar), session started previous year.
+ const start = m < 3 ? y - 1 : y;
+ return `${start}-${String(start+1).slice(2)}`;
+}
+
+// Compute total annual fee from a plan
+function planTotal(plan){
+ if (!plan) return 0;
+ return (plan.items || []).reduce((s, x) => s + (parseInt(x.amount) || 0), 0) + (parseInt(plan.transport) || 0);
+}
+
+// Auto-fill student fee fields from the class fee plan (call when student is added/class changed)
+function applyFeeStructureToStudent(student){
+ const plan = getFeeStructureForClass(student.class);
+ if (!plan) return student;
+ const total = planTotal(plan);
+ if (total > 0) {
+  student.annualFees = total;
+  if (!student.decidedFees) student.decidedFees = total; // don't override concessions
+  if (!student.feeBalance && student.feeBalance !== 0) student.feeBalance = total;
+ }
+ return student;
+}
+
+function renderFeeStructureTab(){
+ const plans = getFeeStructures();
+ const session = currentSession();
+ const classes = ALL_CLASSES;
+ const sessionPlan = cls => plans.find(p => p.class === cls && p.session === session);
+
+ return `<div>
+  <div class="flex flex-wrap justify-between items-center gap-2 mb-3">
+   <div>
+    <h2 class="text-lg font-bold"><i class="fas fa-indian-rupee-sign text-amber-600 mr-1"></i>Fee Structure</h2>
+    <p class="text-xs text-gray-500">Academic session: <b>${session}</b> &nbsp;·&nbsp; Define fees per class. Students added to a class will auto-inherit these amounts.</p>
+   </div>
+   <div class="flex gap-2">
+    <button id="feeStructApplyAllBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Apply current plans to all existing students"><i class="fas fa-wand-magic-sparkles mr-1"></i>Apply to All Students</button>
+    <button id="feeStructAddBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-plus mr-1"></i>Add / Edit Plan</button>
+   </div>
+  </div>
+
+  <div class="bg-amber-50 border-l-4 border-amber-400 p-3 rounded mb-4 text-sm text-amber-900">
+   <i class="fas fa-info-circle mr-1"></i>
+   <b>How it works:</b> Set a fee plan for each class. When you add a new student, their Annual Fees and Fee Balance auto-fill from their class plan. Per-student concessions still work — just edit the student and change their "Decided Fees".
+  </div>
+
+  <!-- Grid: one card per class -->
+  <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
+   ${classes.map(cls => {
+    const plan = sessionPlan(cls);
+    const total = planTotal(plan);
+    return `<div class="border-2 ${plan ? 'border-emerald-300 bg-emerald-50' : 'border-dashed border-gray-300 bg-gray-50'} rounded-lg p-3">
+     <div class="flex justify-between items-start">
+      <div class="font-semibold text-sm">Class ${cls}</div>
+      ${plan ? `<button class="editFeeStructBtn text-blue-600 hover:text-blue-800 text-xs" data-class="${cls}" title="Edit plan"><i class="fas fa-edit"></i></button>` : ''}
+     </div>
+     ${plan ? `
+      <div class="text-xl font-bold text-emerald-800 mt-1">Rs.${total.toLocaleString('en-IN')}</div>
+      <div class="text-xs text-gray-600 mt-1">${(plan.items||[]).map(i => `${i.head}: Rs.${(parseInt(i.amount)||0).toLocaleString('en-IN')}`).join(' · ')}</div>
+      ${plan.transport ? `<div class="text-xs text-blue-700 mt-0.5">Transport: Rs.${(parseInt(plan.transport)||0).toLocaleString('en-IN')}/mo</div>` : ''}
+     ` : `<div class="text-xs text-gray-400 mt-2">No plan set</div>
+      <button class="addFeeStructBtn text-emerald-600 hover:text-emerald-800 text-xs mt-1 font-medium" data-class="${cls}"><i class="fas fa-plus mr-1"></i>Set fees</button>`}
+    </div>`;
+   }).join('')}
+  </div>
+
+  <!-- Detailed table for classes that have plans -->
+  ${plans.length > 0 ? `
+  <h3 class="font-semibold mb-2 text-sm">Fee Breakdown — ${session}</h3>
+  <div class="overflow-x-auto">
+   <table class="text-sm border w-full">
+    <thead class="bg-gray-100">
+     <tr>
+      <th class="text-left p-2">Class</th>
+      ${FEE_HEADS.filter(h => h !== 'Late Fee' && h !== 'Other').map(h => `<th class="text-right p-2 text-xs">${h}</th>`).join('')}
+      <th class="text-right p-2 text-xs">Transport/mo</th>
+      <th class="text-right p-2 font-bold">Total</th>
+      <th class="p-2">Students</th>
+     </tr>
+    </thead>
+    <tbody>
+    ${classes.filter(cls => sessionPlan(cls)).map(cls => {
+      const plan = sessionPlan(cls);
+      const stuCount = getStudents().filter(s => s.class === cls).length;
+      return `<tr class="border-t hover:bg-gray-50">
+       <td class="p-2 font-semibold">Class ${cls}</td>
+       ${FEE_HEADS.filter(h => h !== 'Late Fee' && h !== 'Other').map(h => {
+         const it = (plan.items||[]).find(i => i.head === h);
+         return `<td class="text-right p-2 text-xs">${it ? 'Rs.'+parseInt(it.amount).toLocaleString('en-IN') : '<span class="text-gray-300">—</span>'}</td>`;
+       }).join('')}
+       <td class="text-right p-2 text-xs">${plan.transport ? 'Rs.'+parseInt(plan.transport).toLocaleString('en-IN') : '<span class="text-gray-300">—</span>'}</td>
+       <td class="text-right p-2 font-bold text-emerald-800">Rs.${planTotal(plan).toLocaleString('en-IN')}</td>
+       <td class="p-2 text-center text-xs">${stuCount}</td>
+      </tr>`;
+    }).join('')}
+    </tbody>
+   </table>
+  </div>` : ''}
+
+  <!-- Fee plan modal -->
+  <div id="feeStructModal" class="hidden modal"><div class="modal-content" style="max-width:600px">
+   <h3 class="text-lg font-bold mb-1" id="feeStructModalTitle">Set Fee Plan</h3>
+   <p class="text-xs text-gray-500 mb-3">Set annual amounts for each fee head. Leave blank or 0 for components that don't apply to this class.</p>
+   <input type="hidden" id="fsPlanId">
+   <div class="grid grid-cols-2 gap-3 mb-3">
+    <div><label class="text-xs font-medium">Class *</label><select id="fsClass">${classes.map(c=>`<option value="${c}">Class ${c}</option>`).join('')}</select></div>
+    <div><label class="text-xs font-medium">Session *</label><input id="fsSession" value="${session}" placeholder="e.g. 2025-26"></div>
+   </div>
+   <div class="grid grid-cols-2 gap-2 mb-3" id="fsFeeItemsGrid">
+    ${FEE_HEADS.filter(h => h !== 'Late Fee').map((h,i) => `
+     <div class="flex items-center gap-2">
+      <label class="text-xs w-28 flex-shrink-0">${h}</label>
+      <div class="relative flex-1"><span class="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">Rs.</span>
+       <input type="number" id="fsHead_${i}" data-head="${h}" placeholder="0" class="pl-8 text-right">
+      </div>
+     </div>`).join('')}
+   </div>
+   <div class="border-t pt-3 mb-3">
+    <div class="flex items-center gap-2">
+     <label class="text-xs w-28 flex-shrink-0 font-semibold">Transport /mo</label>
+     <div class="relative flex-1"><span class="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">Rs.</span>
+      <input type="number" id="fsTransport" placeholder="0 if not applicable" class="pl-8 text-right">
+     </div>
+    </div>
+    <div class="text-xs text-gray-500 mt-1 ml-32">Monthly transport charge (separate from annual fee total)</div>
+   </div>
+   <div id="fsTotalPreview" class="text-right font-bold text-emerald-800 mb-3 text-lg"></div>
+   <div class="flex justify-end gap-2">
+    <button class="closeModal bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded-lg text-sm">Cancel</button>
+    <button id="saveFeeStructBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium">Save Plan</button>
+   </div>
+  </div></div>
+ </div>`;
+}
 const EXPENSE_CATEGORIES = [
   'Salary', 'Supplies & Stationery', 'Utilities (Electric/Water)',
   'Internet/Phone', 'Repairs & Maintenance', 'Books Purchase',
@@ -4636,6 +5641,7 @@ function renderAccountantPanel(){
   {id:'overview', label:'Overview',  icon:'gauge-high'},
   {id:'receipts', label:'Receipts',  icon:'hand-holding-dollar'},
   {id:'payments', label:'Payments',  icon:'money-bill-transfer'},
+  {id:'reminders',label:'Fee Reminders', icon:'bell'},
   {id:'ledger',   label:'Ledger',    icon:'book'}
  ];
  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
@@ -4653,11 +5659,136 @@ function renderAccountantPanel(){
  </div>`;
 }
 
+/* ============================================================
+   FEE REMINDERS
+   Lists students with outstanding fee balance, lets the accountant
+   send WhatsApp reminders to parents (opens wa.me with a prefilled
+   polite message) and logs each reminder sent.
+============================================================ */
+function renderFeeRemindersTab(){
+ const students = getStudents();
+ const overdue = students
+  .filter(s => (s.feeBalance || 0) > 0)
+  .sort((a,b) => (b.feeBalance||0) - (a.feeBalance||0));
+ const totalDue = overdue.reduce((sum, s) => sum + (s.feeBalance||0), 0);
+ const withPhone = overdue.filter(s => s.parentPhone).length;
+
+ // Group by class for the summary
+ const byClass = {};
+ overdue.forEach(s => { byClass[s.class] = (byClass[s.class]||0) + (s.feeBalance||0); });
+
+ return `<div>
+  <div class="flex flex-wrap justify-between items-center gap-2 mb-3">
+   <div>
+    <h2 class="text-lg font-bold"><i class="fas fa-bell text-amber-600 mr-1"></i>Fee Reminders</h2>
+    <p class="text-xs text-gray-500">Students with outstanding fee balance. Send a polite WhatsApp reminder to parents in one tap.</p>
+   </div>
+  </div>
+
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+   <div class="bg-rose-50 border border-rose-200 p-3 rounded-lg"><div class="text-xs text-rose-700 font-semibold uppercase">Total Outstanding</div><div class="text-2xl font-bold text-rose-900 mt-1">Rs.${totalDue.toLocaleString('en-IN')}</div></div>
+   <div class="bg-amber-50 border border-amber-200 p-3 rounded-lg"><div class="text-xs text-amber-700 font-semibold uppercase">Students with Dues</div><div class="text-2xl font-bold text-amber-900 mt-1">${overdue.length}</div></div>
+   <div class="bg-emerald-50 border border-emerald-200 p-3 rounded-lg"><div class="text-xs text-emerald-700 font-semibold uppercase">Reachable (have phone)</div><div class="text-2xl font-bold text-emerald-900 mt-1">${withPhone}</div></div>
+   <div class="bg-blue-50 border border-blue-200 p-3 rounded-lg"><div class="text-xs text-blue-700 font-semibold uppercase">Classes Affected</div><div class="text-2xl font-bold text-blue-900 mt-1">${Object.keys(byClass).length}</div></div>
+  </div>
+
+  ${overdue.length === 0 ? `
+   <div class="bg-emerald-50 border-l-4 border-emerald-400 p-6 rounded text-center">
+    <i class="fas fa-circle-check text-3xl text-emerald-500 mb-2"></i>
+    <div class="font-semibold text-emerald-900">All fees are cleared!</div>
+    <div class="text-sm text-emerald-700">No students currently have an outstanding balance.</div>
+   </div>
+  ` : `
+   <div class="flex flex-wrap gap-2 mb-3">
+    <select id="frClassFilter" class="text-sm" style="width:auto">
+     <option value="">All classes</option>
+     ${ALL_CLASSES.filter(c => students.some(s => s.class===c && (s.feeBalance||0)>0)).map(c => `<option value="${c}">Class ${c}</option>`).join('')}
+    </select>
+    <button id="frBulkBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fab fa-whatsapp mr-1"></i>Send All Reminders</button>
+    <button id="frExportBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-file-excel mr-1"></i>Export Dues List</button>
+   </div>
+
+   <div class="overflow-x-auto">
+    <table class="text-sm w-full border">
+     <thead class="bg-gray-100"><tr>
+      <th class="text-left p-2">Roll</th><th class="text-left p-2">Student</th><th class="text-left p-2">Class</th>
+      <th class="text-left p-2">Parent</th><th class="text-right p-2">Balance</th><th class="text-center p-2">Reminder</th>
+     </tr></thead>
+     <tbody id="frTableBody">
+      ${overdue.map(s => `<tr class="border-t" data-class="${s.class}">
+       <td class="p-2">${s.rollNo||'-'}</td>
+       <td class="p-2 font-medium">${escapeHTML(s.name)}</td>
+       <td class="p-2">${s.class}-${s.section||''}</td>
+       <td class="p-2 text-xs">${escapeHTML(s.parentName||'-')}<br><span class="text-gray-500 font-mono">${s.parentPhone||'<span class="text-rose-500">no phone</span>'}</span></td>
+       <td class="p-2 text-right font-semibold text-rose-700">Rs.${(s.feeBalance||0).toLocaleString('en-IN')}</td>
+       <td class="p-2 text-center">
+        ${s.parentPhone ? `<button class="frRemindBtn bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1 rounded text-xs" data-id="${s.id}"><i class="fab fa-whatsapp mr-1"></i>Send</button>` : '<span class="text-xs text-gray-400">no phone</span>'}
+       </td>
+      </tr>`).join('')}
+     </tbody>
+    </table>
+   </div>
+   <p class="text-xs text-gray-500 mt-3"><i class="fas fa-info-circle mr-1"></i>"Send" opens WhatsApp with a polite reminder message pre-filled for that parent. Review and tap send in WhatsApp. "Send All" opens each parent's chat one by one.</p>
+  `}
+ </div>`;
+}
+
+// Build the polite reminder message for a student
+function _feeReminderMessage(s){
+ return `Dear ${s.parentName || 'Parent'},\n\nThis is a gentle reminder from ${SCHOOL_INFO.name} regarding the pending school fee for ${s.name} (Class ${s.class}${s.section?'-'+s.section:''}).\n\nOutstanding balance: Rs.${(s.feeBalance||0).toLocaleString('en-IN')}\n\nKindly arrange to clear the dues at your earliest convenience. Please ignore this message if payment has already been made.\n\nThank you,\n${SCHOOL_INFO.name}\n${SCHOOL_INFO.phone}`;
+}
+
+function attachFeeRemindersEvents(){
+ // Class filter
+ document.getElementById('frClassFilter')?.addEventListener('change', e => {
+  const cls = e.target.value;
+  document.querySelectorAll('#frTableBody tr').forEach(row => {
+   row.style.display = (!cls || row.dataset.class === cls) ? '' : 'none';
+  });
+ });
+
+ // Single reminder
+ document.querySelectorAll('.frRemindBtn').forEach(b => b.addEventListener('click', () => {
+  const s = getStudents().find(x => x.id === parseInt(b.dataset.id));
+  if (!s || !s.parentPhone) return;
+  const url = `https://wa.me/${_cleanPhone(s.parentPhone)}?text=${encodeURIComponent(_feeReminderMessage(s))}`;
+  window.open(url, '_blank');
+  // Log the reminder
+  const log = getMessageLog ? getMessageLog() : DB.getAll('messageLog');
+  DB.insert('messageLog', { id: Date.now(), type: 'fee-reminder', studentId: s.id, to: s.parentPhone, amount: s.feeBalance, by: currentUser?.name || '', at: new Date().toISOString() });
+  showToast(`Reminder opened for ${s.name}`);
+ }));
+
+ // Bulk reminders (respects current filter)
+ document.getElementById('frBulkBtn')?.addEventListener('click', () => {
+  const cls = document.getElementById('frClassFilter')?.value || '';
+  const targets = getStudents().filter(s => (s.feeBalance||0) > 0 && s.parentPhone && (!cls || s.class === cls));
+  if (targets.length === 0) { alert('No reminders to send (no students with dues and a phone number in this filter).'); return; }
+  if (!confirm(`Open ${targets.length} WhatsApp reminder${targets.length===1?'':'s'}? Each opens in a new tab — please allow popups, then tap Send in each WhatsApp window.`)) return;
+  targets.forEach((s, i) => setTimeout(() => {
+   const url = `https://wa.me/${_cleanPhone(s.parentPhone)}?text=${encodeURIComponent(_feeReminderMessage(s))}`;
+   window.open(url, '_blank');
+   DB.insert('messageLog', { id: Date.now()+i, type: 'fee-reminder', studentId: s.id, to: s.parentPhone, amount: s.feeBalance, by: currentUser?.name || '', at: new Date().toISOString() });
+  }, i * 600));
+  showToast(`Opening ${targets.length} reminders...`);
+ });
+
+ // Export dues list
+ document.getElementById('frExportBtn')?.addEventListener('click', () => {
+  const overdue = getStudents().filter(s => (s.feeBalance||0) > 0).sort((a,b) => (b.feeBalance||0)-(a.feeBalance||0));
+  let h = '<table border="1"><tr><th>Roll</th><th>Student</th><th>Class</th><th>Section</th><th>Parent</th><th>Phone</th><th>Outstanding (Rs.)</th></tr>';
+  overdue.forEach(s => h += `<tr><td>${s.rollNo||''}</td><td>${s.name}</td><td>${s.class}</td><td>${s.section||''}</td><td>${s.parentName||''}</td><td>${s.parentPhone||''}</td><td>${s.feeBalance||0}</td></tr>`);
+  h += '</table>';
+  downloadExcel(h, 'Fee_Dues_' + new Date().toISOString().slice(0,10));
+ });
+}
+
 function renderAccountantTabContent(){
  switch(activeAccountantTab){
   case 'overview': return renderAccOverview();
   case 'receipts': return renderAccReceipts();
   case 'payments': return renderAccPayments();
+  case 'reminders': return renderFeeRemindersTab();
   case 'ledger':   return renderAccLedger();
   default: return renderAccOverview();
  }
@@ -4696,6 +5827,7 @@ function renderAccOverview(){
  const fmtINR = n => 'Rs.' + (n||0).toLocaleString('en-IN');
 
  return `<div>
+  ${renderNoticesForCurrentUser(2)}
   <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
    <div class="bg-emerald-50 border border-emerald-200 p-3 rounded-lg">
     <div class="text-xs text-emerald-700 font-semibold uppercase">Today's Receipts</div>
@@ -6112,6 +7244,7 @@ function attachAccountantEvents(){
 
  if (activeAccountantTab === 'receipts') _attachReceiptEvents();
  else if (activeAccountantTab === 'payments') _attachPaymentEvents();
+ else if (activeAccountantTab === 'reminders') attachFeeRemindersEvents();
  else if (activeAccountantTab === 'ledger') _attachLedgerEvents();
 }
 
@@ -6596,6 +7729,16 @@ function attachOwnerEvents(){
   ownerView = 'compliance';
   renderApp();
  });
+ // Notice board navigation
+ document.getElementById('ownerOpenNoticesBtn')?.addEventListener('click', () => {
+  ownerView = 'notices';
+  renderApp();
+ });
+ // Fee structure navigation
+ document.getElementById('ownerOpenFeeStructBtn')?.addEventListener('click', () => {
+  ownerView = 'feestructure';
+  renderApp();
+ });
  document.getElementById('ownerBackBtn')?.addEventListener('click', () => {
   ownerView = 'dashboard';
   renderApp();
@@ -6614,6 +7757,16 @@ function attachOwnerEvents(){
  // When on the Compliance view, attach the compliance event handlers
  if (ownerView === 'compliance') {
   attachComplianceEvents();
+  return;
+ }
+ // When on the Notices view, attach the notice event handlers
+ if (ownerView === 'notices') {
+  attachNoticesTabEvents();
+  return;
+ }
+ // When on the Fee Structure view, attach fee structure handlers
+ if (ownerView === 'feestructure') {
+  attachFeeStructureEvents();
   return;
  }
 
@@ -6770,6 +7923,10 @@ function attachActiveAdminTabEvents(){
  if(activeAdminTab==='students')attachStudentsTabEvents();
  else if(activeAdminTab==='teachers')attachTeachersTabEvents();
  else if(activeAdminTab==='compliance')attachComplianceEvents();
+ else if(activeAdminTab==='notices')attachNoticesTabEvents();
+ else if(activeAdminTab==='feestructure')attachFeeStructureEvents();
+ else if(activeAdminTab==='reportcards')attachReportCardsEvents();
+ else if(activeAdminTab==='enquiries')attachEnquiriesTabEvents();
  else if(activeAdminTab==='datamanagement')attachDataManagementEvents();
  else if(activeAdminTab==='gallery')attachGalleryAdminEvents();
  else if(activeAdminTab==='disclosureDocs')attachDisclosureDocsEvents();
@@ -6849,6 +8006,7 @@ function attachActivePrincipalTabEvents(){
  if(activePrincipalTab==='students')attachStudentsTabEvents();
  else if(activePrincipalTab==='teachers')attachTeachersTabEvents();
  else if(activePrincipalTab==='compliance')attachComplianceEvents();
+ else if(activePrincipalTab==='notices')attachNoticesTabEvents();
  else if(activePrincipalTab==='calendar')attachGenericModuleEvents();
  else if(activePrincipalTab==='reports'){
   document.getElementById('principalReportBtn')?.addEventListener('click',()=>{
@@ -6953,8 +8111,24 @@ function attachStudentsTabEvents(){
    photo:document.getElementById('stuPhoto').value||''
   };
   const all=getStudents();
-  if(id){const i=all.findIndex(x=>x.id===parseInt(id));if(i>-1)all[i]={...all[i],...data};showToast('Student updated')}
-  else{data.id=Date.now();all.push(data);showToast('Student added')}
+  if(id){
+   const i=all.findIndex(x=>x.id===parseInt(id));
+   if(i>-1) all[i]={...all[i],...data};
+   showToast('Student updated');
+  } else {
+   data.id=Date.now();
+   // Auto-fill fees from class fee plan if not manually set
+   if (!data.annualFees || data.annualFees === 0) {
+    applyFeeStructureToStudent(data);
+    // If fee plan auto-filled fees, show the balance in the modal field
+    if (data.annualFees) {
+     const fbEl = document.getElementById('stuFeeBal');
+     if (fbEl && parseInt(fbEl.value) === 0) data.feeBalance = data.annualFees;
+    }
+   }
+   all.push(data);
+   showToast(data.annualFees ? `Student added · Fees auto-set to Rs.${data.annualFees.toLocaleString('en-IN')} from Class ${data.class} plan` : 'Student added');
+  }
   saveStudents(all);document.getElementById('studentModal').classList.add('hidden');
   activeAdminTab==='students'?refreshAdminTabContent():refreshPrincipalTabContent();
  });
@@ -7360,6 +8534,12 @@ function attachProfileTabEvents(){
   document.getElementById('profileContent').innerHTML=renderStudentProfile(viewingStudentId);
   attachProfileTabEvents();
  }));
+ // Report card from profile marks tab
+ document.getElementById('profileRcBtn')?.addEventListener('click', () => {
+  const s = getStudents().find(x => x.id === viewingStudentId);
+  const exam = document.getElementById('profileRcExam')?.value || null;
+  if (s) generateReportCard(s, exam);
+ });
  attachUniversalCloseEvents();
 }
 
@@ -7841,6 +9021,10 @@ function attachParentEvents(){
   document.querySelectorAll('.parPrintHwBtn').forEach(b => b.addEventListener('click', () => {
    _printHomework(b.dataset.hw, b.dataset.stu);
   }));
+  document.querySelectorAll('.parRcBtn').forEach(b => b.addEventListener('click', () => {
+   const s = getStudents().find(x => x.id === parseInt(b.dataset.id));
+   if (s) generateReportCard(s, null);
+  }));
  }
 
  // Complaint tab — submit
@@ -7862,6 +9046,12 @@ function attachStudentEvents(){
   activeStudentTab = b.dataset.tab;
   renderApp();
  }));
+
+ // Own report card
+ document.getElementById('stuRcBtn')?.addEventListener('click', () => {
+  const s = getStudents().find(x => x.id === currentUser.studentId);
+  if (s) generateReportCard(s, null);
+ });
 
  // Homework tab — upload submissions
  if (activeStudentTab === 'homework') {
