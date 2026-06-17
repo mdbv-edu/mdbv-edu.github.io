@@ -344,16 +344,35 @@
   #portal .from-indigo-500, #portal .from-indigo-600 { --tw-gradient-from: #7a1e2e !important; }
   #portal .to-purple-600 { --tw-gradient-to: #5a1220 !important; }
   #portal .from-indigo-50, #portal .via-purple-50, #portal .to-pink-50 { --tw-gradient-from: #faf6ef !important; --tw-gradient-via: #f1e9d9 !important; --tw-gradient-to: #ede2cc !important; }
-  /* Mobile overflow guard: stop the PAGE scrolling sideways, but let inner
-     scroll containers (tab bars, wide tables) scroll horizontally on touch. */
-  html, body { max-width: 100%; overflow-x: hidden; }
-  /* Horizontal scroll containers: smooth touch scrolling, and they must NOT be clipped */
+  /* Mobile overflow guard: stop the PAGE scrolling sideways. We avoid overflow-x:hidden
+     on body (it can block nested touch-scroll on some mobile browsers) and instead clip
+     at the app container level while letting tab bars/tables scroll inside. */
+  html, body { max-width: 100%; }
+  #public-site, #portal { overflow-x: clip; }
+  /* Panel content wrappers must never exceed the screen, so children scroll instead of the page */
+  #portal > div, #portalApp > div { max-width: 100%; }
+  /* Generic horizontal scroll containers (wide tables etc.) */
   .overflow-x-auto { -webkit-overflow-scrolling: touch; overflow-x: auto; max-width: 100%; }
-  /* Tab bars must stay on ONE line so they actually scroll (flex-wrap would stack them
-     and there'd be nothing to scroll). This overrides Tailwind's flex-wrap for tab rows. */
-  .tab-scroll { display: flex !important; flex-wrap: nowrap !important; overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
-  .tab-scroll > button { flex-shrink: 0; }
-  .admin-tab, .principal-tab, .tch-tab, .acc-tab, .stu-tab, .par-tab { flex-shrink: 0; }
+  /* TAB BARS: a bounded, single-line, horizontally scrollable strip.
+     width:100% + min-width:0 forces it to respect the viewport so overflow can scroll
+     instead of the strip just growing wider and getting clipped. */
+  .tab-scroll {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    width: 100%;
+    min-width: 0;
+    overflow-x: auto !important;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+  .tab-scroll > button {
+    flex: 0 0 auto;   /* don't shrink, don't grow — keep natural width so the row overflows */
+    white-space: nowrap;
+  }
+  /* Thin visible scrollbar on the tab strip so users know it scrolls (desktop) */
+  .tab-scroll::-webkit-scrollbar { height: 4px; }
+  .tab-scroll::-webkit-scrollbar-thumb { background: rgba(122,30,46,.3); border-radius: 4px; }
 </style>
 </head>
 <body>
