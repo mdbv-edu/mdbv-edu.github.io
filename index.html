@@ -2161,6 +2161,21 @@ function renderOwnerDashboard(){
   </div>`;
  }
 
+ // Compliance management sub-view
+ if (ownerView === 'compliance') {
+  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+    <div>
+     <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
+     <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-crown text-amber-500 mr-2"></i>Owner · Compliance Centre</h1>
+     <p class="text-gray-600 text-xs">${currentUser.name}</p>
+    </div>
+    <button id="logoutBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
+   </div>
+   ${renderComplianceTab()}
+  </div>`;
+ }
+
  const st=getStudents(),tc=getTeachers(),c=getComplaints(),inf=getSchoolInfra();
  const tot=st.reduce((a,x)=>a+(x.feeBalance||0),0);
  const pend=c.filter(x=>x.status==='open').length;
@@ -2189,6 +2204,7 @@ function renderOwnerDashboard(){
     <span class="pill pill-green">${ok} Compliant</span>
     ${pen?`<span class="pill pill-amber">${pen} Pending</span>`:''}
     ${exp?`<span class="pill pill-red">${exp} Expiring &lt; 30 days</span>`:''}
+    <button id="ownerOpenComplianceBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium ml-auto"><i class="fas fa-edit mr-1"></i>Manage Compliance</button>
    </div>
    <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3 text-xs">
     ${comp.slice(0,8).map(c=>{const cls=c.status==='compliant'?'text-emerald-700':c.status==='pending'?'text-amber-700':'text-gray-500';const ic=c.status==='compliant'?'check-circle':c.status==='pending'?'clock':'minus-circle';return `<div class="${cls}"><i class="fas fa-${ic} mr-1"></i>${c.name}</div>`}).join('')}
@@ -6313,6 +6329,11 @@ function attachOwnerEvents(){
   ownerView = 'users';
   renderApp();
  });
+ // Compliance navigation
+ document.getElementById('ownerOpenComplianceBtn')?.addEventListener('click', () => {
+  ownerView = 'compliance';
+  renderApp();
+ });
  document.getElementById('ownerBackBtn')?.addEventListener('click', () => {
   ownerView = 'dashboard';
   renderApp();
@@ -6326,6 +6347,11 @@ function attachOwnerEvents(){
  // When on the Users view, attach the user-management event handlers
  if (ownerView === 'users') {
   attachUsersTabEvents();
+  return;
+ }
+ // When on the Compliance view, attach the compliance event handlers
+ if (ownerView === 'compliance') {
+  attachComplianceEvents();
   return;
  }
 
@@ -7146,7 +7172,11 @@ function attachTeachersTabEvents(){
 
 /* ---------- COMPLIANCE EVENTS ---------- */
 function attachComplianceEvents(){
- const refresh=()=>{activeAdminTab==='compliance'?refreshAdminTabContent():refreshPrincipalTabContent()};
+ const refresh=()=>{
+  if (currentUser?.role === 'owner') { renderApp(); }
+  else if (activeAdminTab==='compliance') { refreshAdminTabContent(); }
+  else { refreshPrincipalTabContent(); }
+ };
  document.querySelectorAll('.complianceToggle').forEach(t=>t.addEventListener('change',()=>{
   const items=getCompliance();
   const i=items.findIndex(x=>x.id===t.dataset.cid);
