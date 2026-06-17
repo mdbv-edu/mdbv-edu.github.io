@@ -9,6 +9,7 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.2/js/all.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;0,9..144,900;1,9..144,400&family=Manrope:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -367,15 +368,15 @@
 
   <!-- Navigation -->
   <nav class="nav-bar sticky top-0 z-50">
-    <div class="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
-      <a href="#" class="flex items-center gap-3" onclick="showPage('home'); return false;">
-        <img src="assets/img/logo.png" alt="MDBV" class="w-11 h-11 object-contain" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-        <div class="w-11 h-11 bg-burgundy text-cream items-center justify-center" style="display:none; clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);">
+    <div class="max-w-7xl mx-auto px-4 md:px-6 py-3 flex items-center justify-between gap-2">
+      <a href="#" class="flex items-center gap-2 md:gap-3 min-w-0" onclick="showPage('home'); return false;">
+        <img src="assets/img/logo.png" alt="MDBV" class="w-10 h-10 md:w-11 md:h-11 object-contain flex-shrink-0" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+        <div class="w-10 h-10 md:w-11 md:h-11 bg-burgundy text-cream items-center justify-center flex-shrink-0" style="display:none; clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);">
           <span class="font-display font-bold text-lg">M</span>
         </div>
-        <div class="leading-tight">
-          <div class="font-display font-semibold text-base text-ink">Murti Devi Balika Vidyapeeth</div>
-          <div class="text-xs text-ink-soft tracking-wider uppercase">Binauli · Baghpat · UP</div>
+        <div class="leading-tight min-w-0">
+          <div class="font-display font-semibold text-sm md:text-base text-ink truncate">Murti Devi Balika Vidyapeeth</div>
+          <div class="text-xs text-ink-soft tracking-wider uppercase truncate">Binauli · Baghpat · UP</div>
         </div>
       </a>
       <div class="desktop-nav flex items-center gap-7">
@@ -509,22 +510,25 @@
 <div id="portal" style="display:none;">
   <!-- Portal header with back to site -->
   <div class="bg-white border-b border-gray-200 sticky top-0 z-40">
-    <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-      <div class="flex items-center gap-3">
-        <img src="assets/img/logo.png" alt="MDBV" class="w-9 h-9 object-contain" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-        <div class="w-9 h-9 bg-burgundy text-cream items-center justify-center" style="display:none; clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);">
+    <div class="max-w-7xl mx-auto px-3 md:px-4 py-2 md:py-3 flex items-center justify-between gap-2">
+      <div class="flex items-center gap-2 md:gap-3 min-w-0">
+        <img src="assets/img/logo.png" alt="MDBV" class="w-8 h-8 md:w-9 md:h-9 object-contain flex-shrink-0" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+        <div class="w-8 h-8 md:w-9 md:h-9 bg-burgundy text-cream items-center justify-center flex-shrink-0" style="display:none; clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);">
           <span class="font-display font-bold text-sm">M</span>
         </div>
-        <div>
-          <div class="font-display font-semibold text-sm" style="color: #1a1410;">MDBV Portal</div>
-          <div class="text-xs text-gray-500" id="portalUserBadge">—</div>
+        <div class="min-w-0">
+          <div class="font-display font-semibold text-sm truncate" style="color: #1a1410;">MDBV Portal</div>
+          <div class="text-xs text-gray-500 truncate" id="portalUserBadge">—</div>
         </div>
       </div>
-      <div class="flex items-center gap-2">
-        <button onclick="exitPortal()" class="text-sm px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 flex items-center gap-2">
+      <div class="flex items-center gap-2 flex-shrink-0">
+        <button onclick="openChangePasswordModal()" class="text-sm px-2.5 md:px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 flex items-center gap-2" title="Change My Password">
+          <i class="fas fa-key text-xs"></i> <span class="hidden md:inline">Password</span>
+        </button>
+        <button onclick="exitPortal()" class="text-sm px-2.5 md:px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 flex items-center gap-2" title="View Public Site">
           <i class="fas fa-globe text-xs"></i> <span class="hidden md:inline">View Public Site</span>
         </button>
-        <button onclick="portalLogout()" class="text-sm px-3 py-1.5 rounded-lg text-white hover:opacity-90 flex items-center gap-2" style="background:#7a1e2e;">
+        <button onclick="portalLogout()" class="text-sm px-2.5 md:px-3 py-1.5 rounded-lg text-white hover:opacity-90 flex items-center gap-2" style="background:#7a1e2e;" title="Logout">
           <i class="fas fa-sign-out-alt text-xs"></i> <span class="hidden md:inline">Logout</span>
         </button>
       </div>
@@ -532,6 +536,31 @@
   </div>
   <div id="portalApp"></div>
   <div id="chatContainer"></div>
+
+  <!-- Change My Password modal (available to every logged-in user) -->
+  <div id="changePasswordModal" class="hidden modal"><div class="modal-content" style="max-width:420px">
+   <h3 class="text-lg font-bold mb-1"><i class="fas fa-key text-indigo-600 mr-1"></i>Change My Password</h3>
+   <p class="text-xs text-gray-500 mb-3">Update the password for your own account.</p>
+   <div class="space-y-3">
+    <div>
+     <label class="text-xs font-medium">Current Password</label>
+     <input type="password" id="cpCurrent" placeholder="Enter current password" autocomplete="off">
+    </div>
+    <div>
+     <label class="text-xs font-medium">New Password</label>
+     <input type="password" id="cpNew" placeholder="At least 6 characters" autocomplete="off">
+    </div>
+    <div>
+     <label class="text-xs font-medium">Confirm New Password</label>
+     <input type="password" id="cpConfirm" placeholder="Re-enter new password" autocomplete="off">
+    </div>
+    <div id="cpError" class="text-xs text-rose-600 hidden"></div>
+   </div>
+   <div class="flex justify-end gap-2 mt-4">
+    <button onclick="closeChangePasswordModal()" class="bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded-lg text-sm font-medium">Cancel</button>
+    <button onclick="submitChangePassword()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium">Update Password</button>
+   </div>
+  </div></div>
 </div>
 
 <script>
@@ -601,6 +630,46 @@ function portalLogout() {
   if (cc) cc.innerHTML = '';
   showPage('home');
   showToast('You have been logged out');
+}
+
+// ── Self-service password change (any logged-in user, own account only) ──
+function openChangePasswordModal() {
+  if (!currentUser) return;
+  ['cpCurrent','cpNew','cpConfirm'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  const err = document.getElementById('cpError');
+  if (err) { err.classList.add('hidden'); err.textContent = ''; }
+  document.getElementById('changePasswordModal').classList.remove('hidden');
+}
+function closeChangePasswordModal() {
+  document.getElementById('changePasswordModal').classList.add('hidden');
+}
+function submitChangePassword() {
+  const err = document.getElementById('cpError');
+  const showErr = (msg) => { if (err) { err.textContent = msg; err.classList.remove('hidden'); } };
+  if (!currentUser) { showErr('No user is logged in.'); return; }
+
+  const current = document.getElementById('cpCurrent').value;
+  const next = document.getElementById('cpNew').value;
+  const confirm = document.getElementById('cpConfirm').value;
+
+  // Re-read the live user record from storage (currentUser may be stale)
+  const users = getUsers();
+  const me = users.find(u => u.id === currentUser.id);
+  if (!me) { showErr('Your account could not be found. Please log in again.'); return; }
+
+  if (current !== me.password) { showErr('Current password is incorrect.'); return; }
+  if (!next || next.length < 6) { showErr('New password must be at least 6 characters.'); return; }
+  if (next === current) { showErr('New password must be different from the current one.'); return; }
+  if (next !== confirm) { showErr('New password and confirmation do not match.'); return; }
+
+  // Update — this is the user changing THEIR OWN password, always allowed
+  me.password = next;
+  set('users', users);
+  // Keep the in-memory session in sync
+  currentUser.password = next;
+
+  closeChangePasswordModal();
+  showToast('Your password has been updated');
 }
 
 /* ============================================================
@@ -1544,13 +1613,13 @@ const SCHOOL_INFO = {
 };
 
 const SEED_USERS = [
-  // Replace usernames, passwords, and names with your real accounts.
+  // Default staff accounts. Change usernames/passwords after first login (Owner → Manage Users).
   // Roles must be one of: owner, admin, principal, teacher, parent, accountant, student
+  // Teacher and parent logins are created automatically via "Bulk Generate" after adding
+  // teachers/students — they are intentionally NOT seeded here.
   {id: 1, username: 'owner',     password: 'CHANGE_ME', role: 'owner',      name: 'Owner Name'},
   {id: 2, username: 'admin',     password: 'CHANGE_ME', role: 'admin',      name: 'Admin Name'},
   {id: 3, username: 'principal', password: 'CHANGE_ME', role: 'principal',  name: 'Principal Name'},
-  {id: 4, username: 'teacher1',  password: 'CHANGE_ME', role: 'teacher',    name: 'Teacher Name', teacherId: 1},
-  {id: 5, username: 'parent1',   password: 'CHANGE_ME', role: 'parent',     name: 'Parent Name'},
   {id: 6, username: 'accountant',password: 'CHANGE_ME', role: 'accountant', name: 'Accountant Name'}
 ];
 
@@ -1867,11 +1936,27 @@ const DB = {
 
   if (meta.type === 'array') {
    const rows = this.getAll(jsTable);
-   if (rows.length === 0) return { count: 0, table: sqlTable };
-   const payload = rows.map(r => ({ id: r.id, data: r }));
-   const { error } = await sb.from(sqlTable).upsert(payload, { onConflict: 'id' });
-   if (error) throw new Error(`${sqlTable}: ${error.message}`);
-   return { count: rows.length, table: sqlTable };
+   const localIds = rows.map(r => r.id);
+
+   // Step 1: upsert all current local rows
+   if (rows.length > 0) {
+    const payload = rows.map(r => ({ id: r.id, data: r }));
+    const { error } = await sb.from(sqlTable).upsert(payload, { onConflict: 'id' });
+    if (error) throw new Error(`${sqlTable}: ${error.message}`);
+   }
+
+   // Step 2: delete cloud rows that no longer exist locally (propagate deletions)
+   // Fetch all cloud ids, find ones not in localIds, delete them.
+   const { data: cloudRows, error: fetchErr } = await sb.from(sqlTable).select('id');
+   if (fetchErr) throw new Error(`${sqlTable} (fetch ids): ${fetchErr.message}`);
+   const cloudIds = (cloudRows || []).map(r => r.id);
+   const toDelete = cloudIds.filter(id => !localIds.includes(id));
+   if (toDelete.length > 0) {
+    const { error: delErr } = await sb.from(sqlTable).delete().in('id', toDelete);
+    if (delErr) throw new Error(`${sqlTable} (delete): ${delErr.message}`);
+   }
+
+   return { count: rows.length, deleted: toDelete.length, table: sqlTable };
   }
 
   if (meta.type === 'object') {
@@ -2089,6 +2174,41 @@ function saveChatMessages(d){ DB.setAll('chatMessages', d); }
 function saveCompliance(d){ DB.setAll('compliance', d); }
 
 function showToast(m){const t=document.createElement('div');t.className='toast';t.innerText=m;document.body.appendChild(t);setTimeout(()=>t.remove(),3000)}
+
+/* ============================================================
+   PHOTO UPLOAD HELPER (shared by staff + student profiles)
+   Reads a file, downscales to max 400px, compresses to JPEG,
+   returns a base64 data URL via callback. Keeps DB rows small.
+============================================================ */
+function compressImageFile(file, callback, maxDim = 400, quality = 0.7){
+ if (!file) { callback(null); return; }
+ if (!file.type.startsWith('image/')) { alert('Please choose an image file (JPG or PNG).'); callback(null); return; }
+ if (file.size > 8 * 1024 * 1024) { alert('Image too large (max 8 MB). Please pick a smaller photo.'); callback(null); return; }
+ const reader = new FileReader();
+ reader.onload = e => {
+  const img = new Image();
+  img.onload = () => {
+   let { width, height } = img;
+   if (width > height && width > maxDim) { height = Math.round(height * maxDim / width); width = maxDim; }
+   else if (height > maxDim) { width = Math.round(width * maxDim / height); height = maxDim; }
+   const canvas = document.createElement('canvas');
+   canvas.width = width; canvas.height = height;
+   const ctx = canvas.getContext('2d');
+   ctx.drawImage(img, 0, 0, width, height);
+   try {
+    const dataUrl = canvas.toDataURL('image/jpeg', quality);
+    callback(dataUrl);
+   } catch (err) {
+    alert('Could not process image. Try a different file.');
+    callback(null);
+   }
+  };
+  img.onerror = () => { alert('Could not read image file.'); callback(null); };
+  img.src = e.target.result;
+ };
+ reader.onerror = () => { alert('Could not read file.'); callback(null); };
+ reader.readAsDataURL(file);
+}
 function fmtDate(d){if(!d)return '-';return new Date(d).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})}
 function fmtTime(d){return new Date(d).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}
 function initials(n){return(n||'?').split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase()}
@@ -2452,9 +2572,10 @@ function renderStudentsTab(){
   </div>
   <div class="text-sm text-gray-600 mb-2">Showing <b>${filt.length}</b> of ${all.length} students</div>
   <div class="overflow-x-auto">
-   <table class="border text-sm"><thead><tr><th>Adm No</th><th>PEN</th><th>Name</th><th>Class</th><th>Sec</th><th>Roll</th><th>Parent</th><th>Fee Due</th><th>Tags</th><th>Actions</th></tr></thead>
+   <table class="border text-sm"><thead><tr><th>Photo</th><th>Adm No</th><th>PEN</th><th>Name</th><th>Class</th><th>Sec</th><th>Roll</th><th>Parent</th><th>Fee Due</th><th>Tags</th><th>Actions</th></tr></thead>
    <tbody>
     ${filt.map(s=>`<tr>
+     <td>${s.photo?`<img src="${s.photo}" class="w-8 h-8 rounded object-cover" alt="">`:`<div class="w-8 h-8 rounded bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold">${initials(s.name)}</div>`}</td>
      <td class="text-xs text-gray-600">${s.admissionNo||'-'}</td>
      <td class="text-xs text-gray-600 font-mono">${s.pen||'<span class="text-gray-400">—</span>'}</td>
      <td class="font-medium">${s.name}</td>
@@ -2464,16 +2585,26 @@ function renderStudentsTab(){
      <td class="text-xs">${s.bpl?'<span class="pill pill-amber mr-1">BPL</span>':''}${s.cwsn?'<span class="pill pill-blue mr-1">CWSN</span>':''}<span class="pill pill-gray">${s.caste}</span></td>
      <td class="whitespace-nowrap">
       <button class="viewStudentBtn text-indigo-600 hover:text-indigo-800" data-id="${s.id}" title="View"><i class="fas fa-eye"></i></button>
+      <button class="idCardBtn text-emerald-600 hover:text-emerald-800 ml-1" data-id="${s.id}" title="Print ID Card"><i class="fas fa-id-card"></i></button>
       <button class="editStudentBtn text-blue-600 hover:text-blue-800 ml-1" data-id="${s.id}" title="Edit"><i class="fas fa-edit"></i></button>
       <button class="delStudentBtn2 text-red-600 hover:text-red-800 ml-1" data-id="${s.id}" title="Delete"><i class="fas fa-trash"></i></button>
      </td>
-    </tr>`).join('')||'<tr><td colspan="10" class="text-center text-gray-500 py-6">No students match</td></tr>'}
+    </tr>`).join('')||'<tr><td colspan="11" class="text-center text-gray-500 py-6">No students match</td></tr>'}
    </tbody></table>
   </div>
 
   <div id="studentModal" class="hidden modal"><div class="modal-content">
    <h3 class="text-lg font-bold mb-3" id="studentModalTitle">Add Student</h3>
    <input type="hidden" id="stuId">
+   <div class="flex items-center gap-3 mb-3">
+    <div id="stuPhotoPreview" class="w-16 h-16 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center text-lg font-bold overflow-hidden flex-shrink-0">?</div>
+    <div>
+     <label class="text-xs font-medium block mb-1">Photo</label>
+     <input type="file" id="stuPhotoFile" accept="image/*" class="text-xs">
+     <input type="hidden" id="stuPhoto">
+     <div class="text-xs text-gray-500 mt-1">JPG or PNG, auto-resized. <button type="button" id="stuPhotoClear" class="text-rose-600 hover:underline">Remove</button></div>
+    </div>
+   </div>
    <div class="grid grid-cols-2 gap-3">
     <div><label class="text-xs font-medium">Full Name *</label><input id="stuName"></div>
     <div><label class="text-xs font-medium">Admission No</label><input id="stuAdmNo"></div>
@@ -2516,6 +2647,80 @@ function renderStudentsTab(){
    </div>
   </div></div>
  </div>`;
+}
+
+function generateStudentIDCard(s){
+ // Build a print-ready ID card (CR80 size ~ 54x86mm portrait) in a popup.
+ // QR encodes a compact profile link/payload so it can be scanned to identify the student.
+ const school = SCHOOL_INFO;
+ const photo = s.photo || '';
+ const initialsTxt = (s.name||'?').split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
+ // QR payload: school short name + admission no + PEN + name (compact, scannable)
+ const qrPayload = `MDBV|ADM:${s.admissionNo||'-'}|PEN:${s.pen||'-'}|NAME:${s.name}|CLASS:${s.class||''}-${s.section||''}`;
+
+ const w = window.open('', '_blank', 'width=420,height=720');
+ if(!w){ alert('Please allow popups to print the ID card.'); return; }
+
+ const logoUrl = 'assets/img/logo.png';
+ const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+ <title>ID Card - ${s.name}</title>
+ <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"><\/script>
+ <style>
+  *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',Arial,sans-serif}
+  body{background:#e5e7eb;padding:20px;display:flex;flex-direction:column;align-items:center;gap:16px}
+  .card{width:320px;height:510px;background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,.18);position:relative}
+  .card-head{background:linear-gradient(135deg,#7a1e2e,#9a2740);color:#faf6ef;padding:14px 12px;text-align:center}
+  .card-head img{width:44px;height:44px;object-fit:contain;background:#fff;border-radius:50%;padding:3px;margin-bottom:5px}
+  .card-head .sname{font-size:14px;font-weight:700;line-height:1.2}
+  .card-head .saddr{font-size:8.5px;opacity:.9;margin-top:2px}
+  .ph{width:108px;height:128px;margin:14px auto 8px;border-radius:8px;overflow:hidden;border:3px solid #c8860d;background:#faf6ef;display:flex;align-items:center;justify-content:center}
+  .ph img{width:100%;height:100%;object-fit:cover}
+  .ph .ini{font-size:40px;font-weight:800;color:#7a1e2e}
+  .sn{text-align:center;font-size:17px;font-weight:800;color:#1a1410;padding:0 10px}
+  .sc{text-align:center;font-size:11px;color:#7a1e2e;font-weight:600;margin-bottom:8px}
+  .rows{padding:0 16px;font-size:10.5px}
+  .row{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dotted #ddd}
+  .row .k{color:#888;font-weight:600}
+  .row .v{color:#1a1410;font-weight:700;text-align:right}
+  .qr-wrap{display:flex;justify-content:center;margin:10px 0 6px}
+  .foot{position:absolute;bottom:0;width:100%;background:#1f3a2b;color:#faf6ef;text-align:center;font-size:7.5px;padding:5px}
+  .btns{display:flex;gap:8px}
+  button{padding:9px 18px;border:0;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer}
+  .pr{background:#7a1e2e;color:#fff}.cl{background:#ddd;color:#333}
+  @media print{body{background:#fff;padding:0}.btns{display:none}.card{box-shadow:none;margin:0 auto}}
+ </style></head><body>
+  <div class="card">
+   <div class="card-head">
+    <img src="${logoUrl}" onerror="this.style.display='none'">
+    <div class="sname">${school.name}</div>
+    <div class="saddr">${school.addressLine1}, ${school.addressLine2} - ${school.pincode}<br>Ph: ${school.phone}</div>
+   </div>
+   <div class="ph">${photo?`<img src="${photo}">`:`<div class="ini">${initialsTxt}</div>`}</div>
+   <div class="sn">${s.name}</div>
+   <div class="sc">Class ${s.class||'-'}${s.section?' - '+s.section:''} &bull; Roll ${s.rollNo||'-'}</div>
+   <div class="rows">
+    <div class="row"><span class="k">Admission No</span><span class="v">${s.admissionNo||'-'}</span></div>
+    <div class="row"><span class="k">Date of Birth</span><span class="v">${s.dob?new Date(s.dob).toLocaleDateString('en-IN'):'-'}</span></div>
+    <div class="row"><span class="k">Blood Group</span><span class="v">${s.bloodGroup||'-'}</span></div>
+    <div class="row"><span class="k">Father/Guardian</span><span class="v">${s.parentName||'-'}</span></div>
+    <div class="row"><span class="k">Contact</span><span class="v">${s.parentPhone||'-'}</span></div>
+    <div class="row"><span class="k">Address</span><span class="v">${(s.address||'-').slice(0,28)}</span></div>
+   </div>
+   <div class="qr-wrap"><div id="qrbox"></div></div>
+   <div class="foot">This card is property of ${school.shortName}. If found, please return to the school office.</div>
+  </div>
+  <div class="btns">
+   <button class="pr" onclick="window.print()">Print / Save PDF</button>
+   <button class="cl" onclick="window.close()">Close</button>
+  </div>
+  <script>
+   try {
+    new QRCode(document.getElementById('qrbox'), { text: ${JSON.stringify(qrPayload)}, width: 84, height: 84, correctLevel: QRCode.CorrectLevel.M });
+   } catch(e){ document.getElementById('qrbox').innerText='QR unavailable'; }
+  <\/script>
+ </body></html>`;
+ w.document.write(html);
+ w.document.close();
 }
 
 function renderStudentProfile(id){
@@ -2648,8 +2853,8 @@ function renderTeachersTab(){
    <button id="addTeacherBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-plus mr-1"></i>Add Teacher</button>
   </div>
   <div class="overflow-x-auto">
-   <table class="border text-sm"><thead><tr><th>Name</th><th>Subject</th><th>Qualification</th><th>Emp. ID</th><th>Joined</th><th>Salary</th><th>Phone</th><th>Actions</th></tr></thead>
-   <tbody>${ts.map(t=>`<tr><td class="font-medium">${t.name}</td><td>${t.subject||'-'}</td><td>${t.qualification||'-'}</td><td>${t.employeeId || t.udiseTeacherId || '-'}</td><td>${t.trainingDate?fmtDate(t.trainingDate):'-'}</td><td>Rs.${(t.salary||0).toLocaleString('en-IN')}</td><td>${t.phone||'-'}</td><td class="whitespace-nowrap"><button class="editTeacherBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${t.id}" title="Edit"><i class="fas fa-edit"></i></button> <button class="delTeacherBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Delete"><i class="fas fa-trash"></i></button></td></tr>`).join('')}</tbody></table>
+   <table class="border text-sm"><thead><tr><th>Photo</th><th>Name</th><th>Subject</th><th>Qualification</th><th>Emp. ID</th><th>Joined</th><th>Salary</th><th>Phone</th><th>Actions</th></tr></thead>
+   <tbody>${ts.map(t=>`<tr><td>${t.photo?`<img src="${t.photo}" class="w-9 h-9 rounded-full object-cover" alt="">`:`<div class="w-9 h-9 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold">${initials(t.name)}</div>`}</td><td class="font-medium">${t.name}</td><td>${t.subject||'-'}</td><td>${t.qualification||'-'}</td><td>${t.employeeId || t.udiseTeacherId || '-'}</td><td>${t.trainingDate?fmtDate(t.trainingDate):'-'}</td><td>Rs.${(t.salary||0).toLocaleString('en-IN')}</td><td>${t.phone||'-'}</td><td class="whitespace-nowrap"><button class="editTeacherBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${t.id}" title="Edit"><i class="fas fa-edit"></i></button> <button class="delTeacherBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Delete"><i class="fas fa-trash"></i></button></td></tr>`).join('')}</tbody></table>
   </div>
 
   <!-- Teacher Activity Audit Log (admin oversight) -->
@@ -2681,9 +2886,18 @@ function renderTeachersTab(){
      </table></div>`}
    </div>
   </div>
-  <div id="teacherModal" class="hidden modal"><div class="modal-content">
+  <div id="teacherModal" class="hidden modal"><div class="modal-content" style="max-width:600px">
    <h3 class="text-lg font-bold mb-3" id="teacherModalTitle">Add Teacher</h3>
    <input type="hidden" id="tchId">
+   <div class="flex items-center gap-3 mb-3">
+    <div id="tchPhotoPreview" class="w-16 h-16 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-lg font-bold overflow-hidden flex-shrink-0">?</div>
+    <div>
+     <label class="text-xs font-medium block mb-1">Photo</label>
+     <input type="file" id="tchPhotoFile" accept="image/*" class="text-xs">
+     <input type="hidden" id="tchPhoto">
+     <div class="text-xs text-gray-500 mt-1">JPG or PNG, auto-resized. <button type="button" id="tchPhotoClear" class="text-rose-600 hover:underline">Remove</button></div>
+    </div>
+   </div>
    <div class="grid grid-cols-2 gap-3">
     <div><label class="text-xs">Name *</label><input id="tchName"></div>
     <div><label class="text-xs">Subject</label><input id="tchSubject"></div>
@@ -2692,6 +2906,10 @@ function renderTeachersTab(){
     <div><label class="text-xs">Date of Joining</label><input type="date" id="tchTrain"></div>
     <div><label class="text-xs">Salary</label><input type="number" id="tchSalary"></div>
     <div><label class="text-xs">Phone</label><input id="tchPhone"></div>
+    <div><label class="text-xs">Email</label><input id="tchEmail" placeholder="name@example.com"></div>
+    <div><label class="text-xs">Date of Birth</label><input type="date" id="tchDob"></div>
+    <div><label class="text-xs">Blood Group</label><select id="tchBlood"><option value="">—</option><option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>AB+</option><option>AB-</option><option>O+</option><option>O-</option></select></div>
+    <div class="col-span-2"><label class="text-xs">Address</label><input id="tchAddress"></div>
     <div><label class="text-xs">Bank A/C (last 4)</label><input id="tchBank"></div>
    </div>
    <div class="flex justify-end gap-2 mt-4"><button class="closeModal bg-gray-300 px-4 py-2 rounded-lg">Cancel</button><button id="saveTeacherBtn" class="bg-indigo-600 text-white px-4 py-2 rounded-lg">Save</button></div>
@@ -2990,9 +3208,12 @@ function renderTeacherPanel(){
  ];
  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
-   <div>
-    <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-chalkboard-teacher text-purple-600 mr-2"></i>Teacher Panel</h1>
-    <div class="text-xs text-gray-600 mt-0.5">${currentUser.name} · ${new Date().toLocaleDateString('en-IN', {weekday:'long', day:'numeric', month:'long', year:'numeric'})}</div>
+   <div class="flex items-center gap-3">
+    ${(() => { const me = getTeachers().find(t => t.id === currentUser.teacherId); const photo = me?.photo; return photo ? `<img src="${photo}" class="w-12 h-12 rounded-full object-cover border-2 border-purple-200">` : `<div class="w-12 h-12 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center font-bold">${initials(currentUser.name)}</div>`; })()}
+    <div>
+     <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-chalkboard-teacher text-purple-600 mr-2"></i>Teacher Panel</h1>
+     <div class="text-xs text-gray-600 mt-0.5">${currentUser.name} · ${new Date().toLocaleDateString('en-IN', {weekday:'long', day:'numeric', month:'long', year:'numeric'})}</div>
+    </div>
    </div>
    <button id="logoutTeacherBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
   </div>
@@ -3353,15 +3574,20 @@ function renderTchClass(){
       </summary>
       <div class="overflow-x-auto p-2">
        <table class="text-xs w-full border">
-        <thead class="bg-gray-100"><tr><th>Roll</th><th>Name</th><th>Father / Phone</th><th>Today</th><th>Fee Due</th><th>Action</th></tr></thead>
+        <thead class="bg-gray-100"><tr><th>Photo</th><th>Roll</th><th>Name</th><th>Father / Phone</th><th>Today</th><th>Fee Due</th><th>Action</th></tr></thead>
         <tbody>${list.sort((a,b) => (a.rollNo||0)-(b.rollNo||0)).map(s => `
          <tr>
+          <td>${s.photo?`<img src="${s.photo}" class="w-7 h-7 rounded object-cover">`:`<div class="w-7 h-7 rounded bg-indigo-100 text-indigo-700 flex items-center justify-center text-[10px] font-bold">${initials(s.name)}</div>`}</td>
           <td>${s.rollNo||'-'}</td>
           <td class="font-medium">${s.name}</td>
           <td>${s.fatherName || s.parentName || '-'}<br><span class="text-gray-500 font-mono">${s.parentPhone || ''}</span></td>
           <td>${ar[s.id]?.[today] === 'P' ? '<span class="pill pill-green">P</span>' : ar[s.id]?.[today] === 'A' ? '<span class="pill pill-red">A</span>' : '<span class="text-gray-400">—</span>'}</td>
           <td>${(s.feeBalance||0) > 0 ? `<span class="text-rose-700 font-semibold">Rs.${s.feeBalance.toLocaleString('en-IN')}</span>` : '<span class="text-emerald-600">Clear</span>'}</td>
-          <td>${s.parentPhone ? `<a href="https://wa.me/${_cleanPhone(s.parentPhone)}" target="_blank" class="text-emerald-600 hover:text-emerald-800" title="WhatsApp parent"><i class="fab fa-whatsapp"></i></a>` : ''}</td>
+          <td class="whitespace-nowrap">
+           <button class="tchStuPhotoBtn text-blue-600 hover:text-blue-800" data-id="${s.id}" title="Update photo"><i class="fas fa-camera"></i></button>
+           <button class="tchIdCardBtn text-emerald-600 hover:text-emerald-800 ml-1" data-id="${s.id}" title="Print ID card"><i class="fas fa-id-card"></i></button>
+           ${s.parentPhone ? `<a href="https://wa.me/${_cleanPhone(s.parentPhone)}" target="_blank" class="text-emerald-600 hover:text-emerald-800 ml-1" title="WhatsApp parent"><i class="fab fa-whatsapp"></i></a>` : ''}
+          </td>
          </tr>`).join('')}</tbody>
        </table>
       </div>
@@ -3761,6 +3987,37 @@ function _attachMarksEvents(){
 }
 
 function _attachClassEvents(){
+ // ID card print from teacher roster
+ document.querySelectorAll('.tchIdCardBtn').forEach(b => b.addEventListener('click', e => {
+  e.stopPropagation();
+  const s = getStudents().find(x => x.id === parseInt(b.dataset.id));
+  if (s) generateStudentIDCard(s);
+ }));
+ // Photo update from teacher roster (class teacher may edit student photo)
+ document.querySelectorAll('.tchStuPhotoBtn').forEach(b => b.addEventListener('click', e => {
+  e.stopPropagation();
+  const sid = parseInt(b.dataset.id);
+  // Create a hidden file input on the fly
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.onchange = ev => {
+   const f = ev.target.files[0];
+   compressImageFile(f, dataUrl => {
+    if (!dataUrl) return;
+    const all = getStudents();
+    const i = all.findIndex(x => x.id === sid);
+    if (i > -1) {
+     all[i].photo = dataUrl;
+     saveStudents(all);
+     showToast('Photo updated for ' + all[i].name);
+     if (typeof _logTeacherAction === 'function') { try { _logTeacherAction('edit', 'student-photo', all[i], 'Updated student photo'); } catch{} }
+     renderApp();
+    }
+   });
+  };
+  input.click();
+ }));
  // Broadcast button per class — opens a quick-message modal
  document.querySelectorAll('.tchClassBroadcastBtn').forEach(b => b.addEventListener('click', e => {
   e.stopPropagation();
@@ -6611,9 +6868,11 @@ function attachStudentsTabEvents(){
  document.getElementById('clearFilters')?.addEventListener('click',()=>{studentFilter={search:'',class:'all',section:'all',category:'all'};refresh()});
  document.getElementById('addStudentBtn')?.addEventListener('click',()=>{
   document.getElementById('studentModalTitle').innerText='Add Student';
-  ['stuId','stuName','stuAdmNo','stuRoll','stuAadhaar','stuPen','stuParentName','stuParentPhone','stuAddress','stuDob','stuAdmDate'].forEach(i=>{const el=document.getElementById(i);if(el)el.value=''});
+  ['stuId','stuName','stuAdmNo','stuRoll','stuAadhaar','stuPen','stuParentName','stuParentPhone','stuAddress','stuDob','stuAdmDate','stuPhoto'].forEach(i=>{const el=document.getElementById(i);if(el)el.value=''});
   document.getElementById('stuFeeBal').value=0;
   document.getElementById('stuBpl').checked=false;document.getElementById('stuCwsn').checked=false;
+  const prev=document.getElementById('stuPhotoPreview');if(prev)prev.textContent='?';
+  const pf=document.getElementById('stuPhotoFile');if(pf)pf.value='';
   document.getElementById('studentModal').classList.remove('hidden');
  });
  document.querySelectorAll('.editStudentBtn').forEach(b=>b.addEventListener('click',()=>{
@@ -6638,8 +6897,30 @@ function attachStudentsTabEvents(){
   document.getElementById('stuFeeBal').value=s.feeBalance||0;
   document.getElementById('stuBpl').checked=!!s.bpl;
   document.getElementById('stuCwsn').checked=!!s.cwsn;
+  document.getElementById('stuPhoto').value=s.photo||'';
+  const prev=document.getElementById('stuPhotoPreview');
+  if(prev){ if(s.photo) prev.innerHTML=`<img src="${s.photo}" class="w-full h-full object-cover">`; else prev.textContent=initials(s.name); }
+  const pf=document.getElementById('stuPhotoFile');if(pf)pf.value='';
   document.getElementById('studentModal').classList.remove('hidden');
  }));
+ // Photo upload wiring for student modal
+ document.getElementById('stuPhotoFile')?.addEventListener('change', e => {
+  const f = e.target.files[0];
+  compressImageFile(f, dataUrl => {
+   if (dataUrl) {
+    document.getElementById('stuPhoto').value = dataUrl;
+    const prev = document.getElementById('stuPhotoPreview');
+    if (prev) prev.innerHTML = `<img src="${dataUrl}" class="w-full h-full object-cover">`;
+   }
+  });
+ });
+ document.getElementById('stuPhotoClear')?.addEventListener('click', () => {
+  document.getElementById('stuPhoto').value = '';
+  const pf=document.getElementById('stuPhotoFile');if(pf)pf.value='';
+  const prev = document.getElementById('stuPhotoPreview');
+  const nm = document.getElementById('stuName').value;
+  if (prev) prev.textContent = nm ? initials(nm) : '?';
+ });
  document.getElementById('saveStudentBtn')?.addEventListener('click',()=>{
   const name=document.getElementById('stuName').value.trim();
   if(!name){alert('Name is required');return}
@@ -6663,7 +6944,8 @@ function attachStudentsTabEvents(){
    admissionDate:document.getElementById('stuAdmDate').value,
    feeBalance:parseInt(document.getElementById('stuFeeBal').value)||0,
    bpl:document.getElementById('stuBpl').checked,
-   cwsn:document.getElementById('stuCwsn').checked
+   cwsn:document.getElementById('stuCwsn').checked,
+   photo:document.getElementById('stuPhoto').value||''
   };
   const all=getStudents();
   if(id){const i=all.findIndex(x=>x.id===parseInt(id));if(i>-1)all[i]={...all[i],...data};showToast('Student updated')}
@@ -6682,6 +6964,10 @@ function attachStudentsTabEvents(){
   activeStudentProfileTab='personal';
   const pc=document.getElementById('profileContent');
   if(pc){pc.innerHTML=renderStudentProfile(viewingStudentId);document.getElementById('profileModal').classList.remove('hidden');attachProfileTabEvents()}
+ }));
+ document.querySelectorAll('.idCardBtn').forEach(b=>b.addEventListener('click',()=>{
+  const s=getStudents().find(x=>x.id===parseInt(b.dataset.id));
+  if(s) generateStudentIDCard(s);
  }));
  document.getElementById('exportStudentsBtn')?.addEventListener('click',()=>{
   const s=getStudents();
@@ -7099,8 +7385,11 @@ function attachTeachersTabEvents(){
  // Helper to open modal in either Add or Edit mode
  const openTeacherModal = (existingId) => {
   // Clear all fields
-  ['tchId','tchName','tchSubject','tchQual','tchEmpId','tchTrain','tchSalary','tchPhone','tchBank']
+  ['tchId','tchName','tchSubject','tchQual','tchEmpId','tchTrain','tchSalary','tchPhone','tchBank','tchEmail','tchDob','tchAddress','tchPhoto']
    .forEach(f => { const el = document.getElementById(f); if (el) el.value = ''; });
+  document.getElementById('tchBlood').value = '';
+  const prev = document.getElementById('tchPhotoPreview');
+  if (prev) { prev.innerHTML = '?'; prev.textContent = '?'; }
 
   if (existingId) {
    const t = getTeachers().find(x => x.id === parseInt(existingId));
@@ -7115,12 +7404,40 @@ function attachTeachersTabEvents(){
     document.getElementById('tchSalary').value = t.salary || '';
     document.getElementById('tchPhone').value = t.phone || '';
     document.getElementById('tchBank').value = t.bankAccount || '';
+    document.getElementById('tchEmail').value = t.email || '';
+    document.getElementById('tchDob').value = t.dob || '';
+    document.getElementById('tchAddress').value = t.address || '';
+    document.getElementById('tchBlood').value = t.bloodGroup || '';
+    document.getElementById('tchPhoto').value = t.photo || '';
+    if (prev) {
+     if (t.photo) prev.innerHTML = `<img src="${t.photo}" class="w-full h-full object-cover">`;
+     else prev.textContent = initials(t.name);
+    }
    }
   } else {
    document.getElementById('teacherModalTitle').innerText = 'Add Teacher';
   }
   document.getElementById('teacherModal').classList.remove('hidden');
  };
+
+ // Photo upload wiring for teacher modal
+ document.getElementById('tchPhotoFile')?.addEventListener('change', e => {
+  const f = e.target.files[0];
+  compressImageFile(f, dataUrl => {
+   if (dataUrl) {
+    document.getElementById('tchPhoto').value = dataUrl;
+    const prev = document.getElementById('tchPhotoPreview');
+    if (prev) prev.innerHTML = `<img src="${dataUrl}" class="w-full h-full object-cover">`;
+   }
+  });
+ });
+ document.getElementById('tchPhotoClear')?.addEventListener('click', () => {
+  document.getElementById('tchPhoto').value = '';
+  document.getElementById('tchPhotoFile').value = '';
+  const prev = document.getElementById('tchPhotoPreview');
+  const nm = document.getElementById('tchName').value;
+  if (prev) prev.textContent = nm ? initials(nm) : '?';
+ });
 
  document.getElementById('addTeacherBtn')?.addEventListener('click', () => openTeacherModal(null));
  document.querySelectorAll('.editTeacherBtn').forEach(b => b.addEventListener('click', () => openTeacherModal(b.dataset.id)));
@@ -7137,7 +7454,12 @@ function attachTeachersTabEvents(){
    trainingDate: document.getElementById('tchTrain').value,
    salary: parseInt(document.getElementById('tchSalary').value) || 0,
    phone: document.getElementById('tchPhone').value.trim(),
-   bankAccount: document.getElementById('tchBank').value.trim()
+   bankAccount: document.getElementById('tchBank').value.trim(),
+   email: document.getElementById('tchEmail').value.trim(),
+   dob: document.getElementById('tchDob').value,
+   address: document.getElementById('tchAddress').value.trim(),
+   bloodGroup: document.getElementById('tchBlood').value,
+   photo: document.getElementById('tchPhoto').value || ''
   };
   const teachers = getTeachers();
   if (id) {
@@ -8043,13 +8365,22 @@ function attachDisclosureDocsEvents(){
 function renderUsersTab(){
  const users = getUsers();
  const myId = currentUser?.id;
- const canManage = ['owner','admin'].includes(currentUser?.role);
+ const myRole = currentUser?.role;
+ const canManage = ['owner','admin'].includes(myRole);
  if (!canManage) {
   return `<div class="text-center py-8 text-gray-500">
    <i class="fas fa-lock text-3xl mb-3"></i>
    <p>Only Owner and Admin roles can manage users.</p>
   </div>`;
  }
+ // Permission rule: who can the current user act on?
+ // Owner → anyone. Admin → everyone EXCEPT owner/principal accounts (protected senior roles).
+ const PROTECTED_ROLES = ['owner', 'principal'];
+ const canActOn = (targetUser) => {
+  if (myRole === 'owner') return true;            // owner has full authority
+  if (myRole === 'admin') return !PROTECTED_ROLES.includes(targetUser.role);
+  return false;
+ };
  return `<div>
   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
    <h2 class="text-lg font-bold"><i class="fas fa-user-shield text-indigo-600 mr-1"></i>User Accounts</h2>
@@ -8102,8 +8433,10 @@ function renderUsersTab(){
      <td>${escapeHTML(u.name || '')}</td>
      <td class="text-xs text-gray-600">${u.teacherId ? 'Teacher #' + u.teacherId : u.studentId ? 'Student #' + u.studentId : '—'}</td>
      <td class="whitespace-nowrap">
-      <button class="editUserBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${u.id}">Edit</button>
-      ${u.id !== myId ? `<button class="delUserBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${u.id}">Delete</button>` : '<span class="text-xs text-gray-500 ml-1">(self)</span>'}
+      ${canActOn(u)
+        ? `<button class="editUserBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${u.id}">Edit</button>`
+        : `<span class="text-xs text-gray-400" title="Only the Owner can manage this account"><i class="fas fa-lock mr-1"></i>Protected</span>`}
+      ${(canActOn(u) && u.id !== myId) ? `<button class="delUserBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${u.id}">Delete</button>` : (u.id === myId ? '<span class="text-xs text-gray-500 ml-1">(self)</span>' : '')}
      </td>
     </tr>`).join('')}
    </tbody>
@@ -8176,8 +8509,28 @@ function renderUsersTab(){
 }
 
 function attachUsersTabEvents(){
- const refresh = () => refreshAdminTabContent();
+ const refresh = () => {
+  if (currentUser?.role === 'owner') { renderApp(); }
+  else { refreshAdminTabContent(); }
+ };
+ // Permission enforcement (mirrors renderUsersTab)
+ const myRole = currentUser?.role;
+ const PROTECTED_ROLES = ['owner', 'principal'];
+ const canActOn = (targetUser) => {
+  if (!targetUser) return false;
+  if (myRole === 'owner') return true;
+  if (myRole === 'admin') return !PROTECTED_ROLES.includes(targetUser.role);
+  return false;
+ };
  const openUserModal = (existingId) => {
+  // Guard: admin cannot open protected accounts for editing
+  if (existingId) {
+   const target = getUsers().find(x => x.id === parseInt(existingId));
+   if (target && !canActOn(target)) {
+    alert('You do not have permission to edit this account. Only the Owner can manage Owner and Principal accounts.');
+    return;
+   }
+  }
   ['userModalId','userModalName','userModalUsername','userModalPassword','userModalTeacherId','userModalStudentId']
     .forEach(f => { const el = document.getElementById(f); if (el) el.value = ''; });
   document.getElementById('userModalRole').value = 'teacher';
@@ -8201,6 +8554,12 @@ function attachUsersTabEvents(){
   }
   // Show/hide linked-id rows based on role
   const roleSel = document.getElementById('userModalRole');
+  // Admin cannot create/assign protected roles — disable those options
+  if (myRole === 'admin') {
+   Array.from(roleSel.options).forEach(opt => {
+    opt.disabled = PROTECTED_ROLES.includes(opt.value);
+   });
+  }
   const updateLinkedRows = () => {
    document.getElementById('teacherIdRow').style.display = roleSel.value === 'teacher' ? '' : 'none';
    document.getElementById('studentIdRow').style.display = roleSel.value === 'student' ? '' : 'none';
@@ -8213,6 +8572,7 @@ function attachUsersTabEvents(){
  document.querySelectorAll('.editUserBtn').forEach(b => b.addEventListener('click', () => openUserModal(b.dataset.id)));
  document.querySelectorAll('.delUserBtn').forEach(b => b.addEventListener('click', () => {
   const u = getUsers().find(x => x.id === parseInt(b.dataset.id));
+  if (!canActOn(u)) { alert('You do not have permission to delete this account.'); return; }
   if (!confirm(`Delete user "${u?.name || u?.username}"? They won't be able to log in anymore.`)) return;
   set('users', getUsers().filter(x => x.id !== parseInt(b.dataset.id)));
   showToast('User deleted');
@@ -8228,6 +8588,22 @@ function attachUsersTabEvents(){
   if (!password) { alert('Password required'); return; }
   const id = document.getElementById('userModalId').value;
   const users = getUsers();
+
+  // Permission guard: admin cannot create/edit into protected roles, nor edit a protected target
+  if (myRole === 'admin') {
+   if (PROTECTED_ROLES.includes(role)) {
+    alert('Only the Owner can assign Owner or Principal roles.');
+    return;
+   }
+   if (id) {
+    const target = users.find(x => x.id === parseInt(id));
+    if (target && !canActOn(target)) {
+     alert('You do not have permission to edit this account.');
+     return;
+    }
+   }
+  }
+
   // Check for duplicate username (except when editing the same user)
   const dupe = users.find(u => u.username === username && (!id || u.id !== parseInt(id)));
   if (dupe) { alert(`Username "${username}" is already taken`); return; }
@@ -8971,6 +9347,8 @@ document.getElementById('loginSubmitBtn').addEventListener('click', loginUser);
 document.getElementById('loginUsername').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('loginPassword').focus(); });
 document.getElementById('loginPassword').addEventListener('keydown', e => { if (e.key === 'Enter') loginUser(); });
 document.getElementById('loginModal').addEventListener('click', e => { if (e.target.id === 'loginModal') closeLoginModal(); });
+document.getElementById('changePasswordModal').addEventListener('click', e => { if (e.target.id === 'changePasswordModal') closeChangePasswordModal(); });
+document.getElementById('cpConfirm').addEventListener('keydown', e => { if (e.key === 'Enter') submitChangePassword(); });
 
 /* ============================================================
    CLOUD AUTO-SYNC (Milestone 3)
