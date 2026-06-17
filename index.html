@@ -349,8 +349,11 @@
      at the app container level while letting tab bars/tables scroll inside. */
   html, body { max-width: 100%; }
   #public-site, #portal { overflow-x: clip; }
-  /* Panel content wrappers must never exceed the screen, so children scroll instead of the page */
-  #portal > div, #portalApp > div { max-width: 100%; }
+  /* The portal content host and every panel wrapper inside it must be bounded to the
+     viewport width. Without this, the tab strip's width:100% resolves against an
+     unbounded parent and the whole page grows instead of the strip scrolling. */
+  #portalApp { max-width: 100vw; overflow-x: clip; }
+  #portalApp > div { max-width: 100%; min-width: 0; }
   /* Generic horizontal scroll containers (wide tables etc.) */
   .overflow-x-auto { -webkit-overflow-scrolling: touch; overflow-x: auto; max-width: 100%; }
   /* TAB BARS: a bounded, single-line, horizontally scrollable strip.
