@@ -1756,6 +1756,7 @@ const DB = {
  },
  setAll(table, data) {
   localStorage.setItem(table, JSON.stringify(Array.isArray(data) ? data : []));
+  this._queueSync(table);
  },
  insert(table, record) {
   const all = this.getAll(table);
@@ -1793,6 +1794,7 @@ const DB = {
  },
  setObject(table, obj) {
   localStorage.setItem(table, JSON.stringify(obj || {}));
+  this._queueSync(table);
  },
 
  // ── Scalar operations ──
@@ -1802,6 +1804,7 @@ const DB = {
  setScalar(key, value) {
   if (value === null || value === undefined) localStorage.removeItem(key);
   else localStorage.setItem(key, String(value));
+  // Scalars are low-value (UI state like _lastReceiptId, schemaVersion) — don't auto-sync.
  },
 
  // ── Key removal & reset ──
@@ -1960,6 +1963,102 @@ const DB = {
    }
   }
   return results;
+ },
+
+ // ──────────────────────────────────────────────────────────────
+ // AUTO-SYNC ENGINE (Milestone 3)
+ // ──────────────────────────────────────────────────────────────
+ // Every local write (setAll/setObject) calls _queueSync(table). We debounce
+ // rapid writes, then push the changed tables to cloud in the background.
+ // The UI never blocks — writes are instant locally, sync happens after.
+
+ _syncEnabled: true,        // master switch (auto-on in cloud mode)
+ _pendingTables: new Set(), // tables waiting to be pushed
+ _syncTimer: null,          // debounce timer
+ _syncState: 'idle',        // 'idle' | 'syncing' | 'error' | 'offline'
+ _lastSyncAt: null,         // timestamp of last successful sync
+ _lastSyncError: null,      // last error message
+ _syncDebounceMs: 1500,     // wait this long after last write before pushing
+
+ // Called by setAll/setObject after every write
+ _queueSync(table) {
+  if (this.mode !== 'cloud' || !this._syncEnabled) return;
+  if (!DB_SCHEMA[table]) return;          // ignore non-schema keys
+  if (DB_SCHEMA[table].type === 'scalar') return; // scalars don't sync
+  this._pendingTables.add(table);
+  // Debounce: reset the timer on each new write
+  if (this._syncTimer) clearTimeout(this._syncTimer);
+  this._syncTimer = setTimeout(() => this._flushSync(), this._syncDebounceMs);
+  this._notifySyncUI('syncing');
+ },
+
+ // Push all pending tables to cloud
+ async _flushSync() {
+  if (this.mode !== 'cloud' || this._pendingTables.size === 0) return;
+  const tables = [...this._pendingTables];
+  this._pendingTables.clear();
+  this._syncState = 'syncing';
+  this._notifySyncUI('syncing');
+  let anyError = false;
+  for (const t of tables) {
+   try {
+    await this.pushTable(t);
+   } catch (e) {
+    anyError = true;
+    this._lastSyncError = e.message;
+    // Re-queue failed table for next flush
+    this._pendingTables.add(t);
+   }
+  }
+  if (anyError) {
+   this._syncState = navigator.onLine === false ? 'offline' : 'error';
+   this._notifySyncUI(this._syncState);
+   // Retry failed tables in 10s
+   if (this._syncTimer) clearTimeout(this._syncTimer);
+   this._syncTimer = setTimeout(() => this._flushSync(), 10000);
+  } else {
+   this._syncState = 'idle';
+   this._lastSyncAt = new Date();
+   this._lastSyncError = null;
+   this._notifySyncUI('idle');
+  }
+ },
+
+ // Force an immediate flush (e.g. before logout / page unload)
+ async flushNow() {
+  if (this._syncTimer) clearTimeout(this._syncTimer);
+  await this._flushSync();
+ },
+
+ // UI hook — updates the floating sync badge if present
+ _notifySyncUI(state) {
+  if (typeof updateSyncBadge === 'function') {
+   try { updateSyncBadge(state, this._lastSyncAt, this._lastSyncError); } catch {}
+  }
+ },
+
+ // Pull latest from cloud on startup, with safe fallback to local
+ async syncOnStartup() {
+  if (this.mode !== 'cloud') return { ok: false, reason: 'local mode' };
+  try {
+   const ping = await this.pingCloud();
+   if (!ping.ok) {
+    this._syncState = 'offline';
+    this._notifySyncUI('offline');
+    return { ok: false, reason: ping.error };
+   }
+   // Pull all tables down (cloud is source of truth on startup)
+   await this.pullAll();
+   this._syncState = 'idle';
+   this._lastSyncAt = new Date();
+   this._notifySyncUI('idle');
+   return { ok: true };
+  } catch (e) {
+   this._syncState = 'error';
+   this._lastSyncError = e.message;
+   this._notifySyncUI('error');
+   return { ok: false, reason: e.message };
+  }
  }
 };
 
@@ -2173,7 +2272,7 @@ function renderOwnerDashboard(){
     <span id="cloudStatusBadge" class="text-xs px-2 py-1 rounded-full bg-gray-200 text-gray-600">Checking...</span>
    </div>
    <p class="text-sm text-sky-900 mb-3">
-    Multi-user database is now configured. Use these tools to manually push your local data to the cloud or pull cloud data down. Once the cloud has your data, other users on other devices can also be connected.
+    <strong>Auto-sync is ON.</strong> Every change you make is saved to this device instantly and pushed to the cloud automatically within a couple of seconds (watch the badge in the bottom-left corner). Other devices pull the latest data when they open the portal. The manual buttons below are for forcing a full sync or recovering data if needed.
    </p>
    <div class="flex flex-wrap gap-2 mb-3">
     <button id="cloudPingBtn" class="bg-sky-600 hover:bg-sky-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-satellite-dish mr-1"></i>Test Connection</button>
@@ -8842,6 +8941,82 @@ document.getElementById('loginSubmitBtn').addEventListener('click', loginUser);
 document.getElementById('loginUsername').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('loginPassword').focus(); });
 document.getElementById('loginPassword').addEventListener('keydown', e => { if (e.key === 'Enter') loginUser(); });
 document.getElementById('loginModal').addEventListener('click', e => { if (e.target.id === 'loginModal') closeLoginModal(); });
+
+/* ============================================================
+   CLOUD AUTO-SYNC (Milestone 3)
+============================================================ */
+// Floating sync-status badge (bottom-left), only shown in cloud mode
+function _createSyncBadge(){
+ if (DB.mode !== 'cloud') return;
+ if (document.getElementById('syncBadge')) return;
+ const b = document.createElement('div');
+ b.id = 'syncBadge';
+ b.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:9998;font-size:12px;padding:6px 12px;border-radius:9999px;box-shadow:0 2px 8px rgba(0,0,0,.15);display:flex;align-items:center;gap:6px;font-family:Inter,sans-serif;cursor:default;transition:all .3s;background:#e5e7eb;color:#374151;';
+ b.innerHTML = '<span id="syncBadgeIcon">●</span><span id="syncBadgeText">Cloud</span>';
+ document.body.appendChild(b);
+}
+
+// Called by DB._notifySyncUI whenever sync state changes
+function updateSyncBadge(state, lastSyncAt, errorMsg){
+ const b = document.getElementById('syncBadge');
+ if (!b) return;
+ const icon = document.getElementById('syncBadgeIcon');
+ const text = document.getElementById('syncBadgeText');
+ if (state === 'syncing') {
+  b.style.background = '#fef3c7'; b.style.color = '#92400e';
+  icon.textContent = '⟲'; icon.style.animation = 'spin 1s linear infinite';
+  text.textContent = 'Syncing...';
+ } else if (state === 'idle') {
+  b.style.background = '#d1fae5'; b.style.color = '#065f46';
+  icon.textContent = '✓'; icon.style.animation = '';
+  const t = lastSyncAt ? new Date(lastSyncAt).toLocaleTimeString('en-IN', {hour:'2-digit', minute:'2-digit'}) : '';
+  text.textContent = 'Synced' + (t ? ' ' + t : '');
+ } else if (state === 'offline') {
+  b.style.background = '#fee2e2'; b.style.color = '#991b1b';
+  icon.textContent = '⚠'; icon.style.animation = '';
+  text.textContent = 'Offline — saved locally';
+ } else if (state === 'error') {
+  b.style.background = '#fee2e2'; b.style.color = '#991b1b';
+  icon.textContent = '⚠'; icon.style.animation = '';
+  text.textContent = 'Sync error — will retry';
+  b.title = errorMsg || '';
+ }
+}
+
+// Add spin keyframes once
+(function(){
+ const st = document.createElement('style');
+ st.textContent = '@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}';
+ document.head.appendChild(st);
+})();
+
+// On startup: if cloud mode, pull latest then show badge
+if (DB.mode === 'cloud') {
+ _createSyncBadge();
+ updateSyncBadge('syncing');
+ DB.syncOnStartup().then(r => {
+  if (r.ok) {
+   updateSyncBadge('idle', DB._lastSyncAt);
+   // Re-render whatever's on screen so pulled data shows
+   if (typeof renderApp === 'function' && currentUser) renderApp();
+  } else {
+   updateSyncBadge(DB._syncState, null, r.reason);
+  }
+ });
+}
+
+// Flush pending writes before the page closes (best-effort)
+window.addEventListener('beforeunload', () => {
+ if (DB.mode === 'cloud' && DB._pendingTables.size > 0) {
+  // Synchronous-ish: fire the push without awaiting (browser allows brief work)
+  DB._flushSync();
+ }
+});
+
+// Detect coming back online → flush any queued changes
+window.addEventListener('online', () => {
+ if (DB.mode === 'cloud' && DB._pendingTables.size > 0) DB._flushSync();
+});
 
 </script>
 </body>
