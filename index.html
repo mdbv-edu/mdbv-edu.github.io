@@ -349,7 +349,10 @@
   html, body { max-width: 100%; overflow-x: hidden; }
   /* Horizontal scroll containers: smooth touch scrolling, and they must NOT be clipped */
   .overflow-x-auto { -webkit-overflow-scrolling: touch; overflow-x: auto; max-width: 100%; }
-  /* Tab bars get a subtle scroll hint and keep their content on one line */
+  /* Tab bars must stay on ONE line so they actually scroll (flex-wrap would stack them
+     and there'd be nothing to scroll). This overrides Tailwind's flex-wrap for tab rows. */
+  .tab-scroll { display: flex !important; flex-wrap: nowrap !important; overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
+  .tab-scroll > button { flex-shrink: 0; }
   .admin-tab, .principal-tab, .tch-tab, .acc-tab, .stu-tab, .par-tab { flex-shrink: 0; }
 </style>
 </head>
@@ -2353,6 +2356,34 @@ function renderOwnerDashboard(){
   </div>`;
  }
 
+ if (ownerView === 'students') {
+  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+    <div>
+     <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
+     <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-crown text-amber-500 mr-2"></i>Owner · Students</h1>
+     <p class="text-gray-600 text-xs">${currentUser.name}</p>
+    </div>
+    <button id="logoutBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
+   </div>
+   ${renderStudentsTab()}
+  </div>`;
+ }
+
+ if (ownerView === 'reportcards') {
+  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+    <div>
+     <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
+     <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-crown text-amber-500 mr-2"></i>Owner · Report Cards</h1>
+     <p class="text-gray-600 text-xs">${currentUser.name}</p>
+    </div>
+    <button id="logoutBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
+   </div>
+   ${renderReportCardsTab()}
+  </div>`;
+ }
+
  const st=getStudents(),tc=getTeachers(),c=getComplaints(),inf=getSchoolInfra();
  const tot=st.reduce((a,x)=>a+(x.feeBalance||0),0);
  const pend=c.filter(x=>x.status==='open').length;
@@ -2478,9 +2509,58 @@ function renderOwnerDashboard(){
    </div>
   </div>
 
+  <!-- Third row: Students + Report Cards quick-access for the Owner -->
+  <div class="grid md:grid-cols-2 gap-4 mt-4">
+   <div class="bg-gradient-to-r from-indigo-50 to-blue-50 border-2 border-indigo-200 rounded-xl p-5">
+    <h2 class="font-semibold mb-1"><i class="fas fa-user-graduate text-indigo-600 mr-2"></i>Students</h2>
+    <p class="text-sm text-gray-700">View all student details, photos, ID cards, fees and profiles.</p>
+    <div class="flex flex-wrap gap-2 mt-2 text-xs">
+     <span class="text-gray-700"><i class="fas fa-users mr-1"></i>${getStudents().length} students enrolled</span>
+    </div>
+    <button id="ownerOpenStudentsBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
+     <i class="fas fa-arrow-right-to-bracket mr-1"></i>View Students
+    </button>
+   </div>
+   <div class="bg-gradient-to-r from-purple-50 to-fuchsia-50 border-2 border-purple-200 rounded-xl p-5">
+    <h2 class="font-semibold mb-1"><i class="fas fa-file-lines text-purple-600 mr-2"></i>Report Cards</h2>
+    <p class="text-sm text-gray-700">Generate and print term report cards for any class.</p>
+    <div class="flex flex-wrap gap-2 mt-2 text-xs">
+     <span class="text-gray-700"><i class="fas fa-chart-line mr-1"></i>${getExamMarks().length} marks recorded</span>
+    </div>
+    <button id="ownerOpenReportCardsBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
+     <i class="fas fa-arrow-right-to-bracket mr-1"></i>Report Cards
+    </button>
+   </div>
+  </div>
+
   <div class="bg-white rounded-xl shadow-sm p-5 mt-6">
-   <h2 class="font-semibold mb-3"><i class="fas fa-file-alt text-gray-600 mr-2"></i>Recent Exam Marks</h2>
-   <div id="examMarksSummary" class="text-sm space-y-1 max-h-48 overflow-auto"></div>
+   <div class="flex flex-wrap justify-between items-center gap-2 mb-3">
+    <h2 class="font-semibold"><i class="fas fa-chart-simple text-gray-600 mr-2"></i>Academic Snapshot by Class</h2>
+    <button id="ownerSnapshotStudentsBtn" class="text-indigo-600 hover:text-indigo-800 text-sm font-medium"><i class="fas fa-arrow-right mr-1"></i>Open Students</button>
+   </div>
+   ${(() => {
+     const studs = getStudents();
+     const marks = getExamMarks();
+     if (studs.length === 0) return '<div class="text-gray-500 text-sm">No students enrolled yet.</div>';
+     const classes = ALL_CLASSES.filter(c => studs.some(s => s.class === c));
+     const rows = classes.map(cls => {
+       const inClass = studs.filter(s => s.class === cls);
+       const clsMarks = marks.filter(m => inClass.some(s => s.id === m.studentId));
+       const avg = clsMarks.length ? Math.round(clsMarks.reduce((a,m)=>a+(m.marks/m.maxMarks*100),0)/clsMarks.length) : null;
+       const withMarks = new Set(clsMarks.map(m=>m.studentId)).size;
+       return { cls, count: inClass.length, avg, withMarks };
+     });
+     return `<div class="overflow-x-auto"><table class="text-sm w-full">
+      <thead class="bg-gray-50"><tr><th class="text-left p-2">Class</th><th class="text-center p-2">Students</th><th class="text-center p-2">With Marks</th><th class="text-center p-2">Class Avg</th></tr></thead>
+      <tbody>${rows.map(r=>`<tr class="border-t">
+       <td class="p-2 font-medium">Class ${r.cls}</td>
+       <td class="p-2 text-center">${r.count}</td>
+       <td class="p-2 text-center">${r.withMarks}/${r.count}</td>
+       <td class="p-2 text-center">${r.avg!==null?`<b class="${r.avg>=60?'text-emerald-700':r.avg>=40?'text-amber-700':'text-rose-700'}">${r.avg}%</b>`:'<span class="text-gray-400">—</span>'}</td>
+      </tr>`).join('')}</tbody>
+     </table></div>
+     <p class="text-xs text-gray-500 mt-2">For individual student details and report cards, use the <b>Students</b> card above.</p>`;
+   })()}
   </div>
 
   <!-- CLOUD SYNC: Supabase status and push/pull controls -->
@@ -2552,7 +2632,7 @@ function renderAdminPanel(){
    <div class="text-sm text-gray-600 hidden md:block">${currentUser.name}</div>
    <button id="logoutAdminBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
   </div>
-  <div class="flex flex-wrap gap-1 border-b pb-2 my-4 overflow-x-auto">
+  <div class="tab-scroll gap-1 border-b pb-2 my-4">
    ${tabs.map(t=>`<button class="admin-tab px-3 py-2 rounded-t-lg text-sm font-medium whitespace-nowrap ${activeAdminTab===t.id?'bg-indigo-600 text-white':'bg-gray-100 hover:bg-gray-200 text-gray-700'}" data-tab="${t.id}"><i class="fas fa-${t.icon} mr-1"></i>${t.label}</button>`).join('')}
   </div>
   <div id="adminTabContent" class="bg-white rounded-xl shadow-sm p-5 border"></div>
@@ -3045,7 +3125,7 @@ function renderStudentProfile(id){
    </div>
    <button class="closeModal text-gray-500 hover:text-gray-700 text-xl">&times;</button>
   </div>
-  <div class="flex gap-1 border-b mb-3 overflow-x-auto">
+  <div class="tab-scroll gap-1 border-b mb-3">
    ${['personal','fees','marks','attendance','homework'].map(tb=>`<button class="profile-tab ${t===tb?'active':''}" data-ptab="${tb}">${tb.charAt(0).toUpperCase()+tb.slice(1)}</button>`).join('')}
   </div>
   <div>${body}</div>
@@ -4020,7 +4100,7 @@ function renderPrincipalPanel(){
    <div class="text-sm text-gray-600 hidden md:block">${currentUser.name}</div>
    <button id="logoutPrincipalBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
   </div>
-  <div class="flex flex-wrap gap-1 border-b pb-2 my-4 overflow-x-auto">
+  <div class="tab-scroll gap-1 border-b pb-2 my-4">
    ${tabs.map(t=>`<button class="principal-tab px-3 py-2 rounded-t-lg text-sm font-medium whitespace-nowrap ${activePrincipalTab===t.id?'bg-purple-600 text-white':'bg-gray-100 hover:bg-gray-200 text-gray-700'}" data-tab="${t.id}"><i class="fas fa-${t.icon} mr-1"></i>${t.label}</button>`).join('')}
   </div>
   <div id="principalTabContent" class="bg-white rounded-xl shadow-sm p-5 border"></div>
@@ -4120,7 +4200,7 @@ function renderTeacherPanel(){
    </div>
    <button id="logoutTeacherBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
   </div>
-  <div class="flex flex-wrap gap-1 border-b pb-2 mb-4 overflow-x-auto">
+  <div class="tab-scroll gap-1 border-b pb-2 mb-4">
    ${tabs.map(t => `<button class="tch-tab px-3 py-2 rounded-t-lg text-sm font-medium whitespace-nowrap ${activeTeacherTab===t.id?'bg-purple-600 text-white':'bg-gray-100 hover:bg-gray-200 text-gray-700'}" data-tab="${t.id}"><i class="fas fa-${t.icon} mr-1"></i>${t.label}</button>`).join('')}
   </div>
   <div id="tchTabContent">${renderTeacherTabContent()}</div>
@@ -5042,7 +5122,7 @@ function renderParentPanel(){
    </div>
    <button id="logoutParentBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
   </div>
-  <div class="flex flex-wrap gap-1 border-b pb-2 mb-4 overflow-x-auto">
+  <div class="tab-scroll gap-1 border-b pb-2 mb-4">
    ${tabs.map(t => `<button class="par-tab px-3 py-2 rounded-t-lg text-sm font-medium whitespace-nowrap ${activeParentTab===t.id?'bg-indigo-600 text-white':'bg-gray-100 hover:bg-gray-200 text-gray-700'}" data-tab="${t.id}"><i class="fas fa-${t.icon} mr-1"></i>${t.label}</button>`).join('')}
   </div>
   ${activeParentTab==='dashboard' ? renderNoticesForCurrentUser(3) : ''}
@@ -5345,7 +5425,7 @@ function renderStudentPanel(){
    </div>
   </div>
   ${activeStudentTab==='dashboard' ? renderNoticesForCurrentUser(3) : ''}
-  <div class="flex flex-wrap gap-1 border-b pb-2 mb-4 overflow-x-auto">
+  <div class="tab-scroll gap-1 border-b pb-2 mb-4">
    ${tabs.map(t => `<button class="stu-tab px-3 py-2 rounded-t-lg text-sm font-medium whitespace-nowrap ${activeStudentTab===t.id?'bg-indigo-600 text-white':'bg-gray-100 hover:bg-gray-200 text-gray-700'}" data-tab="${t.id}"><i class="fas fa-${t.icon} mr-1"></i>${t.label}</button>`).join('')}
   </div>
   <div id="stuTabContent">${renderStudentTabContent(s)}</div>
@@ -5728,7 +5808,7 @@ function renderAccountantPanel(){
    </div>
    <button id="logoutAccBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
   </div>
-  <div class="flex flex-wrap gap-1 border-b pb-2 mb-4 overflow-x-auto">
+  <div class="tab-scroll gap-1 border-b pb-2 mb-4">
    ${tabs.map(t => `<button class="acc-tab px-3 py-2 rounded-t-lg text-sm font-medium whitespace-nowrap ${activeAccountantTab===t.id?'bg-emerald-600 text-white':'bg-gray-100 hover:bg-gray-200 text-gray-700'}" data-tab="${t.id}"><i class="fas fa-${t.icon} mr-1"></i>${t.label}</button>`).join('')}
   </div>
   <div id="accTabContent">${renderAccountantTabContent()}</div>
@@ -7815,6 +7895,17 @@ function attachOwnerEvents(){
   ownerView = 'feestructure';
   renderApp();
  });
+ // Students navigation
+ document.getElementById('ownerOpenStudentsBtn')?.addEventListener('click', () => {
+  ownerView = 'students';
+  studentFilter = { search: '', class: 'all', section: 'all', category: 'all' };
+  renderApp();
+ });
+ // Report cards navigation
+ document.getElementById('ownerOpenReportCardsBtn')?.addEventListener('click', () => {
+  ownerView = 'reportcards';
+  renderApp();
+ });
  document.getElementById('ownerBackBtn')?.addEventListener('click', () => {
   ownerView = 'dashboard';
   renderApp();
@@ -7845,6 +7936,16 @@ function attachOwnerEvents(){
   attachFeeStructureEvents();
   return;
  }
+ // When on the Students view, attach the students-tab handlers (profiles, ID cards, report cards)
+ if (ownerView === 'students') {
+  attachStudentsTabEvents();
+  return;
+ }
+ // When on the Report Cards view, attach report card handlers
+ if (ownerView === 'reportcards') {
+  attachReportCardsEvents();
+  return;
+ }
 
  document.getElementById('exportUdisBtn')?.addEventListener('click',exportUdisCSV);
  document.getElementById('viewComplaintsBtn')?.addEventListener('click',()=>{const c=getComplaints().filter(x=>x.status==='open');alert(c.length?'Open Complaints:\n\n'+c.map(x=>'- '+x.text).join('\n'):'No open complaints')});
@@ -7857,11 +7958,12 @@ function attachOwnerEvents(){
   savePayrollSlips(slips);showToast('Payroll slips generated for '+t.length+' teachers ('+m+')');
  });
  document.getElementById('viewPayrollHistoryBtn')?.addEventListener('click',()=>{const s=getPayrollSlips();alert(s.length?'Payroll History:\n\n'+s.slice(-10).map(x=>x.month+' - '+x.teacherName+' - Rs.'+x.amount).join('\n'):'No payroll history yet')});
- const em=document.getElementById('examMarksSummary');
- if(em){
-  const marks=getExamMarks(),students=getStudents();
-  em.innerHTML=marks.length?marks.slice(-10).map(m=>{const s=students.find(x=>x.id===m.studentId);return `<div class="flex justify-between border-b py-1"><span>${s?.name||'?'} - ${m.subject} (${m.examName})</span><b>${m.marks}/${m.maxMarks}</b></div>`}).join(''):'<div class="text-gray-500">No exam marks recorded</div>';
- }
+ // "Open Students" shortcut inside the Academic Snapshot card
+ document.getElementById('ownerSnapshotStudentsBtn')?.addEventListener('click', () => {
+  ownerView = 'students';
+  studentFilter = { search: '', class: 'all', section: 'all', category: 'all' };
+  renderApp();
+ });
 
  // ── CLOUD SYNC: ping, push, pull handlers ──
  const cloudBadge = document.getElementById('cloudStatusBadge');
@@ -8100,7 +8202,11 @@ function attachActivePrincipalTabEvents(){
 
 /* ---------- STUDENTS TAB EVENTS ---------- */
 function attachStudentsTabEvents(){
- const refresh=()=>{activeAdminTab==='students'?refreshAdminTabContent():refreshPrincipalTabContent()};
+ const refresh=()=>{
+  if (currentUser?.role === 'owner') renderApp();
+  else if (activeAdminTab==='students') refreshAdminTabContent();
+  else refreshPrincipalTabContent();
+ };
  document.getElementById('studentSearch')?.addEventListener('input',e=>{studentFilter.search=e.target.value;refresh();setTimeout(()=>{const f=document.getElementById('studentSearch');if(f){f.focus();f.setSelectionRange(f.value.length,f.value.length)}},10)});
  document.getElementById('studentClassFilter')?.addEventListener('change',e=>{studentFilter.class=e.target.value;refresh()});
  document.getElementById('studentSectionFilter')?.addEventListener('change',e=>{studentFilter.section=e.target.value;refresh()});
@@ -8207,13 +8313,13 @@ function attachStudentsTabEvents(){
    showToast(data.annualFees ? `Student added · Fees auto-set to Rs.${data.annualFees.toLocaleString('en-IN')} from Class ${data.class} plan` : 'Student added');
   }
   saveStudents(all);document.getElementById('studentModal').classList.add('hidden');
-  activeAdminTab==='students'?refreshAdminTabContent():refreshPrincipalTabContent();
+  refresh();
  });
  document.querySelectorAll('.delStudentBtn2').forEach(b=>b.addEventListener('click',()=>{
   if(!confirm('Delete this student? This cannot be undone.'))return;
   saveStudents(getStudents().filter(x=>x.id!==parseInt(b.dataset.id)));
   showToast('Student deleted');
-  activeAdminTab==='students'?refreshAdminTabContent():refreshPrincipalTabContent();
+  refresh();
  }));
  document.querySelectorAll('.viewStudentBtn').forEach(b=>b.addEventListener('click',()=>{
   viewingStudentId=parseInt(b.dataset.id);
@@ -8236,7 +8342,7 @@ function attachStudentsTabEvents(){
   const map={'Nursery':'LKG','LKG':'UKG','UKG':'1','1':'2','2':'3','3':'4','4':'5','5':'6','6':'7','7':'8','8':'9','9':'10','10':'11','11':'12','12':'12'};
   const s=getStudents().map(x=>({...x,class:map[x.class]||x.class}));
   saveStudents(s);showToast('All students promoted to next class');
-  activeAdminTab==='students'?refreshAdminTabContent():refreshPrincipalTabContent();
+  refresh();
  });
 
  // ============== TEMPLATE DOWNLOAD ==============
@@ -9234,7 +9340,7 @@ function renderAdminAccountsTab(){
   <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
    <h2 class="text-lg font-bold"><i class="fas fa-book-open-reader text-purple-600 mr-1"></i>Accounting & Audit</h2>
   </div>
-  <div class="flex flex-wrap gap-1 border-b pb-2 mb-4 overflow-x-auto">
+  <div class="tab-scroll gap-1 border-b pb-2 mb-4">
    ${subtabs.map(t => `<button class="adm-acc-subtab px-3 py-2 rounded-t-lg text-sm font-medium whitespace-nowrap ${activeAdminAccountsSubtab===t.id?'bg-purple-600 text-white':'bg-gray-100 hover:bg-gray-200 text-gray-700'}" data-sub="${t.id}"><i class="fas fa-${t.icon} mr-1"></i>${t.label}</button>`).join('')}
   </div>
   <div id="admAccContent">${
