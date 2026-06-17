@@ -7,6 +7,7 @@
 <title>Murti Devi Balika Vidyapeeth — Binauli, Baghpat</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1119,7 +1120,7 @@ function processStep(num, icon, title, desc) {
 
 /* ----- GALLERY ----- */
 function renderGallery() {
-  const photos = JSON.parse(localStorage.getItem('gallery') || '[]');
+  const photos = DB.getAll('gallery');
   const cats = ['All', 'Campus', 'Classrooms', 'Activities'];
   return `
   <div class="page-section">
@@ -1166,7 +1167,7 @@ function renderGallery() {
 }
 
 function openGalleryLightbox(id) {
-  const photos = JSON.parse(localStorage.getItem('gallery') || '[]');
+  const photos = DB.getAll('gallery');
   const p = photos.find(x => String(x.id) === String(id));
   if (!p) return;
   document.getElementById('galleryLightboxImg').src = p.src;
@@ -1223,7 +1224,7 @@ function renderDisclosure() {
           <p class="text-sm text-ink-soft mb-3">Click "View" to download the document. Documents marked "Pending" are currently being uploaded.</p>
           <table class="md-table">
             <tr><th>S. No.</th><th>Documents / Information</th><th>Available</th></tr>
-            ${(JSON.parse(localStorage.getItem('disclosureDocs') || '[]')).map((d, i) => `
+            ${(DB.getAll('disclosureDocs')).map((d, i) => `
               <tr>
                 <td>${i + 1}</td>
                 <td>${d.name}</td>
@@ -1424,9 +1425,9 @@ function submitContactForm() {
   }
 
   // Save locally so admin can review enquiries from the portal
-  const enquiries = JSON.parse(localStorage.getItem('enquiries') || '[]');
+  const enquiries = DB.getAll('enquiries');
   enquiries.push({ id: Date.now(), name, phone, email, subject, message: msg, date: new Date().toISOString(), sent: false });
-  localStorage.setItem('enquiries', JSON.stringify(enquiries));
+  DB.setAll('enquiries', enquiries);
 
   // Show "sending..." state
   const btn = document.getElementById('cSubmitBtn');
@@ -1453,8 +1454,8 @@ function submitContactForm() {
     if (btn) { btn.disabled = false; btn.innerHTML = originalBtn; }
     if (data.success === 'true' || data.success === true) {
       // Mark this enquiry as sent
-      const arr = JSON.parse(localStorage.getItem('enquiries') || '[]');
-      const last = arr[arr.length - 1]; if (last) { last.sent = true; localStorage.setItem('enquiries', JSON.stringify(arr)); }
+      const arr = DB.getAll('enquiries');
+      const last = arr[arr.length - 1]; if (last) { last.sent = true; DB.setAll('enquiries', arr); }
       ['cName','cPhone','cEmail','cMessage'].forEach(i => document.getElementById(i).value = '');
       showToast('Thank you! Your message has been sent to ' + SCHOOL_INFO.email);
     } else {
@@ -1569,19 +1570,28 @@ const ENABLE_SEED_DATA = true;
 
 function initDB(){
  // NON-DESTRUCTIVE: only seeds keys that don't exist. Never wipes existing data.
+ // Uses `DB.getScalar(key) === null` to check whether a table has ever been initialized.
  // The schemaVersion is informational only — bumping it does NOT erase anything.
- if (!localStorage.getItem('schemaVersion')) localStorage.setItem('schemaVersion','5');
+ if (DB.getScalar('schemaVersion') === null) DB.setScalar('schemaVersion', '5');
 
  if (!ENABLE_SEED_DATA) return;
 
- if(!localStorage.getItem('users'))    localStorage.setItem('users',    JSON.stringify(SEED_USERS));
- if(!localStorage.getItem('students')) localStorage.setItem('students', JSON.stringify(SEED_STUDENTS));
- if(!localStorage.getItem('teachers')) localStorage.setItem('teachers', JSON.stringify(SEED_TEACHERS));
+ // Helper: seed an array table only if missing
+ const seedArray = (table, defaultData) => {
+  if (DB.getScalar(table) === null) DB.setAll(table, defaultData);
+ };
+ // Helper: seed a singleton object only if missing
+ const seedObject = (table, defaultObj) => {
+  if (DB.getScalar(table) === null) DB.setObject(table, defaultObj);
+ };
+
+ seedArray('users',    SEED_USERS);
+ seedArray('students', SEED_STUDENTS);
+ seedArray('teachers', SEED_TEACHERS);
 
  // Public-facing content seeds (Disclosure documents and Gallery photos) — pre-wired
  // to existing files in /assets/docs/ and /assets/img/. Admin can edit through portal.
- if(!localStorage.getItem('disclosureDocs')){
-  localStorage.setItem('disclosureDocs',JSON.stringify([
+ seedArray('disclosureDocs', [
    {id:'doc1', key:'affiliation', name:'Copy of affiliation / upgradation letter (CBSE)',                       url:''},
    {id:'doc2', key:'society',     name:'Copy of societies / trust / company registration',                      url:'assets/docs/trust-deed.pdf'},
    {id:'doc3', key:'state_noc',   name:'Copy of NOC issued by State Government',                                url:'assets/docs/State%20NOC.pdf'},
@@ -1600,10 +1610,8 @@ function initDB(){
    {id:'doc16',key:'fees_68',     name:'Fee structure — Classes 6 to 8',                                        url:'assets/docs/6-8.pdf'},
    {id:'doc17',key:'calendar',    name:'Annual academic calendar',                                              url:'assets/docs/calendar.pdf'},
    {id:'doc18',key:'pta',         name:'List of PTA / SMC members',                                             url:''}
-  ]));
- }
- if(!localStorage.getItem('gallery')){
-  localStorage.setItem('gallery',JSON.stringify([
+ ]);
+ seedArray('gallery', [
    {id:1101, src:'assets/img/about.jpg',       title:'School entrance',                category:'Campus',     addedAt:'2026-04-01'},
    {id:1102, src:'assets/img/campus1.jpeg',    title:'Main campus view',               category:'Campus',     addedAt:'2026-04-01'},
    {id:1103, src:'assets/img/campus2.jpeg',    title:'School building',                category:'Campus',     addedAt:'2026-04-01'},
@@ -1615,37 +1623,24 @@ function initDB(){
    {id:1109, src:'assets/img/activity4.jpeg',  title:'Annual function',                category:'Activities', addedAt:'2026-04-01'},
    {id:1110, src:'assets/img/activity5.jpeg',  title:'Sports day',                     category:'Activities', addedAt:'2026-04-01'},
    {id:1111, src:'assets/img/activity6.jpeg',  title:'Class activity',                 category:'Activities', addedAt:'2026-04-01'}
-  ]));
+ ]);
+
+ // Empty array tables (ready for real-world data)
+ ['feeTransactions','homeworks','complaints','examMarks','payrollSlips','inventory','vehicles','routeMovements','maintenance','expenses','bankAccounts','bankTransactions','correctionRequests','accountingAuditLog','messageLog','ptmEvents','homeworkSubmissions','teacherAuditLog','calendar','documents','chatMessages'].forEach(t => seedArray(t, []));
+
+ // Singleton-object tables (correctly use setObject so they don't get stored as arrays)
+ seedObject('busTracking',   {route1:{lat:null,lng:null,lastUpdate:'',status:''}});
+ seedObject('schoolInfra',   {girlsToilets:0,functionalComputers:0,ramps:false,library:false,incinerator:false,lastUpdated:''});
+ seedObject('udiseReport',   {lastSubmitted:'',ackNo:''});
+
+ // Attendance: keyed by studentId, defaults to empty per-student map
+ if (DB.getScalar('attendanceRecords') === null) {
+  const ar = {};
+  DB.getAll('students').forEach(s => { ar[s.id] = {}; });
+  DB.setObject('attendanceRecords', ar);
  }
- if(!localStorage.getItem('feeTransactions')) localStorage.setItem('feeTransactions','[]');
- if(!localStorage.getItem('homeworks'))       localStorage.setItem('homeworks','[]');
- if(!localStorage.getItem('complaints'))      localStorage.setItem('complaints','[]');
- if(!localStorage.getItem('busTracking'))     localStorage.setItem('busTracking',JSON.stringify({route1:{lat:null,lng:null,lastUpdate:'',status:''}}));
- if(!localStorage.getItem('schoolInfra'))     localStorage.setItem('schoolInfra',JSON.stringify({girlsToilets:0,functionalComputers:0,ramps:false,library:false,incinerator:false,lastUpdated:''}));
- if(!localStorage.getItem('udiseReport'))     localStorage.setItem('udiseReport',JSON.stringify({lastSubmitted:'',ackNo:''}));
- if(!localStorage.getItem('examMarks'))       localStorage.setItem('examMarks','[]');
- if(!localStorage.getItem('payrollSlips'))    localStorage.setItem('payrollSlips','[]');
- if(!localStorage.getItem('attendanceRecords')){
-  let r={};JSON.parse(localStorage.getItem('students')).forEach(s=>{r[s.id]={}});
-  localStorage.setItem('attendanceRecords',JSON.stringify(r));
- }
- if(!localStorage.getItem('inventory'))       localStorage.setItem('inventory','[]');
- if(!localStorage.getItem('vehicles'))        localStorage.setItem('vehicles','[]');
- if(!localStorage.getItem('routeMovements')) localStorage.setItem('routeMovements','[]');
- if(!localStorage.getItem('maintenance'))     localStorage.setItem('maintenance','[]');
- if(!localStorage.getItem('expenses'))        localStorage.setItem('expenses','[]');
- if(!localStorage.getItem('bankAccounts'))    localStorage.setItem('bankAccounts','[]');
- if(!localStorage.getItem('bankTransactions'))localStorage.setItem('bankTransactions','[]');
- if(!localStorage.getItem('correctionRequests'))localStorage.setItem('correctionRequests','[]');
- if(!localStorage.getItem('accountingAuditLog'))localStorage.setItem('accountingAuditLog','[]');
- if(!localStorage.getItem('messageLog'))      localStorage.setItem('messageLog','[]');
- if(!localStorage.getItem('ptmEvents'))       localStorage.setItem('ptmEvents','[]');
- if(!localStorage.getItem('homeworkSubmissions'))localStorage.setItem('homeworkSubmissions','[]');
- if(!localStorage.getItem('teacherAuditLog')) localStorage.setItem('teacherAuditLog','[]');
- if(!localStorage.getItem('calendar'))        localStorage.setItem('calendar','[]');
- if(!localStorage.getItem('documents'))       localStorage.setItem('documents','[]');
- if(!localStorage.getItem('chatMessages'))    localStorage.setItem('chatMessages','[]');
- if(!localStorage.getItem('compliance'))localStorage.setItem('compliance',JSON.stringify([
+
+ seedArray('compliance', [
   {id:'udise',name:'UDISE+ Reporting',desc:'Annual school data submission to MoE',enabled:true,status:'pending',validUntil:'',docRef:'',notes:'',category:'Statutory'},
   {id:'rte',name:'RTE 25% Reservation',desc:'Right to Education quota compliance',enabled:true,status:'pending',validUntil:'',docRef:'',notes:'',category:'Statutory'},
   {id:'cbse',name:'CBSE Affiliation',desc:'Primary regulatory affiliation',enabled:true,status:'pending',validUntil:'',docRef:'',notes:'',category:'Statutory'},
@@ -1664,33 +1659,335 @@ function initDB(){
   {id:'nishtha',name:'Teacher Training (NISHTHA)',desc:'Govt mandated teacher capacity building',enabled:true,status:'pending',validUntil:'',docRef:'',notes:'',category:'Academic'},
   {id:'library',name:'Library Access (RTE)',desc:'Minimum library norms under RTE Act',enabled:true,status:'pending',validUntil:'',docRef:'',notes:'',category:'Academic'},
   {id:'smc',name:'School Management Committee',desc:'Parent-Teacher-Community governance',enabled:true,status:'pending',validUntil:'',docRef:'',notes:'',category:'Governance'}
- ]));
+ ]);
 }
 
-function get(k){return JSON.parse(localStorage.getItem(k))||[]}
-function set(k,d){localStorage.setItem(k,JSON.stringify(d))}
-function getUsers(){return get('users')}
-function getStudents(){return get('students')}
-function getFeeTransactions(){return get('feeTransactions')}
-function getHomeworks(){return get('homeworks')}
-function getComplaints(){return get('complaints')}
-function getTeachers(){return get('teachers')}
-function getSchoolInfra(){return JSON.parse(localStorage.getItem('schoolInfra'))||{}}
-function getExamMarks(){return get('examMarks')}
-function getAttendanceRecords(){return JSON.parse(localStorage.getItem('attendanceRecords'))||{}}
-function getPayrollSlips(){return get('payrollSlips')}
-function getChatMessages(){return get('chatMessages')}
-function getCompliance(){return get('compliance')}
-function saveStudents(d){set('students',d)}
-function saveFeeTransactions(d){set('feeTransactions',d)}
-function saveHomeworks(d){set('homeworks',d)}
-function saveComplaints(d){set('complaints',d)}
-function saveTeachers(d){set('teachers',d)}
-function saveExamMarks(d){set('examMarks',d)}
-function saveAttendanceRecords(d){localStorage.setItem('attendanceRecords',JSON.stringify(d))}
-function savePayrollSlips(d){set('payrollSlips',d)}
-function saveChatMessages(d){set('chatMessages',d)}
-function saveCompliance(d){set('compliance',d)}
+/* ============================================================
+   DATABASE ABSTRACTION LAYER — MIGRATION READY
+   ============================================================
+   ALL data access in the portal flows through `DB.*` methods below.
+   Today it persists to browser localStorage (single-device, no sync).
+   When you fill in DB_CONFIG.SUPABASE_URL + ANON_KEY, the same
+   methods will route to a Supabase cloud database — every device
+   sees the same data, real-time.
+   
+   Architecture:
+   - Three data shapes: 'array' (lists), 'object' (singletons), 'scalar'
+   - DB.getAll/setAll/insert/update/remove → for array tables
+   - DB.getObject/setObject              → for singleton documents
+   - DB.getScalar/setScalar              → for single values
+   
+   Migration plan (where we are):
+   ✓ Milestone 1: Centralize all data access through DB (this file)
+   ☐ Milestone 2: Add Supabase client + cloud read/write
+   ☐ Milestone 3: Auth migration (Supabase Auth replaces local logins)
+   ☐ Milestone 4: One-time data sync (upload local data to cloud)
+   ☐ Milestone 5: Real-time subscriptions (live multi-user)
+============================================================ */
+
+// Configuration — Supabase cloud sync enabled
+const DB_CONFIG = {
+ // MDBV Production Supabase project
+ // NOTE: Anon key is safe to embed (designed for client-side). Service-role key must NEVER be here.
+ // To rotate keys: Supabase dashboard → Settings → API → Reset anon key, then update below.
+ SUPABASE_URL: 'https://cghkcoxgwjkvmzygnfnf.supabase.co',
+ SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNnaGtjb3hnd2prdm16eWduZm5mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE2Njg2MTUsImV4cCI6MjA5NzI0NDYxNX0.SItT3rcuXwnixV_vagD77nI1IkzdNlz4p3lq_JAMxIo'
+};
+
+// Schema metadata — defines every table the app uses.
+// Used by: DB abstraction, future SQL migration, factory reset, validation.
+const DB_SCHEMA = {
+ // ---- Array tables (lists of records, each with .id) ----
+ users:               { type: 'array', desc: 'Login accounts (owner/admin/principal/teacher/parent/student/accountant)' },
+ students:            { type: 'array', desc: 'Student roster' },
+ teachers:            { type: 'array', desc: 'Teacher roster' },
+ feeTransactions:     { type: 'array', desc: 'Fee receipts (money in)' },
+ expenses:            { type: 'array', desc: 'Expense entries (money out)' },
+ bankAccounts:        { type: 'array', desc: 'School bank accounts' },
+ bankTransactions:    { type: 'array', desc: 'Bank deposits / withdrawals' },
+ homeworks:           { type: 'array', desc: 'Homework assignments posted by teachers' },
+ homeworkSubmissions: { type: 'array', desc: 'Student submissions for homework' },
+ examMarks:           { type: 'array', desc: 'Exam marks entered by teachers' },
+ complaints:          { type: 'array', desc: 'Anonymous complaints' },
+ payrollSlips:        { type: 'array', desc: 'Generated salary slips' },
+ chatMessages:        { type: 'array', desc: 'Direct messages between users' },
+ compliance:          { type: 'array', desc: 'Regulatory compliance checklist' },
+ messageLog:          { type: 'array', desc: 'Broadcast messages sent to parents' },
+ ptmEvents:           { type: 'array', desc: 'Parent-Teacher Meeting events' },
+ correctionRequests:  { type: 'array', desc: 'Accountant correction requests to owner' },
+ accountingAuditLog:  { type: 'array', desc: 'Accounting changes audit trail' },
+ teacherAuditLog:     { type: 'array', desc: 'Teacher deletion audit trail' },
+ inventory:           { type: 'array', desc: 'School inventory items' },
+ vehicles:            { type: 'array', desc: 'School transport vehicles' },
+ routeMovements:      { type: 'array', desc: 'Bus route logs' },
+ maintenance:         { type: 'array', desc: 'Vehicle maintenance records' },
+ calendar:            { type: 'array', desc: 'School calendar events' },
+ documents:           { type: 'array', desc: 'Uploaded documents' },
+ broadcastLog:        { type: 'array', desc: 'Broadcast operation log' },
+ enquiries:           { type: 'array', desc: 'Admissions enquiry form submissions' },
+ disclosureDocs:      { type: 'array', desc: 'Mandatory disclosure PDFs list' },
+ gallery:             { type: 'array', desc: 'Gallery image entries' },
+
+ // ---- Singleton objects (one document, not a list) ----
+ schoolInfra:         { type: 'object', desc: 'Infrastructure data (toilets, computers, etc.)' },
+ attendanceRecords:   { type: 'object', desc: 'Attendance keyed by studentId' },
+ busTracking:         { type: 'object', desc: 'Live bus location' },
+ udiseReport:         { type: 'object', desc: 'UDISE+ submission status' },
+
+ // ---- Scalars (single values, not arrays/objects) ----
+ schemaVersion:       { type: 'scalar', desc: 'Internal schema version' },
+ _lastReceiptId:      { type: 'scalar', desc: 'Last receipt ID for post-save print prompt' }
+};
+
+const DB = {
+ // ── Mode detection ──
+ get mode() {
+  return (DB_CONFIG.SUPABASE_URL && DB_CONFIG.SUPABASE_ANON_KEY) ? 'cloud' : 'local';
+ },
+
+ // ── Array operations ──
+ getAll(table) {
+  const raw = localStorage.getItem(table);
+  if (!raw) return [];
+  try {
+   const parsed = JSON.parse(raw);
+   return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
+ },
+ setAll(table, data) {
+  localStorage.setItem(table, JSON.stringify(Array.isArray(data) ? data : []));
+ },
+ insert(table, record) {
+  const all = this.getAll(table);
+  if (!record.id) record.id = Date.now() + Math.floor(Math.random() * 100000);
+  all.push(record);
+  this.setAll(table, all);
+  return record;
+ },
+ update(table, id, changes) {
+  const all = this.getAll(table);
+  const idx = all.findIndex(r => r.id === id);
+  if (idx === -1) return null;
+  Object.assign(all[idx], changes);
+  this.setAll(table, all);
+  return all[idx];
+ },
+ remove(table, id) {
+  const all = this.getAll(table);
+  const filtered = all.filter(r => r.id !== id);
+  this.setAll(table, filtered);
+  return filtered.length !== all.length;
+ },
+ findById(table, id) {
+  return this.getAll(table).find(r => r.id === id);
+ },
+
+ // ── Object operations (singleton documents) ──
+ getObject(table) {
+  const raw = localStorage.getItem(table);
+  if (!raw) return {};
+  try {
+   const parsed = JSON.parse(raw);
+   return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
+  } catch { return {}; }
+ },
+ setObject(table, obj) {
+  localStorage.setItem(table, JSON.stringify(obj || {}));
+ },
+
+ // ── Scalar operations ──
+ getScalar(key) {
+  return localStorage.getItem(key);
+ },
+ setScalar(key, value) {
+  if (value === null || value === undefined) localStorage.removeItem(key);
+  else localStorage.setItem(key, String(value));
+ },
+
+ // ── Key removal & reset ──
+ removeKey(key) { localStorage.removeItem(key); },
+ clearAll() { localStorage.clear(); },
+
+ // ── Diagnostics ──
+ stats() {
+  const out = {};
+  Object.entries(DB_SCHEMA).forEach(([table, meta]) => {
+   if (meta.type === 'array') out[table] = this.getAll(table).length;
+   else if (meta.type === 'object') out[table] = Object.keys(this.getObject(table)).length;
+   else out[table] = this.getScalar(table) === null ? 0 : 1;
+  });
+  return out;
+ },
+
+ // ──────────────────────────────────────────────────────────────
+ // CLOUD SYNC METHODS (Milestone 2)
+ // ──────────────────────────────────────────────────────────────
+ // Mapping: JS camelCase table name → SQL snake_case (and scalar names)
+ _sqlTable(jsName) {
+  // Scalars are stored in a single _scalars table
+  if (DB_SCHEMA[jsName]?.type === 'scalar') return '_scalars';
+  return jsName.replace(/([A-Z])/g, '_$1').toLowerCase();
+ },
+
+ // Lazily initialize the Supabase client
+ _client: null,
+ _supabase() {
+  if (this.mode !== 'cloud') throw new Error('Cloud mode not enabled — set DB_CONFIG.SUPABASE_URL and ANON_KEY');
+  if (this._client) return this._client;
+  if (typeof window.supabase === 'undefined') throw new Error('Supabase client library not loaded (check network)');
+  // Clean up URL — strip trailing /rest/v1/ or / if present
+  const cleanUrl = DB_CONFIG.SUPABASE_URL.replace(/\/+(rest\/v1\/?)?$/, '');
+  this._client = window.supabase.createClient(cleanUrl, DB_CONFIG.SUPABASE_ANON_KEY);
+  return this._client;
+ },
+
+ // Ping the cloud — returns {ok, error?, latencyMs?}
+ async pingCloud() {
+  if (this.mode !== 'cloud') return { ok: false, error: 'Cloud mode disabled (no credentials)' };
+  const t0 = Date.now();
+  try {
+   const sb = this._supabase();
+   const { error } = await sb.from('students').select('id').limit(1);
+   if (error) return { ok: false, error: error.message };
+   return { ok: true, latencyMs: Date.now() - t0 };
+  } catch (e) {
+   return { ok: false, error: e.message };
+  }
+ },
+
+ // Push a single table's local data to cloud
+ async pushTable(jsTable) {
+  const meta = DB_SCHEMA[jsTable];
+  if (!meta) throw new Error(`Unknown table: ${jsTable}`);
+  const sb = this._supabase();
+  const sqlTable = this._sqlTable(jsTable);
+
+  if (meta.type === 'array') {
+   const rows = this.getAll(jsTable);
+   if (rows.length === 0) return { count: 0, table: sqlTable };
+   const payload = rows.map(r => ({ id: r.id, data: r }));
+   const { error } = await sb.from(sqlTable).upsert(payload, { onConflict: 'id' });
+   if (error) throw new Error(`${sqlTable}: ${error.message}`);
+   return { count: rows.length, table: sqlTable };
+  }
+
+  if (meta.type === 'object') {
+   const obj = this.getObject(jsTable);
+   if (Object.keys(obj).length === 0) return { count: 0, table: sqlTable };
+   const { error } = await sb.from(sqlTable).upsert([{ id: 1, data: obj }], { onConflict: 'id' });
+   if (error) throw new Error(`${sqlTable}: ${error.message}`);
+   return { count: 1, table: sqlTable };
+  }
+
+  if (meta.type === 'scalar') {
+   const value = this.getScalar(jsTable);
+   if (value === null) return { count: 0, table: '_scalars' };
+   const { error } = await sb.from('_scalars').upsert([{ key: jsTable, value: String(value) }], { onConflict: 'key' });
+   if (error) throw new Error(`_scalars/${jsTable}: ${error.message}`);
+   return { count: 1, table: '_scalars' };
+  }
+ },
+
+ // Pull a single table FROM cloud into local
+ async pullTable(jsTable) {
+  const meta = DB_SCHEMA[jsTable];
+  if (!meta) throw new Error(`Unknown table: ${jsTable}`);
+  const sb = this._supabase();
+  const sqlTable = this._sqlTable(jsTable);
+
+  if (meta.type === 'array') {
+   const { data: rows, error } = await sb.from(sqlTable).select('data');
+   if (error) throw new Error(`${sqlTable}: ${error.message}`);
+   const arr = (rows || []).map(r => r.data);
+   this.setAll(jsTable, arr);
+   return { count: arr.length, table: sqlTable };
+  }
+
+  if (meta.type === 'object') {
+   const { data: rows, error } = await sb.from(sqlTable).select('data').eq('id', 1).limit(1);
+   if (error) throw new Error(`${sqlTable}: ${error.message}`);
+   if (rows && rows[0]) {
+    this.setObject(jsTable, rows[0].data);
+    return { count: 1, table: sqlTable };
+   }
+   return { count: 0, table: sqlTable };
+  }
+
+  if (meta.type === 'scalar') {
+   const { data: rows, error } = await sb.from('_scalars').select('value').eq('key', jsTable).limit(1);
+   if (error) throw new Error(`_scalars/${jsTable}: ${error.message}`);
+   if (rows && rows[0]) {
+    this.setScalar(jsTable, rows[0].value);
+    return { count: 1, table: '_scalars' };
+   }
+   return { count: 0, table: '_scalars' };
+  }
+ },
+
+ // Push ALL tables to cloud (with optional progress callback)
+ async pushAll(progressCb) {
+  const tables = Object.keys(DB_SCHEMA);
+  const results = {};
+  let i = 0;
+  for (const t of tables) {
+   i++;
+   try {
+    if (progressCb) progressCb({ table: t, step: i, total: tables.length, status: 'syncing' });
+    results[t] = await this.pushTable(t);
+    if (progressCb) progressCb({ table: t, step: i, total: tables.length, status: 'done', count: results[t].count });
+   } catch (e) {
+    results[t] = { error: e.message };
+    if (progressCb) progressCb({ table: t, step: i, total: tables.length, status: 'error', error: e.message });
+   }
+  }
+  return results;
+ },
+
+ // Pull ALL tables from cloud (overwrites local)
+ async pullAll(progressCb) {
+  const tables = Object.keys(DB_SCHEMA);
+  const results = {};
+  let i = 0;
+  for (const t of tables) {
+   i++;
+   try {
+    if (progressCb) progressCb({ table: t, step: i, total: tables.length, status: 'syncing' });
+    results[t] = await this.pullTable(t);
+    if (progressCb) progressCb({ table: t, step: i, total: tables.length, status: 'done', count: results[t].count });
+   } catch (e) {
+    results[t] = { error: e.message };
+    if (progressCb) progressCb({ table: t, step: i, total: tables.length, status: 'error', error: e.message });
+   }
+  }
+  return results;
+ }
+};
+
+// ── Backward-compatible facade functions (every caller still works) ──
+function get(k){ return DB.getAll(k); }
+function set(k, d){ DB.setAll(k, d); }
+function getUsers(){ return DB.getAll('users'); }
+function getStudents(){ return DB.getAll('students'); }
+function getFeeTransactions(){ return DB.getAll('feeTransactions'); }
+function getHomeworks(){ return DB.getAll('homeworks'); }
+function getComplaints(){ return DB.getAll('complaints'); }
+function getTeachers(){ return DB.getAll('teachers'); }
+function getSchoolInfra(){ return DB.getObject('schoolInfra'); }
+function getExamMarks(){ return DB.getAll('examMarks'); }
+function getAttendanceRecords(){ return DB.getObject('attendanceRecords'); }
+function getPayrollSlips(){ return DB.getAll('payrollSlips'); }
+function getChatMessages(){ return DB.getAll('chatMessages'); }
+function getCompliance(){ return DB.getAll('compliance'); }
+function saveStudents(d){ DB.setAll('students', d); }
+function saveFeeTransactions(d){ DB.setAll('feeTransactions', d); }
+function saveHomeworks(d){ DB.setAll('homeworks', d); }
+function saveComplaints(d){ DB.setAll('complaints', d); }
+function saveTeachers(d){ DB.setAll('teachers', d); }
+function saveExamMarks(d){ DB.setAll('examMarks', d); }
+function saveAttendanceRecords(d){ DB.setObject('attendanceRecords', d); }
+function savePayrollSlips(d){ DB.setAll('payrollSlips', d); }
+function saveChatMessages(d){ DB.setAll('chatMessages', d); }
+function saveCompliance(d){ DB.setAll('compliance', d); }
 
 function showToast(m){const t=document.createElement('div');t.className='toast';t.innerText=m;document.body.appendChild(t);setTimeout(()=>t.remove(),3000)}
 function fmtDate(d){if(!d)return '-';return new Date(d).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})}
@@ -1753,7 +2050,7 @@ function renderOwnerDashboard(){
  const st=getStudents(),tc=getTeachers(),c=getComplaints(),inf=getSchoolInfra();
  const tot=st.reduce((a,x)=>a+(x.feeBalance||0),0);
  const pend=c.filter(x=>x.status==='open').length;
- const ud=JSON.parse(localStorage.getItem('udiseReport'));
+ const ud=DB.getObject('udiseReport');
  const comp=getCompliance().filter(x=>x.enabled);
  const ok=comp.filter(x=>x.status==='compliant').length;
  const pen=comp.filter(x=>x.status==='pending').length;
@@ -1834,6 +2131,25 @@ function renderOwnerDashboard(){
   <div class="bg-white rounded-xl shadow-sm p-5 mt-6">
    <h2 class="font-semibold mb-3"><i class="fas fa-file-alt text-gray-600 mr-2"></i>Recent Exam Marks</h2>
    <div id="examMarksSummary" class="text-sm space-y-1 max-h-48 overflow-auto"></div>
+  </div>
+
+  <!-- CLOUD SYNC: Supabase status and push/pull controls -->
+  <div class="bg-sky-50 border-2 border-sky-300 rounded-xl p-5 mt-6">
+   <div class="flex items-center justify-between mb-2">
+    <h2 class="font-semibold text-sky-900"><i class="fas fa-cloud text-sky-600 mr-2"></i>Cloud Sync (Supabase)</h2>
+    <span id="cloudStatusBadge" class="text-xs px-2 py-1 rounded-full bg-gray-200 text-gray-600">Checking...</span>
+   </div>
+   <p class="text-sm text-sky-900 mb-3">
+    Multi-user database is now configured. Use these tools to manually push your local data to the cloud or pull cloud data down. Once the cloud has your data, other users on other devices can also be connected.
+   </p>
+   <div class="flex flex-wrap gap-2 mb-3">
+    <button id="cloudPingBtn" class="bg-sky-600 hover:bg-sky-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-satellite-dish mr-1"></i>Test Connection</button>
+    <button id="cloudPushBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-cloud-arrow-up mr-1"></i>Push Local → Cloud</button>
+    <button id="cloudPullBtn" class="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-cloud-arrow-down mr-1"></i>Pull Cloud → Local</button>
+   </div>
+   <div id="cloudSyncProgress" class="hidden">
+    <div class="bg-white border rounded p-3 text-xs font-mono max-h-64 overflow-auto" id="cloudSyncLog"></div>
+   </div>
   </div>
 
   <!-- DANGER ZONE: data reset for production setup -->
@@ -3425,7 +3741,7 @@ function renderParentTabContent(students){
 function renderParDashboard(students){
  const ar = getAttendanceRecords();
  const em = getExamMarks();
- const subs = JSON.parse(localStorage.getItem('homeworkSubmissions')||'[]');
+ const subs = DB.getAll('homeworkSubmissions');
  const fmtINR = n => 'Rs.' + (n||0).toLocaleString('en-IN');
  return `<div class="space-y-4">
   ${students.map(s => {
@@ -3531,7 +3847,7 @@ function renderParAcademics(students){
  const ar = getAttendanceRecords();
  const em = getExamMarks();
  const allHws = getHomeworks();
- const subs = JSON.parse(localStorage.getItem('homeworkSubmissions')||'[]');
+ const subs = DB.getAll('homeworkSubmissions');
  return `<div class="space-y-4">
   ${students.map(s => {
    const att = ar[s.id] || {};
@@ -3603,7 +3919,7 @@ function renderParAcademics(students){
 
 function renderParMessages(students){
  const studentIds = new Set(students.map(s => s.id));
- const log = JSON.parse(localStorage.getItem('messageLog')||'[]')
+ const log = DB.getAll('messageLog')
   .filter(m => studentIds.has(m.studentId))
   .sort((a,b) => (b.sentAt||'').localeCompare(a.sentAt||''));
  return `<div>
@@ -3630,7 +3946,7 @@ function renderParMessages(students){
 }
 
 function renderParPTM(students){
- const events = JSON.parse(localStorage.getItem('ptmEvents')||'[]').sort((a,b) => (b.date||'').localeCompare(a.date||''));
+ const events = DB.getAll('ptmEvents').sort((a,b) => (b.date||'').localeCompare(a.date||''));
  const studentClasses = new Set(students.map(s => s.class));
  const myEvents = events.filter(e => !e.classes || e.classes.length === 0 || e.classes.some(c => studentClasses.has(c)));
  const today = new Date().toISOString().slice(0,10);
@@ -3722,7 +4038,7 @@ function renderStuDashboard(s){
  const marks=getExamMarks().filter(m=>m.studentId===s.id);
  const att=getAttendanceRecords()[s.id]||{};
  const hws=getHomeworks().filter(h=>String(h.className)===String(s.class));
- const subs=JSON.parse(localStorage.getItem('homeworkSubmissions')||'[]').filter(sub=>sub.studentId===s.id);
+ const subs=DB.getAll('homeworkSubmissions').filter(sub=>sub.studentId===s.id);
  const submittedHwIds = new Set(subs.map(sub => sub.homeworkId));
  const pendingHws = hws.filter(h => !submittedHwIds.has(h.id));
  const pr=Object.values(att).filter(v=>v==='P').length;
@@ -3761,7 +4077,7 @@ function renderStuDashboard(s){
 
 function renderStuHomework(s){
  const hws=getHomeworks().filter(h=>String(h.className)===String(s.class)).sort((a,b) => (b.date||'').localeCompare(a.date||''));
- const subs=JSON.parse(localStorage.getItem('homeworkSubmissions')||'[]').filter(sub=>sub.studentId===s.id);
+ const subs=DB.getAll('homeworkSubmissions').filter(sub=>sub.studentId===s.id);
  const subsByHw = {};
  subs.forEach(sub => { subsByHw[sub.homeworkId] = sub; });
  return `<div class="space-y-3">
@@ -3859,7 +4175,7 @@ function renderStuFees(s){
 }
 
 function renderStuMessages(s){
- const log = JSON.parse(localStorage.getItem('messageLog')||'[]')
+ const log = DB.getAll('messageLog')
   .filter(m => m.studentId === s.id)
   .sort((a,b) => (b.sentAt||'').localeCompare(a.sentAt||''));
  return `<div>
@@ -4055,7 +4371,7 @@ function renderAccReceipts(){
  return `<div>
   ${(() => {
     // If a receipt was just saved, show a "Print last receipt" banner
-    const lastId = localStorage.getItem('_lastReceiptId');
+    const lastId = DB.getScalar('_lastReceiptId');
     if (!lastId) return '';
     const t = getFeeTransactions().find(x => x.id === parseInt(lastId));
     if (!t) return '';
@@ -4951,9 +5267,9 @@ function _printHomework(hwId, studentId){
 }
 
 
-function getCorrectionRequests(){ return JSON.parse(localStorage.getItem('correctionRequests') || '[]'); }
-function saveCorrectionRequests(d){ localStorage.setItem('correctionRequests', JSON.stringify(d)); }
-function getAuditLog(){ return JSON.parse(localStorage.getItem('accountingAuditLog') || '[]'); }
+function getCorrectionRequests(){ return DB.getAll('correctionRequests'); }
+function saveCorrectionRequests(d){ DB.setAll('correctionRequests', d); }
+function getAuditLog(){ return DB.getAll('accountingAuditLog'); }
 function _logAccountingChange(action, kind, before, after, reason){
  const log = getAuditLog();
  log.push({
@@ -4967,7 +5283,7 @@ function _logAccountingChange(action, kind, before, after, reason){
   performedById: currentUser?.id || 0,
   performedAt: new Date().toISOString()
  });
- localStorage.setItem('accountingAuditLog', JSON.stringify(log));
+ DB.setAll('accountingAuditLog', log);
 }
 
 // Reverse the bank/balance side-effect of a transaction (used on edit or delete)
@@ -5215,7 +5531,7 @@ function _deleteTxn(txnId, txnKind){
 // Log a teacher action (delete, modify) to the teacher audit log so it can be reviewed.
 // Teachers can VIEW their own log. Only admin/owner can CLEAR entries.
 function _logTeacherAction(action, kind, item, details){
- const log = JSON.parse(localStorage.getItem('teacherAuditLog') || '[]');
+ const log = DB.getAll('teacherAuditLog');
  log.push({
   id: Date.now() + Math.random(),
   action,                 // 'delete', 'edit', 'create'
@@ -5227,7 +5543,7 @@ function _logTeacherAction(action, kind, item, details){
   byRole: currentUser?.role || '?',
   at: new Date().toISOString()
  });
- localStorage.setItem('teacherAuditLog', JSON.stringify(log));
+ DB.setAll('teacherAuditLog', log);
 }
 
 function _summarizeTeacherItem(kind, item){
@@ -5238,8 +5554,8 @@ function _summarizeTeacherItem(kind, item){
  return JSON.stringify(item).slice(0, 80);
 }
 
-function getTeacherAuditLog(){ return JSON.parse(localStorage.getItem('teacherAuditLog') || '[]'); }
-function saveTeacherAuditLog(d){ localStorage.setItem('teacherAuditLog', JSON.stringify(d)); }
+function getTeacherAuditLog(){ return DB.getAll('teacherAuditLog'); }
+function saveTeacherAuditLog(d){ DB.setAll('teacherAuditLog', d); }
 
 /* ============================================================
    ADMIN: TEACHER AUDIT LOG VIEWER + CLEAR
@@ -5351,7 +5667,7 @@ function renderTchAuditAdminTab(){
 
 // Log a broadcast message to per-recipient log so parents/students can see what was sent to them
 function _logMessageToRecipients(students, message, channel){
- const log = JSON.parse(localStorage.getItem('messageLog') || '[]');
+ const log = DB.getAll('messageLog');
  const sentAt = new Date().toISOString();
  const sentBy = currentUser?.name || '?';
  const sentByRole = currentUser?.role || '?';
@@ -5373,7 +5689,7 @@ function _logMessageToRecipients(students, message, channel){
    sentBy, sentByRole, sentAt
   });
  });
- localStorage.setItem('messageLog', JSON.stringify(log));
+ DB.setAll('messageLog', log);
 }
 
 /* ---------- ACCOUNTANT EVENT HANDLERS ---------- */
@@ -5392,11 +5708,11 @@ function attachAccountantEvents(){
 function _attachReceiptEvents(){
  // Print last receipt banner
  document.getElementById('rcptPrintLastBtn')?.addEventListener('click', () => {
-  const lastId = localStorage.getItem('_lastReceiptId');
+  const lastId = DB.getScalar('_lastReceiptId');
   if (lastId) _printReceipt(lastId);
  });
  document.getElementById('rcptDismissLastBtn')?.addEventListener('click', () => {
-  localStorage.removeItem('_lastReceiptId');
+  DB.removeKey('_lastReceiptId');
   renderApp();
  });
 
@@ -5483,7 +5799,7 @@ function _attachReceiptEvents(){
   showToast('Receipt recorded: Rs.' + amt + ' (' + transaction.receiptNo + ')');
 
   // Save the last receipt id so the post-save banner can offer to print it
-  localStorage.setItem('_lastReceiptId', String(transaction.id));
+  DB.setScalar('_lastReceiptId', String(transaction.id));
   renderApp();
  });
 
@@ -5873,7 +6189,7 @@ function attachOwnerEvents(){
 
  document.getElementById('exportUdisBtn')?.addEventListener('click',exportUdisCSV);
  document.getElementById('viewComplaintsBtn')?.addEventListener('click',()=>{const c=getComplaints().filter(x=>x.status==='open');alert(c.length?'Open Complaints:\n\n'+c.map(x=>'- '+x.text).join('\n'):'No open complaints')});
- document.getElementById('busTrackingBtn')?.addEventListener('click',()=>{const b=JSON.parse(localStorage.getItem('busTracking'))?.route1;alert('Bus Route 1\nLast update: '+(b?.lastUpdate||'-')+'\nStatus: '+(b?.status||'-')+'\nLocation: '+b?.lat+', '+b?.lng)});
+ document.getElementById('busTrackingBtn')?.addEventListener('click',()=>{const b=DB.getObject('busTracking').route1;alert('Bus Route 1\nLast update: '+(b?.lastUpdate||'-')+'\nStatus: '+(b?.status||'-')+'\nLocation: '+b?.lat+', '+b?.lng)});
  document.getElementById('sosMock')?.addEventListener('click',()=>{if(confirm('Trigger Emergency SOS? (Demo only)'))showToast('SOS alert sent to admin, principal and local authorities (demo)')});
  document.getElementById('generatePayrollBtn')?.addEventListener('click',()=>{
   const t=getTeachers(),slips=getPayrollSlips();
@@ -5888,6 +6204,91 @@ function attachOwnerEvents(){
   em.innerHTML=marks.length?marks.slice(-10).map(m=>{const s=students.find(x=>x.id===m.studentId);return `<div class="flex justify-between border-b py-1"><span>${s?.name||'?'} - ${m.subject} (${m.examName})</span><b>${m.marks}/${m.maxMarks}</b></div>`}).join(''):'<div class="text-gray-500">No exam marks recorded</div>';
  }
 
+ // ── CLOUD SYNC: ping, push, pull handlers ──
+ const cloudBadge = document.getElementById('cloudStatusBadge');
+ const cloudLog = document.getElementById('cloudSyncLog');
+ const cloudProgress = document.getElementById('cloudSyncProgress');
+
+ const setBadge = (text, bg, fg) => {
+  if (!cloudBadge) return;
+  cloudBadge.textContent = text;
+  cloudBadge.className = `text-xs px-2 py-1 rounded-full ${bg} ${fg}`;
+ };
+ const appendLog = (line, color) => {
+  if (!cloudLog) return;
+  if (cloudProgress) cloudProgress.classList.remove('hidden');
+  const colorClass = color ? `text-${color}-700` : 'text-gray-700';
+  cloudLog.innerHTML += `<div class="${colorClass}">${line}</div>`;
+  cloudLog.scrollTop = cloudLog.scrollHeight;
+ };
+ const clearLog = () => { if (cloudLog) cloudLog.innerHTML = ''; };
+
+ // Initial status check
+ const checkInitialStatus = async () => {
+  if (DB.mode !== 'cloud') {
+   setBadge('Cloud disabled', 'bg-gray-200', 'text-gray-600');
+   return;
+  }
+  setBadge('Checking...', 'bg-amber-100', 'text-amber-800');
+  const r = await DB.pingCloud();
+  if (r.ok) setBadge(`Connected · ${r.latencyMs}ms`, 'bg-emerald-100', 'text-emerald-800');
+  else setBadge('Connection failed', 'bg-rose-100', 'text-rose-800');
+ };
+ checkInitialStatus();
+
+ document.getElementById('cloudPingBtn')?.addEventListener('click', async () => {
+  clearLog();
+  appendLog('→ Pinging Supabase...');
+  setBadge('Checking...', 'bg-amber-100', 'text-amber-800');
+  const r = await DB.pingCloud();
+  if (r.ok) {
+   appendLog(`✓ Connected (${r.latencyMs}ms round-trip)`, 'emerald');
+   appendLog(`  Project: ${DB_CONFIG.SUPABASE_URL}`);
+   appendLog('  All 34 tables are reachable.');
+   setBadge(`Connected · ${r.latencyMs}ms`, 'bg-emerald-100', 'text-emerald-800');
+  } else {
+   appendLog(`✗ Connection failed: ${r.error}`, 'rose');
+   appendLog('Possible causes:');
+   appendLog('  1. SQL schema not yet run in Supabase — paste supabase-schema.sql in SQL Editor and Run');
+   appendLog('  2. Network issue — check internet');
+   appendLog('  3. URL or anon key is wrong — verify in Supabase → Settings → API');
+   setBadge('Connection failed', 'bg-rose-100', 'text-rose-800');
+  }
+ });
+
+ document.getElementById('cloudPushBtn')?.addEventListener('click', async () => {
+  if (!confirm('PUSH all local data to the cloud database?\n\nThis will UPSERT every record from this browser into Supabase. Existing cloud records with the same ID will be overwritten.\n\nUse this once you have data ready to share across devices, or to back up to the cloud.\n\nContinue?')) return;
+  clearLog();
+  appendLog('→ Pushing all tables to cloud...');
+  const t0 = Date.now();
+  const results = await DB.pushAll(({ table, step, total, status, count, error }) => {
+   if (status === 'done') appendLog(`  [${step}/${total}] ${table.padEnd(22)} ✓ ${count} records`, count > 0 ? 'emerald' : null);
+   else if (status === 'error') appendLog(`  [${step}/${total}] ${table.padEnd(22)} ✗ ${error}`, 'rose');
+  });
+  const totalRecords = Object.values(results).reduce((s, r) => s + (r.count || 0), 0);
+  const errors = Object.entries(results).filter(([, r]) => r.error);
+  appendLog('');
+  appendLog(`Done in ${Math.round((Date.now() - t0)/1000)}s — ${totalRecords} records pushed, ${errors.length} errors.`, errors.length > 0 ? 'amber' : 'emerald');
+  if (errors.length > 0) appendLog('Check Supabase: did you run supabase-schema.sql in SQL Editor first?', 'rose');
+  else appendLog('Open Supabase → Table Editor to see your data.', 'emerald');
+ });
+
+ document.getElementById('cloudPullBtn')?.addEventListener('click', async () => {
+  if (!confirm('PULL all data from the cloud database into this browser?\n\nThis will OVERWRITE all local data with what is in the cloud.\n\nUse this on a fresh device to sync data, or to discard local changes.\n\nContinue?')) return;
+  clearLog();
+  appendLog('→ Pulling all tables from cloud...');
+  const t0 = Date.now();
+  const results = await DB.pullAll(({ table, step, total, status, count, error }) => {
+   if (status === 'done') appendLog(`  [${step}/${total}] ${table.padEnd(22)} ✓ ${count} records`, count > 0 ? 'emerald' : null);
+   else if (status === 'error') appendLog(`  [${step}/${total}] ${table.padEnd(22)} ✗ ${error}`, 'rose');
+  });
+  const totalRecords = Object.values(results).reduce((s, r) => s + (r.count || 0), 0);
+  appendLog('');
+  appendLog(`Done in ${Math.round((Date.now() - t0)/1000)}s — ${totalRecords} records pulled.`, 'emerald');
+  appendLog('Reloading page to refresh UI...');
+  setTimeout(() => location.reload(), 1500);
+ });
+
  // ── DANGER ZONE: data wipe handlers ──
  const FINANCIAL_KEYS = ['feeTransactions','expenses','bankTransactions','bankAccounts','correctionRequests','accountingAuditLog'];
  // Adds students, teachers + all transactional data. Keeps staff user logins (owner/admin/principal/accountant).
@@ -5897,9 +6298,9 @@ function attachOwnerEvents(){
  document.getElementById('wipeFinanceBtn')?.addEventListener('click', () => {
   if (!confirm('WIPE all financial data?\n\nThis clears:\n• Fee receipts (receipts from students)\n• Expenses\n• Bank accounts and bank transactions\n• Correction requests\n• Accounting audit log\n\nKeeps: users, students, teachers, marks, attendance, homework, etc.\n\nThis is PERMANENT. Continue?')) return;
   if (!confirm('Are you absolutely sure? This cannot be undone.')) return;
-  FINANCIAL_KEYS.forEach(k => localStorage.removeItem(k));
+  FINANCIAL_KEYS.forEach(k => DB.removeKey(k));
   // Clear lastReceiptId banner state too
-  localStorage.removeItem('_lastReceiptId');
+  DB.removeKey('_lastReceiptId');
   alert('Financial data wiped. Page will reload now.');
   location.reload();
  });
@@ -5907,13 +6308,13 @@ function attachOwnerEvents(){
  document.getElementById('wipeOperationalBtn')?.addEventListener('click', () => {
   if (!confirm('WIPE all operational + roster data?\n\nThis clears:\n• All students and teachers\n• All parent/student login accounts (only staff logins are kept)\n• All financial records (receipts, expenses, bank, audit)\n• All marks, attendance, homework, complaints\n• All inventory, vehicles, calendar, payroll\n\nKeeps:\n• Owner / Admin / Principal / Accountant logins\n• School config, compliance template\n• Gallery photos, disclosure PDFs\n\nUse this to clean test data before going live. PERMANENT. Continue?')) return;
   if (!confirm('Last chance — really clear all operational + roster data?')) return;
-  OPERATIONAL_KEYS.forEach(k => localStorage.removeItem(k));
-  localStorage.removeItem('_lastReceiptId');
+  OPERATIONAL_KEYS.forEach(k => DB.removeKey(k));
+  DB.removeKey('_lastReceiptId');
   // Filter user accounts: keep only staff (owner/admin/principal/accountant)
   try {
-   const allUsers = JSON.parse(localStorage.getItem('users') || '[]');
+   const allUsers = DB.getAll('users');
    const staffOnly = allUsers.filter(u => STAFF_ROLES.includes(u.role));
-   localStorage.setItem('users', JSON.stringify(staffOnly));
+   DB.setAll('users', staffOnly);
   } catch(e) { /* ignore */ }
   alert('All operational + roster data wiped. Staff logins preserved. Page will reload.');
   location.reload();
@@ -5923,7 +6324,7 @@ function attachOwnerEvents(){
   if (!confirm('FACTORY RESET — clear EVERYTHING?\n\nThis wipes the entire app database:\n• All users (you will be logged out)\n• All students, teachers, parents\n• All transactions, marks, attendance, everything\n\nAfter reload, the app will use the SEED_USERS defaults. Make sure you know how to log back in.\n\nThis is PERMANENT and IRREVERSIBLE. Continue?')) return;
   if (!confirm('Type-test confirmation: are you 100% sure you want to FACTORY RESET this app?')) return;
   if (!confirm('Final warning: this will log you out and remove ALL data. Proceed?')) return;
-  localStorage.clear();
+  DB.clearAll();
   alert('Factory reset complete. Logging out and reloading.');
   location.reload();
  });
@@ -6996,7 +7397,7 @@ function attachStudentEvents(){
    const hwId = parseInt(document.getElementById('stuUploadHwId').value);
    const notes = document.getElementById('stuUploadNotes').value.trim();
    if (!pendingFileData && !notes) { alert('Please attach a file or write notes'); return; }
-   const subs = JSON.parse(localStorage.getItem('homeworkSubmissions')||'[]');
+   const subs = DB.getAll('homeworkSubmissions');
    subs.push({
     id: Date.now(),
     homeworkId: hwId,
@@ -7007,7 +7408,7 @@ function attachStudentEvents(){
     notes: notes || null,
     status: 'submitted'
    });
-   localStorage.setItem('homeworkSubmissions', JSON.stringify(subs));
+   DB.setAll('homeworkSubmissions', subs);
    document.getElementById('stuUploadModal').classList.add('hidden');
    showToast('Submission uploaded — your teacher can now view it');
    renderApp();
@@ -7016,8 +7417,8 @@ function attachStudentEvents(){
   document.querySelectorAll('.stuDelSubBtn').forEach(b => b.addEventListener('click', () => {
    if (!confirm('Remove your submission? You can resubmit after.')) return;
    const subId = parseInt(b.dataset.sub);
-   const subs = JSON.parse(localStorage.getItem('homeworkSubmissions')||'[]').filter(s => s.id !== subId);
-   localStorage.setItem('homeworkSubmissions', JSON.stringify(subs));
+   const subs = DB.getAll('homeworkSubmissions').filter(s => s.id !== subId);
+   DB.setAll('homeworkSubmissions', subs);
    showToast('Submission removed');
    renderApp();
   }));
@@ -7238,7 +7639,7 @@ function attachAdminAccountsEvents(){
    GALLERY ADMIN — admin manages photos shown on public Gallery page
 ============================================================ */
 function renderGalleryAdminTab(){
- const photos = JSON.parse(localStorage.getItem('gallery') || '[]');
+ const photos = DB.getAll('gallery');
  // Estimate localStorage usage (only roughly)
  const sizeKB = Math.round((JSON.stringify(photos).length / 1024));
  return `<div>
@@ -7313,9 +7714,9 @@ function attachGalleryAdminEvents(){
  document.getElementById('galUrlSave')?.addEventListener('click', () => {
   const url = document.getElementById('galUrlInput').value.trim();
   if (!url) { alert('Please enter an image URL'); return; }
-  const photos = JSON.parse(localStorage.getItem('gallery') || '[]');
+  const photos = DB.getAll('gallery');
   photos.push({ id: Date.now(), src: url, title: document.getElementById('galUrlTitle').value.trim(), category: document.getElementById('galUrlCat').value, addedAt: new Date().toISOString() });
-  localStorage.setItem('gallery', JSON.stringify(photos));
+  DB.setAll('gallery', photos);
   document.getElementById('galUrlModal').classList.add('hidden');
   showToast('Photo added to gallery');
   refresh();
@@ -7325,7 +7726,7 @@ function attachGalleryAdminEvents(){
   if (!files.length) { alert('Please select at least one file'); return; }
   const defaultTitle = document.getElementById('galFileTitle').value.trim();
   const defaultCat = document.getElementById('galFileCat').value;
-  const photos = JSON.parse(localStorage.getItem('gallery') || '[]');
+  const photos = DB.getAll('gallery');
 
   const resizeImage = (file, maxW = 1200) => new Promise((res, rej) => {
    const img = new Image();
@@ -7355,7 +7756,7 @@ function attachGalleryAdminEvents(){
   }
 
   try {
-   localStorage.setItem('gallery', JSON.stringify(photos));
+   DB.setAll('gallery', photos);
    showToast(`Uploaded ${added} photo${added !== 1 ? 's' : ''}${failed ? ` (${failed} failed)` : ''}`);
   } catch (e) {
    showToast('Storage quota exceeded — try smaller/fewer photos, or use the URL option instead');
@@ -7365,20 +7766,20 @@ function attachGalleryAdminEvents(){
  });
  document.querySelectorAll('.galDelete').forEach(b => b.addEventListener('click', () => {
   if (!confirm('Delete this photo?')) return;
-  const photos = JSON.parse(localStorage.getItem('gallery') || '[]').filter(p => String(p.id) !== String(b.dataset.id));
-  localStorage.setItem('gallery', JSON.stringify(photos));
+  const photos = DB.getAll('gallery').filter(p => String(p.id) !== String(b.dataset.id));
+  DB.setAll('gallery', photos);
   showToast('Photo deleted');
   refresh();
  }));
  document.querySelectorAll('.galTitle').forEach(inp => inp.addEventListener('blur', () => {
-  const photos = JSON.parse(localStorage.getItem('gallery') || '[]');
+  const photos = DB.getAll('gallery');
   const i = photos.findIndex(p => String(p.id) === String(inp.dataset.id));
-  if (i > -1) { photos[i].title = inp.value; localStorage.setItem('gallery', JSON.stringify(photos)); }
+  if (i > -1) { photos[i].title = inp.value; DB.setAll('gallery', photos); }
  }));
  document.querySelectorAll('.galCat').forEach(sel => sel.addEventListener('change', () => {
-  const photos = JSON.parse(localStorage.getItem('gallery') || '[]');
+  const photos = DB.getAll('gallery');
   const i = photos.findIndex(p => String(p.id) === String(sel.dataset.id));
-  if (i > -1) { photos[i].category = sel.value; localStorage.setItem('gallery', JSON.stringify(photos)); showToast('Category updated'); }
+  if (i > -1) { photos[i].category = sel.value; DB.setAll('gallery', photos); showToast('Category updated'); }
  }));
 }
 
@@ -7386,7 +7787,7 @@ function attachGalleryAdminEvents(){
    DISCLOSURE DOCUMENTS ADMIN — manage PDF links for public Disclosure page
 ============================================================ */
 function renderDisclosureDocsTab(){
- const docs = JSON.parse(localStorage.getItem('disclosureDocs') || '[]');
+ const docs = DB.getAll('disclosureDocs');
  return `<div>
   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
    <h2 class="text-lg font-bold"><i class="fas fa-file-pdf text-red-600 mr-1"></i>Mandatory Disclosure Documents (CBSE)</h2>
@@ -7430,19 +7831,19 @@ function attachDisclosureDocsEvents(){
  document.querySelectorAll('.ddSaveBtn').forEach(b => b.addEventListener('click', () => {
   const inp = document.querySelector(`.ddUrl[data-id="${b.dataset.id}"]`);
   if (!inp) return;
-  const docs = JSON.parse(localStorage.getItem('disclosureDocs') || '[]');
+  const docs = DB.getAll('disclosureDocs');
   const i = docs.findIndex(d => String(d.id) === String(b.dataset.id));
   if (i > -1) {
    docs[i].url = inp.value.trim();
-   localStorage.setItem('disclosureDocs', JSON.stringify(docs));
+   DB.setAll('disclosureDocs', docs);
    showToast(docs[i].url ? 'Document URL saved' : 'URL cleared');
    refresh();
   }
  }));
  document.querySelectorAll('.ddDelBtn').forEach(b => b.addEventListener('click', () => {
   if (!confirm('Remove this document row from the disclosure list?')) return;
-  const docs = JSON.parse(localStorage.getItem('disclosureDocs') || '[]').filter(d => String(d.id) !== String(b.dataset.id));
-  localStorage.setItem('disclosureDocs', JSON.stringify(docs));
+  const docs = DB.getAll('disclosureDocs').filter(d => String(d.id) !== String(b.dataset.id));
+  DB.setAll('disclosureDocs', docs);
   showToast('Row removed');
   refresh();
  }));
@@ -7454,9 +7855,9 @@ function attachDisclosureDocsEvents(){
  document.getElementById('ddNewSave')?.addEventListener('click', () => {
   const name = document.getElementById('ddNewName').value.trim();
   if (!name) { alert('Document name is required'); return; }
-  const docs = JSON.parse(localStorage.getItem('disclosureDocs') || '[]');
+  const docs = DB.getAll('disclosureDocs');
   docs.push({ id: 'doc' + Date.now(), key: 'custom_' + Date.now(), name, url: document.getElementById('ddNewUrl').value.trim() });
-  localStorage.setItem('disclosureDocs', JSON.stringify(docs));
+  DB.setAll('disclosureDocs', docs);
   document.getElementById('ddAddModal').classList.add('hidden');
   showToast('Document added');
   refresh();
@@ -7947,7 +8348,7 @@ const BROADCAST_TEMPLATES = {
 
 function renderBroadcastTab(){
  const students = getStudents();
- const log = JSON.parse(localStorage.getItem('broadcastLog') || '[]');
+ const log = DB.getAll('broadcastLog');
  return `<div>
   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
    <h2 class="text-lg font-bold"><i class="fas fa-bullhorn text-burgundy mr-1" style="color:#7a1e2e"></i>Broadcast to Parents (WhatsApp / SMS)</h2>
@@ -8136,14 +8537,14 @@ function attachBroadcastEvents(){
 
  // Log a broadcast for the audit trail
  const logBroadcast = (template, recipientCount) => {
-  const log = JSON.parse(localStorage.getItem('broadcastLog') || '[]');
+  const log = DB.getAll('broadcastLog');
   log.push({
    date: new Date().toISOString(),
    template: BROADCAST_TEMPLATES[template]?.label || 'Custom',
    recipientCount,
    sender: currentUser?.name || 'Admin'
   });
-  localStorage.setItem('broadcastLog', JSON.stringify(log));
+  DB.setAll('broadcastLog', log);
  };
 
  // === Generate WhatsApp links ===
@@ -8236,6 +8637,12 @@ function attachBroadcastEvents(){
 
 /* ============================================================
    BACKUP / RESTORE TAB — export and import all localStorage data as JSON
+   
+   NOTE: This tab intentionally uses raw localStorage.* to operate at
+   the storage layer (it's a low-level dump/restore tool).
+   When cloud mode is enabled (milestone 2), this needs to be re-implemented
+   as: download Supabase tables to JSON / upload JSON to Supabase tables.
+   Until then, this works only on localStorage data.
 ============================================================ */
 function renderBackupTab(){
  const keys = Object.keys(localStorage);
