@@ -344,6 +344,11 @@
   #portal .from-indigo-500, #portal .from-indigo-600 { --tw-gradient-from: #7a1e2e !important; }
   #portal .to-purple-600 { --tw-gradient-to: #5a1220 !important; }
   #portal .from-indigo-50, #portal .via-purple-50, #portal .to-pink-50 { --tw-gradient-from: #faf6ef !important; --tw-gradient-via: #f1e9d9 !important; --tw-gradient-to: #ede2cc !important; }
+  /* Mobile overflow guard: never let the page scroll sideways */
+  html, body { max-width: 100%; overflow-x: hidden; }
+  #portal, #public-site { max-width: 100vw; overflow-x: hidden; }
+  /* Tables and wide content scroll inside their own container, not the page */
+  #portal table { max-width: 100%; }
 </style>
 </head>
 <body>
@@ -2341,7 +2346,7 @@ function renderOwnerDashboard(){
  const auditCount = getAuditLog().length;
  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
   <div class="flex flex-wrap justify-between items-center gap-2">
-   <div><h1 class="text-2xl font-bold text-gray-900"><i class="fas fa-crown text-amber-500 mr-2"></i>Owner Dashboard</h1><p class="text-gray-600 text-sm">Welcome, ${currentUser.name} - Binauli, Baghpat</p></div>
+   <div class="min-w-0"><h1 class="text-xl md:text-2xl font-bold text-gray-900"><i class="fas fa-crown text-amber-500 mr-2"></i>Owner Dashboard</h1><p class="text-gray-600 text-xs md:text-sm truncate">Welcome, ${currentUser.name} - Binauli, Baghpat</p></div>
    <button id="logoutBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-4 py-2 rounded-lg font-medium text-sm"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
   </div>
   ${renderNoticesForCurrentUser(3)}
@@ -2358,7 +2363,6 @@ function renderOwnerDashboard(){
     ${pen?`<span class="pill pill-amber">${pen} Pending</span>`:''}
     ${exp?`<span class="pill pill-red">${exp} Expiring &lt; 30 days</span>`:''}
     <button id="ownerOpenComplianceBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium ml-auto"><i class="fas fa-edit mr-1"></i>Manage Compliance</button>
-    <button id="ownerOpenNoticesBtn" class="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-thumbtack mr-1"></i>Manage Notices</button>
    </div>
    <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3 text-xs">
     ${comp.slice(0,8).map(c=>{const cls=c.status==='compliant'?'text-emerald-700':c.status==='pending'?'text-amber-700':'text-gray-500';const ic=c.status==='compliant'?'check-circle':c.status==='pending'?'clock':'minus-circle';return `<div class="${cls}"><i class="fas fa-${ic} mr-1"></i>${c.name}</div>`}).join('')}
@@ -3098,8 +3102,8 @@ function renderTeachersTab(){
    <button id="addTeacherBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-plus mr-1"></i>Add Teacher</button>
   </div>
   <div class="overflow-x-auto">
-   <table class="border text-sm"><thead><tr><th>Photo</th><th>Name</th><th>Subject</th><th>Qualification</th><th>Emp. ID</th><th>Joined</th><th>Salary</th><th>Phone</th><th>Actions</th></tr></thead>
-   <tbody>${ts.map(t=>`<tr><td>${t.photo?`<img src="${t.photo}" class="w-9 h-9 rounded-full object-cover" alt="">`:`<div class="w-9 h-9 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold">${initials(t.name)}</div>`}</td><td class="font-medium">${t.name}</td><td>${t.subject||'-'}</td><td>${t.qualification||'-'}</td><td>${t.employeeId || t.udiseTeacherId || '-'}</td><td>${t.trainingDate?fmtDate(t.trainingDate):'-'}</td><td>Rs.${(t.salary||0).toLocaleString('en-IN')}</td><td>${t.phone||'-'}</td><td class="whitespace-nowrap"><button class="editTeacherBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${t.id}" title="Edit"><i class="fas fa-edit"></i></button> <button class="delTeacherBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Delete"><i class="fas fa-trash"></i></button></td></tr>`).join('')}</tbody></table>
+   <table class="border text-sm"><thead><tr><th>Photo</th><th>Name</th><th>Subject</th><th>Classes</th><th>Qualification</th><th>Emp. ID</th><th>Joined</th><th>Salary</th><th>Phone</th><th>Actions</th></tr></thead>
+   <tbody>${ts.map(t=>`<tr><td>${t.photo?`<img src="${t.photo}" class="w-9 h-9 rounded-full object-cover" alt="">`:`<div class="w-9 h-9 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold">${initials(t.name)}</div>`}</td><td class="font-medium">${t.name}</td><td>${t.subject||'-'}</td><td class="text-xs">${(Array.isArray(t.assignedClasses)&&t.assignedClasses.length)?t.assignedClasses.join(', '):'<span class="text-amber-600">none</span>'}</td><td>${t.qualification||'-'}</td><td>${t.employeeId || t.udiseTeacherId || '-'}</td><td>${t.trainingDate?fmtDate(t.trainingDate):'-'}</td><td>Rs.${(t.salary||0).toLocaleString('en-IN')}</td><td>${t.phone||'-'}</td><td class="whitespace-nowrap"><button class="editTeacherBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${t.id}" title="Edit"><i class="fas fa-edit"></i></button> <button class="delTeacherBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Delete"><i class="fas fa-trash"></i></button></td></tr>`).join('')}</tbody></table>
   </div>
 
   <!-- Teacher Activity Audit Log (admin oversight) -->
@@ -3156,6 +3160,13 @@ function renderTeachersTab(){
     <div><label class="text-xs">Blood Group</label><select id="tchBlood"><option value="">—</option><option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>AB+</option><option>AB-</option><option>O+</option><option>O-</option></select></div>
     <div class="col-span-2"><label class="text-xs">Address</label><input id="tchAddress"></div>
     <div><label class="text-xs">Bank A/C (last 4)</label><input id="tchBank"></div>
+   </div>
+   <div class="mt-3 border-t pt-3">
+    <label class="text-xs font-semibold block mb-1"><i class="fas fa-chalkboard mr-1 text-purple-600"></i>Classes Assigned</label>
+    <p class="text-xs text-gray-500 mb-2">Tick the classes this teacher handles. They will only see and mark attendance/marks for these classes.</p>
+    <div class="flex flex-wrap gap-2" id="tchClassesBox">
+     ${ALL_CLASSES.map(c => `<label class="inline-flex items-center gap-1 text-xs border rounded px-2 py-1 cursor-pointer hover:bg-purple-50"><input type="checkbox" class="tchClassChk w-auto" value="${c}"> ${c}</label>`).join('')}
+    </div>
    </div>
    <div class="flex justify-end gap-2 mt-4"><button class="closeModal bg-gray-300 px-4 py-2 rounded-lg">Cancel</button><button id="saveTeacherBtn" class="bg-indigo-600 text-white px-4 py-2 rounded-lg">Save</button></div>
   </div></div>
@@ -4038,6 +4049,32 @@ let activeTeacherTab = 'dashboard';
 let attendanceMode = 'mark'; // 'mark' or 'view'
 let teacherClassFilter = ''; // currently-selected class for attendance/homework/marks
 
+// ── Teacher class-scope helpers ──
+// A teacher is assigned a set of classes by the admin (teacher.assignedClasses).
+// All teacher views (dashboard, attendance, My Class) are scoped to these classes only.
+function _currentTeacherRecord(){
+ return getTeachers().find(t => t.id === currentUser?.teacherId) || null;
+}
+function _teacherAssignedClasses(){
+ const t = _currentTeacherRecord();
+ const list = (t && Array.isArray(t.assignedClasses)) ? t.assignedClasses : [];
+ // Keep only classes that actually exist in ALL_CLASSES, preserve school order
+ return ALL_CLASSES.filter(c => list.includes(c));
+}
+// Students belonging to this teacher's assigned classes
+function _teacherScopedStudents(){
+ const classes = _teacherAssignedClasses();
+ if (classes.length === 0) return [];
+ return getStudents().filter(s => classes.includes(s.class));
+}
+// Small reusable "no classes assigned" notice
+function _noClassAssignedNotice(){
+ return `<div class="bg-amber-50 border-l-4 border-amber-400 p-5 rounded text-amber-900">
+  <div class="font-semibold mb-1"><i class="fas fa-circle-info mr-1"></i>No class assigned to you yet</div>
+  <div class="text-sm">You haven't been assigned to any class. Please ask the school admin to assign your class(es) from <b>Admin → Teachers → Edit → Classes Assigned</b>. Once assigned, your students will appear here.</div>
+ </div>`;
+}
+
 function renderTeacherPanel(){
  const tabs = [
   {id:'dashboard',  label:'Dashboard',  icon:'gauge-high'},
@@ -4105,12 +4142,13 @@ function renderTchAudit(){
 /* ---------- TAB 1: DASHBOARD ---------- */
 function renderTchDashboard(){
  const today = new Date().toISOString().slice(0,10);
- const students = getStudents();
+ const students = _teacherScopedStudents();
+ const myClasses = _teacherAssignedClasses();
  const ar = getAttendanceRecords();
  const myHws = getHomeworks().filter(h => h.teacherId === currentUser.id || h.teacher === currentUser.name);
  const myMarks = getExamMarks().filter(m => m.teacherId === currentUser.id || m.teacher === currentUser.name);
 
- // Compute attendance status today across classes
+ // Compute attendance status today across MY classes only
  const presentToday = students.filter(s => ar[s.id]?.[today] === 'P').length;
  const absentToday = students.filter(s => ar[s.id]?.[today] === 'A').length;
  const pendingToday = students.length - presentToday - absentToday;
@@ -4124,7 +4162,7 @@ function renderTchDashboard(){
    <div class="flex flex-wrap items-center justify-between gap-2">
     <div>
      <h2 class="font-display text-2xl text-purple-900">Welcome, ${currentUser.name}</h2>
-     <div class="text-sm text-purple-700 mt-1">Here's your overview for today</div>
+     <div class="text-sm text-purple-700 mt-1">${myClasses.length > 0 ? 'Your classes: <b>'+myClasses.join(', ')+'</b>' : "Here's your overview for today"}</div>
     </div>
     <div class="text-right">
      <div class="text-xs text-purple-600">Today</div>
@@ -4198,6 +4236,7 @@ function renderTchDashboard(){
 
 /* ---------- TAB 2: ATTENDANCE ---------- */
 function renderTchAttendance(){
+ if (_teacherAssignedClasses().length === 0) return _noClassAssignedNotice();
  return `<div>
   <div class="flex flex-wrap gap-2 mb-4">
    <button class="att-mode px-4 py-2 rounded-lg text-sm font-medium ${attendanceMode==='mark'?'bg-emerald-600 text-white':'bg-gray-100 hover:bg-gray-200'}" data-mode="mark"><i class="fas fa-pen-to-square mr-1"></i>Mark Attendance</button>
@@ -4208,13 +4247,14 @@ function renderTchAttendance(){
 }
 
 function renderTchAttendanceMark(){
+ const myClasses = _teacherAssignedClasses();
  return `<div class="bg-white border rounded-lg p-4">
   <div class="grid md:grid-cols-3 gap-3 mb-4">
    <div>
     <label class="text-xs font-medium">Class *</label>
     <select id="attMarkClass">
      <option value="">— Select class —</option>
-     ${ALL_CLASSES.map(c => `<option ${teacherClassFilter===c?'selected':''}>${c}</option>`).join('')}
+     ${myClasses.map(c => `<option ${teacherClassFilter===c?'selected':''}>${c}</option>`).join('')}
     </select>
    </div>
    <div>
@@ -4242,7 +4282,7 @@ function renderTchAttendanceView(){
     <label class="text-xs font-medium">Class</label>
     <select id="attViewClass">
      <option value="">— Select class —</option>
-     ${ALL_CLASSES.map(c => `<option>${c}</option>`).join('')}
+     ${_teacherAssignedClasses().map(c => `<option>${c}</option>`).join('')}
     </select>
    </div>
    <div>
@@ -4336,6 +4376,7 @@ function renderTchHomework(){
 
 /* ---------- TAB 4: MARKS ---------- */
 function renderTchMarks(){
+ if (_teacherAssignedClasses().length === 0) return _noClassAssignedNotice();
  const myMarks = getExamMarks().filter(m => m.teacherId === currentUser.id || m.teacher === currentUser.name);
  const exams = [...new Set(myMarks.map(m => m.examName))];
  return `<div>
@@ -4346,7 +4387,7 @@ function renderTchMarks(){
      <label class="text-xs font-medium">Class *</label>
      <select id="mkClass">
       <option value="">— Select class —</option>
-      ${ALL_CLASSES.map(c => `<option>${c}</option>`).join('')}
+      ${_teacherAssignedClasses().map(c => `<option>${c}</option>`).join('')}
      </select>
     </div>
     <div>
@@ -4388,13 +4429,15 @@ function renderTchMarks(){
 
 /* ---------- TAB 5: MY CLASS ---------- */
 function renderTchClass(){
- const students = getStudents();
+ const myClasses = _teacherAssignedClasses();
+ if (myClasses.length === 0) return _noClassAssignedNotice();
+ const students = _teacherScopedStudents();
  const ar = getAttendanceRecords();
  const today = new Date().toISOString().slice(0,10);
- // Show all classes the teacher can see (all classes for now)
+ // Only this teacher's assigned classes
  const byClass = {};
  students.forEach(s => { (byClass[s.class] = byClass[s.class] || []).push(s); });
- const classes = ALL_CLASSES.filter(c => byClass[c]);
+ const classes = myClasses.filter(c => byClass[c]);
  return `<div>
   <div class="bg-white border rounded-lg p-4 mb-4">
    <h3 class="font-semibold mb-3"><i class="fas fa-users text-indigo-600 mr-1"></i>My Classes & Students</h3>
@@ -8575,6 +8618,8 @@ function attachTeachersTabEvents(){
   document.getElementById('tchBlood').value = '';
   const prev = document.getElementById('tchPhotoPreview');
   if (prev) { prev.innerHTML = '?'; prev.textContent = '?'; }
+  // Reset class checkboxes
+  document.querySelectorAll('.tchClassChk').forEach(chk => { chk.checked = false; });
 
   if (existingId) {
    const t = getTeachers().find(x => x.id === parseInt(existingId));
@@ -8594,6 +8639,9 @@ function attachTeachersTabEvents(){
     document.getElementById('tchAddress').value = t.address || '';
     document.getElementById('tchBlood').value = t.bloodGroup || '';
     document.getElementById('tchPhoto').value = t.photo || '';
+    // Tick assigned classes
+    const assigned = Array.isArray(t.assignedClasses) ? t.assignedClasses : [];
+    document.querySelectorAll('.tchClassChk').forEach(chk => { chk.checked = assigned.includes(chk.value); });
     if (prev) {
      if (t.photo) prev.innerHTML = `<img src="${t.photo}" class="w-full h-full object-cover">`;
      else prev.textContent = initials(t.name);
@@ -8644,7 +8692,8 @@ function attachTeachersTabEvents(){
    dob: document.getElementById('tchDob').value,
    address: document.getElementById('tchAddress').value.trim(),
    bloodGroup: document.getElementById('tchBlood').value,
-   photo: document.getElementById('tchPhoto').value || ''
+   photo: document.getElementById('tchPhoto').value || '',
+   assignedClasses: Array.from(document.querySelectorAll('.tchClassChk')).filter(c => c.checked).map(c => c.value)
   };
   const teachers = getTeachers();
   if (id) {
