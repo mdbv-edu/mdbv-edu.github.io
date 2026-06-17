@@ -2092,22 +2092,40 @@ const DB = {
   this._syncState = 'syncing';
   this._notifySyncUI('syncing');
   let anyError = false;
+  let missingTables = [];
   for (const t of tables) {
    try {
     await this.pushTable(t);
    } catch (e) {
-    anyError = true;
-    this._lastSyncError = e.message;
-    // Re-queue failed table for next flush
-    this._pendingTables.add(t);
+    const msg = e.message || '';
+    // A missing table (schema not created in Supabase) will never succeed by
+    // retrying — record it but DON'T re-queue, so it can't block everything.
+    const isMissingTable = /does not exist|could not find the table|relation .* does not exist|schema cache/i.test(msg);
+    if (isMissingTable) {
+     missingTables.push(this._sqlTable(t));
+     this._lastSyncError = `Table "${this._sqlTable(t)}" not found in Supabase. Run the matching SQL file once in the Supabase SQL Editor.`;
+     // do not re-queue — avoids endless error loop
+    } else {
+     anyError = true;
+     this._lastSyncError = msg;
+     this._pendingTables.add(t); // transient error — retry this one
+    }
    }
+  }
+  if (missingTables.length > 0) {
+   // Surface a clear, one-time console hint for the operator
+   console.warn('[MDBV Sync] Missing Supabase tables:', missingTables.join(', '),
+    '\nFix: run supabase-add-notices.sql and/or supabase-add-feestructures.sql in the Supabase SQL Editor.');
   }
   if (anyError) {
    this._syncState = navigator.onLine === false ? 'offline' : 'error';
    this._notifySyncUI(this._syncState);
-   // Retry failed tables in 10s
    if (this._syncTimer) clearTimeout(this._syncTimer);
    this._syncTimer = setTimeout(() => this._flushSync(), 10000);
+  } else if (missingTables.length > 0) {
+   // Everything that COULD sync did; only missing-table tables failed.
+   this._syncState = 'error';
+   this._notifySyncUI('error');
   } else {
    this._syncState = 'idle';
    this._lastSyncAt = new Date();
@@ -3371,21 +3389,24 @@ function getVisibleNotices(){
  const u = currentUser;
  if (!u) return [];
  const today = new Date().toISOString().slice(0,10);
+ const role = u.role;
  return getNotices()
   .filter(n => {
    if (n.expiry && n.expiry < today) return false; // expired
    const aud = n.audience || 'all';
    if (aud === 'all') return true;
-   if (aud === 'staff') return ['owner','admin','principal','accountant','teacher'].includes(u.role);
-   if (aud === 'teachers') return u.role === 'teacher' || ['owner','admin','principal'].includes(u.role);
-   if (aud === 'parents') return u.role === 'parent' || ['owner','admin','principal'].includes(u.role);
-   if (aud === 'students') return u.role === 'student' || ['owner','admin','principal'].includes(u.role);
+   // Strict targeting: each user sees only notices addressed to them.
+   // (Leadership still sees EVERYTHING in the Notice Board management tab — this
+   //  filter only controls the dashboard widget, keeping dashboards uncluttered.)
+   if (aud === 'staff')    return ['owner','admin','principal','accountant','teacher'].includes(role);
+   if (aud === 'teachers') return role === 'teacher';
+   if (aud === 'parents')  return role === 'parent';
+   if (aud === 'students') return role === 'student';
    if (aud.startsWith('class:')) {
     const cls = aud.slice(6);
-    // staff see all; parents/students see if their (child's) class matches
-    if (['owner','admin','principal','teacher'].includes(u.role)) return true;
-    if (u.role === 'student') { const s = getStudents().find(x => x.id === u.studentId); return s && s.class === cls; }
-    if (u.role === 'parent') { const kids = (typeof _findChildrenForParent==='function') ? _findChildrenForParent(u) : []; return kids.some(k => k.class === cls); }
+    if (role === 'teacher') { const t = (typeof _currentTeacherRecord==='function') ? _currentTeacherRecord() : null; return t && Array.isArray(t.assignedClasses) && t.assignedClasses.includes(cls); }
+    if (role === 'student') { const s = getStudents().find(x => x.id === u.studentId); return s && s.class === cls; }
+    if (role === 'parent')  { const kids = (typeof _findChildrenForParent==='function') ? _findChildrenForParent(u) : []; return kids.some(k => k.class === cls); }
     return false;
    }
    return true;
@@ -4793,11 +4814,12 @@ function _attachMarksEvents(){
   if (!exam) { alert('Enter exam name'); return; }
   const all = getExamMarks();
   let count = 0;
+  let seq = 0;
   document.querySelectorAll('.mkInput').forEach(i => {
    const v = parseInt(i.value);
    if (!isNaN(v)) {
     all.push({
-     id: Date.now() + Math.random(),
+     id: Date.now() + (seq++) * 1000 + Math.floor(Math.random() * 1000),
      studentId: parseInt(i.dataset.sid),
      examName: exam, subject: sub,
      marks: v, maxMarks: max,
@@ -6858,7 +6880,7 @@ function getAuditLog(){ return DB.getAll('accountingAuditLog'); }
 function _logAccountingChange(action, kind, before, after, reason){
  const log = getAuditLog();
  log.push({
-  id: Date.now() + Math.random(),
+  id: Date.now() + Math.floor(Math.random() * 100000),
   action, // 'edit' | 'delete' | 'approve' | 'reject'
   kind,   // 'receipt' | 'expense' | 'request'
   before: before ? JSON.parse(JSON.stringify(before)) : null,
@@ -7118,7 +7140,7 @@ function _deleteTxn(txnId, txnKind){
 function _logTeacherAction(action, kind, item, details){
  const log = DB.getAll('teacherAuditLog');
  log.push({
-  id: Date.now() + Math.random(),
+  id: Date.now() + Math.floor(Math.random() * 100000),
   action,                 // 'delete', 'edit', 'create'
   kind,                   // 'homework', 'marks', 'attendance'
   itemId: item?.id || null,
@@ -7265,7 +7287,7 @@ function _logMessageToRecipients(students, message, channel){
    .replaceAll('{feeBalance}', String(s.feeBalance || 0))
    .replaceAll('{schoolName}', SCHOOL_INFO.name);
   log.push({
-   id: Date.now() + Math.random(),
+   id: Date.now() + Math.floor(Math.random() * 100000),
    studentId: s.id,
    studentName: s.name,
    parentPhone: s.parentPhone || '',
@@ -7820,7 +7842,7 @@ function attachOwnerEvents(){
  document.getElementById('generatePayrollBtn')?.addEventListener('click',()=>{
   const t=getTeachers(),slips=getPayrollSlips();
   const m=new Date().toLocaleString('en-IN',{month:'long',year:'numeric'});
-  t.forEach(tc=>slips.push({id:Date.now()+Math.random(),teacherId:tc.id,teacherName:tc.name,month:m,amount:tc.salary||0,generatedOn:new Date().toISOString()}));
+  t.forEach((tc,idx)=>slips.push({id:Date.now()+idx*1000+Math.floor(Math.random()*1000),teacherId:tc.id,teacherName:tc.name,month:m,amount:tc.salary||0,generatedOn:new Date().toISOString()}));
   savePayrollSlips(slips);showToast('Payroll slips generated for '+t.length+' teachers ('+m+')');
  });
  document.getElementById('viewPayrollHistoryBtn')?.addEventListener('click',()=>{const s=getPayrollSlips();alert(s.length?'Payroll History:\n\n'+s.slice(-10).map(x=>x.month+' - '+x.teacherName+' - Rs.'+x.amount).join('\n'):'No payroll history yet')});
@@ -9488,7 +9510,7 @@ function attachGalleryAdminEvents(){
   for (const f of files) {
    try {
     const dataUrl = await resizeImage(f);
-    photos.push({ id: Date.now() + Math.random(), src: dataUrl, title: defaultTitle || f.name.replace(/\.[^.]+$/, ''), category: defaultCat, addedAt: new Date().toISOString() });
+    photos.push({ id: Date.now() + Math.floor(Math.random() * 100000), src: dataUrl, title: defaultTitle || f.name.replace(/\.[^.]+$/, ''), category: defaultCat, addedAt: new Date().toISOString() });
     added++;
    } catch (e) { failed++; }
   }
@@ -10630,8 +10652,10 @@ function updateSyncBadge(state, lastSyncAt, errorMsg){
  } else if (state === 'error') {
   b.style.background = '#fee2e2'; b.style.color = '#991b1b';
   icon.textContent = '⚠'; icon.style.animation = '';
-  text.textContent = 'Sync error — will retry';
+  text.textContent = 'Sync issue — tap';
   b.title = errorMsg || '';
+  b.style.cursor = 'pointer';
+  b.onclick = () => { if (errorMsg) alert('Sync issue:\n\n' + errorMsg); };
  }
 }
 
