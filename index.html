@@ -1724,6 +1724,10 @@ const ENABLE_SEED_DATA = true;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ END SCHOOL DATA ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+// seedIfEmpty is called AFTER the startup cloud pull, so it only fills genuinely
+// empty tables and never overwrites real data pulled from the cloud.
+function seedIfEmpty(){ return initDB(); }
+
 function initDB(){
  // NON-DESTRUCTIVE: only seeds keys that don't exist. Never wipes existing data.
  // Uses `DB.getScalar(key) === null` to check whether a table has ever been initialized.
@@ -2146,13 +2150,14 @@ const DB = {
  // rapid writes, then push the changed tables to cloud in the background.
  // The UI never blocks — writes are instant locally, sync happens after.
 
- _syncEnabled: true,        // master switch (auto-on in cloud mode)
+ _syncEnabled: false,       // master switch — OFF until startup pull completes (prevents seed→push race that wiped cloud data)
  _pendingTables: new Set(), // tables waiting to be pushed
  _syncTimer: null,          // debounce timer
  _syncState: 'idle',        // 'idle' | 'syncing' | 'error' | 'offline'
  _lastSyncAt: null,         // timestamp of last successful sync
  _lastSyncError: null,      // last error message
  _syncDebounceMs: 1500,     // wait this long after last write before pushing
+ _startupDone: false,       // becomes true once the initial cloud pull + seed has settled
 
  // Called by setAll/setObject after every write
  _queueSync(table) {
@@ -2168,7 +2173,10 @@ const DB = {
 
  // Push all pending tables to cloud
  async _flushSync() {
-  if (this.mode !== 'cloud' || this._pendingTables.size === 0) return;
+  // Hard safety gate: never push unless startup pull completed and sync is enabled.
+  // This is the last line of defense against pushing seed placeholders over cloud data.
+  if (this.mode !== 'cloud' || !this._syncEnabled || !this._startupDone) return;
+  if (this._pendingTables.size === 0) return;
   const tables = [...this._pendingTables];
   this._pendingTables.clear();
   this._syncState = 'syncing';
@@ -2231,24 +2239,38 @@ const DB = {
 
  // Pull latest from cloud on startup, with safe fallback to local
  async syncOnStartup() {
-  if (this.mode !== 'cloud') return { ok: false, reason: 'local mode' };
+  if (this.mode !== 'cloud') { this._syncEnabled = true; this._startupDone = true; return { ok: false, reason: 'local mode' }; }
   try {
    const ping = await this.pingCloud();
    if (!ping.ok) {
+    // Offline: do NOT enable sync push yet (we have no cloud truth to compare against).
+    // Local data stays as-is; we'll sync when back online without clobbering cloud.
     this._syncState = 'offline';
     this._notifySyncUI('offline');
+    this._startupDone = true;
     return { ok: false, reason: ping.error };
    }
-   // Pull all tables down (cloud is source of truth on startup)
+   // CLOUD IS SOURCE OF TRUTH ON STARTUP.
+   // Pull everything down FIRST (sync still disabled, so the pulls don't re-queue pushes).
    await this.pullAll();
+   // Re-seed ONLY tables that are still empty after the pull (first-ever run / brand-new tables).
+   // This is the critical fix: if cloud already had users/data, they are now loaded and
+   // seedIfEmpty() will NOT overwrite them with CHANGE_ME placeholders.
+   if (typeof seedIfEmpty === 'function') seedIfEmpty();
+   // Now it is safe to turn auto-sync ON. Clear any stray queue from the pull/seed.
+   this._pendingTables.clear();
+   this._syncEnabled = true;
+   this._startupDone = true;
    this._syncState = 'idle';
    this._lastSyncAt = new Date();
    this._notifySyncUI('idle');
    return { ok: true };
   } catch (e) {
+   // On error, leave sync OFF so we never push local placeholders over cloud data.
    this._syncState = 'error';
    this._lastSyncError = e.message;
    this._notifySyncUI('error');
+   this._startupDone = true;
    return { ok: false, reason: e.message };
   }
  }
@@ -10840,7 +10862,15 @@ function attachBackupEvents(){
 /* ============================================================
    INITIALIZATION
 ============================================================ */
-initDB();
+// IMPORTANT ORDERING (fixes the "data resets on every push" bug):
+// - In LOCAL mode: seed immediately (no cloud to pull from).
+// - In CLOUD mode: DO NOT seed yet. syncOnStartup() will pull cloud data FIRST,
+//   then seed only-empty tables, then enable auto-sync. This guarantees a fresh
+//   page load (e.g. right after a GitHub push) can never push CHANGE_ME
+//   placeholders over your real cloud data.
+if (DB.mode !== 'cloud') {
+  initDB();
+}
 showPage('home');
 
 // Wire up login modal buttons
@@ -10908,25 +10938,36 @@ if (DB.mode === 'cloud') {
  DB.syncOnStartup().then(r => {
   if (r.ok) {
    updateSyncBadge('idle', DB._lastSyncAt);
-   // Re-render whatever's on screen so pulled data shows
    if (typeof renderApp === 'function' && currentUser) renderApp();
   } else {
+   // Cloud unreachable or errored. We did NOT seed before (cloud mode), so if local
+   // is also empty (brand-new device, offline), seed now so the app is usable.
+   // Sync stays OFF in this state so we never push placeholders over cloud data;
+   // it re-enables on a successful pull (reconnect / manual Pull).
+   if (getUsers().length === 0) { seedIfEmpty(); }
    updateSyncBadge(DB._syncState, null, r.reason);
   }
  });
 }
 
-// Flush pending writes before the page closes (best-effort)
+// Flush pending writes before the page closes (best-effort).
+// Only if sync is enabled (startup pull succeeded) — never push placeholders over cloud.
 window.addEventListener('beforeunload', () => {
- if (DB.mode === 'cloud' && DB._pendingTables.size > 0) {
-  // Synchronous-ish: fire the push without awaiting (browser allows brief work)
+ if (DB.mode === 'cloud' && DB._syncEnabled && DB._startupDone && DB._pendingTables.size > 0) {
   DB._flushSync();
  }
 });
 
-// Detect coming back online → flush any queued changes
+// Detect coming back online. If startup never completed a successful pull, do a full
+// syncOnStartup (pull-first) instead of pushing — protects cloud data after an offline start.
 window.addEventListener('online', () => {
- if (DB.mode === 'cloud' && DB._pendingTables.size > 0) DB._flushSync();
+ if (DB.mode !== 'cloud') return;
+ if (!DB._syncEnabled) {
+  // We started offline and never pulled. Pull now (safe), then sync turns on.
+  DB.syncOnStartup().then(r => { if (r.ok) updateSyncBadge('idle', DB._lastSyncAt); });
+ } else if (DB._pendingTables.size > 0) {
+  DB._flushSync();
+ }
 });
 
 </script>
