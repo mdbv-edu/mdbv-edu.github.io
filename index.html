@@ -601,6 +601,58 @@
 ============================================================ */
 let currentPage = 'home';
 let currentUser = null;
+
+/* ============================================================
+   PASSWORD SECURITY (Milestone 4, Path A)
+   Passwords are stored as PBKDF2-SHA256 hashes, never plaintext.
+   Format: "pbkdf2$<iterations>$<saltB64>$<hashB64>"
+   Backward compatible: legacy plaintext passwords still verify and
+   are transparently upgraded to a hash on the next successful login,
+   so no one is ever locked out by the migration.
+============================================================ */
+const PW_ITERATIONS = 100000;
+
+function _b64(bytes){ let s=''; const a=new Uint8Array(bytes); for(let i=0;i<a.length;i++) s+=String.fromCharCode(a[i]); return btoa(s); }
+function _unb64(str){ const bin=atob(str); const a=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) a[i]=bin.charCodeAt(i); return a; }
+
+async function _deriveHash(password, saltBytes, iterations){
+ const enc = new TextEncoder();
+ const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
+ const bits = await crypto.subtle.deriveBits(
+  { name:'PBKDF2', salt: saltBytes, iterations, hash:'SHA-256' },
+  keyMaterial, 256
+ );
+ return new Uint8Array(bits);
+}
+
+// Produce a storable hash string for a new/changed password
+async function hashPassword(password){
+ const salt = crypto.getRandomValues(new Uint8Array(16));
+ const hash = await _deriveHash(password, salt, PW_ITERATIONS);
+ return `pbkdf2$${PW_ITERATIONS}$${_b64(salt)}$${_b64(hash)}`;
+}
+
+function isHashed(stored){ return typeof stored === 'string' && stored.startsWith('pbkdf2$'); }
+
+// Verify a typed password against a stored value (hash OR legacy plaintext)
+async function verifyPassword(typed, stored){
+ if (stored === null || stored === undefined) return false;
+ if (!isHashed(stored)) {
+  // Legacy plaintext — compare directly (migration path)
+  return typed === stored;
+ }
+ try {
+  const parts = stored.split('$'); // ['pbkdf2', iterations, salt, hash]
+  const iterations = parseInt(parts[1]) || PW_ITERATIONS;
+  const salt = _unb64(parts[2]);
+  const expected = parts[3];
+  const got = _b64(await _deriveHash(typed, salt, iterations));
+  if (got.length !== expected.length) return false;
+  let diff = 0; for (let i=0;i<got.length;i++) diff |= got.charCodeAt(i) ^ expected.charCodeAt(i);
+  return diff === 0;
+ } catch { return false; }
+}
+
 let activeAdminTab = 'dashboard';
 let activePrincipalTab = 'dashboard';
 let activeStudentProfileTab = 'personal';
@@ -675,7 +727,7 @@ function openChangePasswordModal() {
 function closeChangePasswordModal() {
   document.getElementById('changePasswordModal').classList.add('hidden');
 }
-function submitChangePassword() {
+async function submitChangePassword() {
   const err = document.getElementById('cpError');
   const showErr = (msg) => { if (err) { err.textContent = msg; err.classList.remove('hidden'); } };
   if (!currentUser) { showErr('No user is logged in.'); return; }
@@ -689,16 +741,19 @@ function submitChangePassword() {
   const me = users.find(u => u.id === currentUser.id);
   if (!me) { showErr('Your account could not be found. Please log in again.'); return; }
 
-  if (current !== me.password) { showErr('Current password is incorrect.'); return; }
+  const currentOk = await verifyPassword(current, me.password);
+  if (!currentOk) { showErr('Current password is incorrect.'); return; }
   if (!next || next.length < 6) { showErr('New password must be at least 6 characters.'); return; }
   if (next === current) { showErr('New password must be different from the current one.'); return; }
   if (next !== confirm) { showErr('New password and confirmation do not match.'); return; }
 
-  // Update — this is the user changing THEIR OWN password, always allowed
-  me.password = next;
+  // Store a secure hash (never plaintext), clear any default-password flag
+  const hashed = await hashPassword(next);
+  me.password = hashed;
+  me.defaultPw = false;
   set('users', users);
-  // Keep the in-memory session in sync
-  currentUser.password = next;
+  currentUser.password = hashed;
+  currentUser.defaultPw = false;
 
   closeChangePasswordModal();
   showToast('Your password has been updated');
@@ -1649,10 +1704,10 @@ const SEED_USERS = [
   // Roles must be one of: owner, admin, principal, teacher, parent, accountant, student
   // Teacher and parent logins are created automatically via "Bulk Generate" after adding
   // teachers/students — they are intentionally NOT seeded here.
-  {id: 1, username: 'owner',     password: 'CHANGE_ME', role: 'owner',      name: 'Owner Name'},
-  {id: 2, username: 'admin',     password: 'CHANGE_ME', role: 'admin',      name: 'Admin Name'},
-  {id: 3, username: 'principal', password: 'CHANGE_ME', role: 'principal',  name: 'Principal Name'},
-  {id: 6, username: 'accountant',password: 'CHANGE_ME', role: 'accountant', name: 'Accountant Name'}
+  {id: 1, username: 'owner',     password: 'CHANGE_ME', role: 'owner',      name: 'Owner Name', defaultPw: true},
+  {id: 2, username: 'admin',     password: 'CHANGE_ME', role: 'admin',      name: 'Admin Name', defaultPw: true},
+  {id: 3, username: 'principal', password: 'CHANGE_ME', role: 'principal',  name: 'Principal Name', defaultPw: true},
+  {id: 6, username: 'accountant',password: 'CHANGE_ME', role: 'accountant', name: 'Accountant Name', defaultPw: true}
 ];
 
 const SEED_STUDENTS = [
@@ -2283,11 +2338,23 @@ function exportUdisCSV(){
 }
 
 /* Login handler — wired to my existing #loginSubmitBtn */
-function loginUser(){
+async function loginUser(){
  const u=document.getElementById('loginUsername').value.trim();
  const p=document.getElementById('loginPassword').value;
- const user=getUsers().find(x=>x.username===u&&x.password===p);
- if(user){currentUser=user;closeLoginModal();enterPortal();showToast('Welcome, '+user.name)}
+ const user=getUsers().find(x=>x.username===u);
+ const ok = user ? await verifyPassword(p, user.password) : false;
+ if(ok){
+  // Transparent upgrade: if this account still stores a legacy plaintext password,
+  // replace it with a secure hash now (so plaintext disappears over time).
+  if(!isHashed(user.password)){
+   try {
+    const users = getUsers();
+    const rec = users.find(x => x.id === user.id);
+    if (rec) { rec.password = await hashPassword(p); set('users', users); }
+   } catch(e){ /* non-fatal — login still proceeds */ }
+  }
+  currentUser=user;closeLoginModal();enterPortal();showToast('Welcome, '+user.name);
+ }
  else { document.getElementById('loginError').classList.remove('hidden'); }
 }
 
@@ -2497,11 +2564,11 @@ function renderOwnerDashboard(){
       <p class="text-sm text-gray-700">Add staff, parents, students; change passwords; print login slips.</p>
       <div class="flex flex-wrap gap-3 mt-2 text-sm">
        <span class="text-gray-700 text-xs"><i class="fas fa-users mr-1"></i>${getUsers().length} login${getUsers().length===1?'':'s'}</span>
-       ${(() => { const placeholders = getUsers().filter(u => u.password === 'CHANGE_ME').length; return placeholders > 0 ? `<span class="pill pill-red"><i class="fas fa-key mr-1"></i>${placeholders} default password${placeholders===1?'':'s'}</span>` : '<span class="text-emerald-700 text-xs"><i class="fas fa-circle-check mr-1"></i>All passwords set</span>'; })()}
+       ${(() => { const placeholders = getUsers().filter(u => u.defaultPw || u.password === 'CHANGE_ME').length; return placeholders > 0 ? `<span class="pill pill-red"><i class="fas fa-key mr-1"></i>${placeholders} default password${placeholders===1?'':'s'}</span>` : '<span class="text-emerald-700 text-xs"><i class="fas fa-circle-check mr-1"></i>All passwords set</span>'; })()}
       </div>
      </div>
     </div>
-    <button id="ownerOpenUsersBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3 ${getUsers().filter(u=>u.password==='CHANGE_ME').length>0?'animate-pulse':''}">
+    <button id="ownerOpenUsersBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3 ${getUsers().filter(u=>u.defaultPw||u.password==='CHANGE_ME').length>0?'animate-pulse':''}">
      <i class="fas fa-arrow-right-to-bracket mr-1"></i>Manage Users
     </button>
    </div>
@@ -8837,7 +8904,7 @@ function attachTeachersTabEvents(){
  document.getElementById('addTeacherBtn')?.addEventListener('click', () => openTeacherModal(null));
  document.querySelectorAll('.editTeacherBtn').forEach(b => b.addEventListener('click', () => openTeacherModal(b.dataset.id)));
 
- document.getElementById('saveTeacherBtn')?.addEventListener('click', () => {
+ document.getElementById('saveTeacherBtn')?.addEventListener('click', async () => {
   const name = document.getElementById('tchName').value.trim();
   if (!name) { alert('Name required'); return; }
   const id = document.getElementById('tchId').value;
@@ -8874,7 +8941,7 @@ function attachTeachersTabEvents(){
    data.id = Date.now();
    teachers.push(data);
    saveTeachers(teachers);
-   const r = createLoginForTeacher(data);
+   const r = await createLoginForTeacher(data);
    document.getElementById('teacherModal').classList.add('hidden');
    showToast('Teacher added' + (r.created ? ' — login created (' + _genUsername('teacher', data) + ')' : ''));
   }
@@ -9038,7 +9105,7 @@ function attachDataManagementEvents(){
  document.getElementById('dmAddStudentBtn')?.addEventListener('click', () => openStudentModal(null));
  document.querySelectorAll('.dmEditStudentBtn').forEach(b => b.addEventListener('click', () => openStudentModal(b.dataset.id)));
 
- document.getElementById('dmSaveStudentBtn')?.addEventListener('click', () => {
+ document.getElementById('dmSaveStudentBtn')?.addEventListener('click', async () => {
   const name = document.getElementById('dmStuName').value.trim();
   if (!name) { alert('Student name is required'); return; }
   const id = document.getElementById('dmStuId').value;
@@ -9084,7 +9151,7 @@ function attachDataManagementEvents(){
     const wantParentLogin = document.getElementById('dmStuCreateParent')?.checked;
     if (wantStudentLogin || wantParentLogin) {
       saveStudents(all); // save first so the user record can link to it
-      const result = createLoginsForStudent(data, { student: wantStudentLogin, parent: wantParentLogin });
+      const result = await createLoginsForStudent(data, { student: wantStudentLogin, parent: wantParentLogin });
       createdMsg = result.message;
     }
     showToast('Student added to Class ' + data.class + (createdMsg ? ' — ' + createdMsg : ''));
@@ -9950,13 +10017,16 @@ function attachUsersTabEvents(){
     document.getElementById('userModalId').value = u.id;
     document.getElementById('userModalName').value = u.name || '';
     document.getElementById('userModalUsername').value = u.username || '';
-    document.getElementById('userModalPassword').value = u.password || '';
+    // Never show the stored hash. Blank = keep current password.
+    document.getElementById('userModalPassword').value = '';
+    document.getElementById('userModalPassword').placeholder = 'Leave blank to keep current password';
     document.getElementById('userModalRole').value = u.role || 'teacher';
     document.getElementById('userModalTeacherId').value = u.teacherId || '';
     document.getElementById('userModalStudentId').value = u.studentId || '';
    }
   } else {
    document.getElementById('userModalTitle').innerText = 'Add User';
+   document.getElementById('userModalPassword').placeholder = 'Set a password';
   }
   // Show/hide linked-id rows based on role
   const roleSel = document.getElementById('userModalRole');
@@ -9984,15 +10054,17 @@ function attachUsersTabEvents(){
   showToast('User deleted');
   refresh();
  }));
- document.getElementById('userModalSave')?.addEventListener('click', () => {
+ document.getElementById('userModalSave')?.addEventListener('click', async () => {
   const name = document.getElementById('userModalName').value.trim();
   const username = document.getElementById('userModalUsername').value.trim();
   const password = document.getElementById('userModalPassword').value;
   const role = document.getElementById('userModalRole').value;
+  const id = document.getElementById('userModalId').value;
   if (!name) { alert('Display name required'); return; }
   if (!username) { alert('Username required'); return; }
-  if (!password) { alert('Password required'); return; }
-  const id = document.getElementById('userModalId').value;
+  // On NEW user a password is required; on EDIT, blank means "keep current".
+  if (!id && !password) { alert('Password required for a new account'); return; }
+  if (password && password.length < 4) { alert('Password must be at least 4 characters'); return; }
   const users = getUsers();
 
   // Permission guard: admin cannot create/edit into protected roles, nor edit a protected target
@@ -10013,11 +10085,13 @@ function attachUsersTabEvents(){
   // Check for duplicate username (except when editing the same user)
   const dupe = users.find(u => u.username === username && (!id || u.id !== parseInt(id)));
   if (dupe) { alert(`Username "${username}" is already taken`); return; }
-  const data = { name, username, password, role };
+  const data = { name, username, role };
   const teacherId = parseInt(document.getElementById('userModalTeacherId').value);
   const studentId = parseInt(document.getElementById('userModalStudentId').value);
   if (role === 'teacher' && teacherId) data.teacherId = teacherId;
   if (role === 'student' && studentId) data.studentId = studentId;
+  // Hash the password if one was entered; otherwise keep the existing one (edit mode)
+  if (password) { data.password = await hashPassword(password); data.defaultPw = false; }
   if (id) {
    const i = users.findIndex(x => x.id === parseInt(id));
    if (i > -1) users[i] = { ...users[i], ...data };
@@ -10040,12 +10114,13 @@ function attachUsersTabEvents(){
   document.getElementById('bulkGenModal').classList.remove('hidden');
  });
 
- document.getElementById('bulkGenRun')?.addEventListener('click', () => {
+ document.getElementById('bulkGenRun')?.addEventListener('click', async () => {
   const wantStu = document.getElementById('bulkGenStudents').checked;
   const wantPar = document.getElementById('bulkGenParents').checked;
   const wantTea = document.getElementById('bulkGenTeachers').checked;
   if (!wantStu && !wantPar && !wantTea) { alert('Pick at least one category'); return; }
-  const result = bulkGenerateLogins({ student: wantStu, parent: wantPar, teacher: wantTea });
+  showToast('Generating secure logins...');
+  const result = await bulkGenerateLogins({ student: wantStu, parent: wantPar, teacher: wantTea });
   document.getElementById('bulkGenModal').classList.add('hidden');
   alert(result.summary);
   refresh();
@@ -10096,7 +10171,7 @@ function _uniqueUsername(base, existingUsernames) {
 // Creates student and/or parent login for one student record.
 // `flags` = { student: true/false, parent: true/false }
 // Returns { created: number, message: string }
-function createLoginsForStudent(student, flags) {
+async function createLoginsForStudent(student, flags) {
  const users = getUsers();
  const taken = users.map(u => u.username);
  let created = 0;
@@ -10110,7 +10185,7 @@ function createLoginsForStudent(student, flags) {
     const username = _uniqueUsername(baseU, taken);
     const newUser = {
      id: Math.max(0, ...users.map(u => u.id)) + 1 + created,
-     username, password: _genPassword('student', student),
+     username, password: await hashPassword(_genPassword('student', student)), defaultPw: true,
      role: 'student', name: student.name, studentId: student.id
     };
     users.push(newUser); taken.push(username); created++;
@@ -10127,7 +10202,7 @@ function createLoginsForStudent(student, flags) {
     const username = _uniqueUsername(baseU, taken);
     const newUser = {
      id: Math.max(0, ...users.map(u => u.id)) + 1 + created,
-     username, password: _genPassword('parent', student),
+     username, password: await hashPassword(_genPassword('parent', student)), defaultPw: true,
      role: 'parent',
      name: (student.fatherName || student.parentName || 'Parent') + ' (' + student.name + ')',
      linkedStudentId: student.id
@@ -10145,7 +10220,7 @@ function createLoginsForStudent(student, flags) {
  };
 }
 
-function createLoginForTeacher(teacher) {
+async function createLoginForTeacher(teacher) {
  const users = getUsers();
  const exists = users.some(u => u.role === 'teacher' && u.teacherId === teacher.id);
  if (exists) return { created: 0, message: 'login already exists' };
@@ -10155,7 +10230,7 @@ function createLoginForTeacher(teacher) {
  const username = _uniqueUsername(baseU, taken);
  const newUser = {
   id: Math.max(0, ...users.map(u => u.id)) + 1,
-  username, password: _genPassword('teacher', teacher),
+  username, password: await hashPassword(_genPassword('teacher', teacher)), defaultPw: true,
   role: 'teacher', name: teacher.name, teacherId: teacher.id
  };
  users.push(newUser);
@@ -10165,25 +10240,25 @@ function createLoginForTeacher(teacher) {
 
 // Bulk-create accounts for all records that don't already have one.
 // `flags` = { student, parent, teacher }
-function bulkGenerateLogins(flags) {
+async function bulkGenerateLogins(flags) {
  const students = getStudents();
  const teachers = getTeachers();
  let stuCreated = 0, parCreated = 0, teaCreated = 0;
  let stuSkipped = 0, parSkipped = 0, teaSkipped = 0;
 
- students.forEach(s => {
-  const r = createLoginsForStudent(s, { student: flags.student, parent: flags.parent });
+ for (const s of students) {
+  const r = await createLoginsForStudent(s, { student: flags.student, parent: flags.parent });
   if (flags.student && r.message.includes('student')) stuCreated++;
   else if (flags.student) stuSkipped++;
   if (flags.parent && r.message.includes('parent')) parCreated++;
   else if (flags.parent) parSkipped++;
- });
+ }
 
  if (flags.teacher) {
-  teachers.forEach(t => {
-   const r = createLoginForTeacher(t);
+  for (const t of teachers) {
+   const r = await createLoginForTeacher(t);
    if (r.created) teaCreated++; else teaSkipped++;
-  });
+  }
  }
 
  const lines = [];
@@ -10198,6 +10273,26 @@ function bulkGenerateLogins(flags) {
 }
 
 // Generates a printable Excel with all credentials, organized by role/class.
+// Passwords are stored as hashes, so for the sheet we regenerate the DEFAULT
+// password (deterministic rule) for accounts still on their default, and show
+// "(set by user)" for accounts whose owner has changed it.
+function _displayPasswordForSheet(user){
+ if (!user.defaultPw) return '(set by user — ask them or reset)';
+ if (user.role === 'student') {
+  const s = getStudents().find(x => x.id === user.studentId);
+  return s ? _genPassword('student', s) : '(default)';
+ }
+ if (user.role === 'parent') {
+  const s = getStudents().find(x => x.id === user.linkedStudentId);
+  return s ? _genPassword('parent', s) : '(default)';
+ }
+ if (user.role === 'teacher') {
+  const t = getTeachers().find(x => x.id === user.teacherId);
+  return t ? _genPassword('teacher', t) : '(default)';
+ }
+ return 'CHANGE_ME';
+}
+
 function exportLoginSheet() {
  const users = getUsers();
  const students = getStudents();
@@ -10216,7 +10311,7 @@ function exportLoginSheet() {
  html += `<tr><td colspan="6" style="background:#1f3a2b;color:#fff;font-weight:bold;padding:6px;">STAFF ACCOUNTS (${staff.length})</td></tr>`;
  html += '<tr style="background:#e7e5e4;font-weight:bold;"><td>S.No</td><td>Role</td><td>Name</td><td>Username</td><td>Password</td><td>Notes</td></tr>';
  staff.forEach((u, i) => {
-  html += `<tr><td>${i+1}</td><td>${u.role}</td><td>${u.name||''}</td><td>${u.username}</td><td>${u.password}</td><td>Change password on first login</td></tr>`;
+  html += `<tr><td>${i+1}</td><td>${u.role}</td><td>${u.name||''}</td><td>${u.username}</td><td>${_displayPasswordForSheet(u)}</td><td>Change password on first login</td></tr>`;
  });
 
  // Students by class
@@ -10235,7 +10330,7 @@ function exportLoginSheet() {
   html += `<tr><td colspan="6" style="background:#fef3c7;font-weight:bold;padding:5px;">Class ${cls} (${byClass[cls].length})</td></tr>`;
   html += '<tr style="background:#f5f5f4;font-weight:bold;"><td>Roll</td><td>Reg. No</td><td>Name</td><td>Username</td><td>Password</td><td>Father / Phone</td></tr>';
   byClass[cls].sort((a,b) => (a.student?.rollNo||0) - (b.student?.rollNo||0)).forEach(({ user, student }) => {
-   html += `<tr><td>${student?.rollNo||''}</td><td>${student?.registrationNo||''}</td><td>${user.name}</td><td>${user.username}</td><td>${user.password}</td><td>${student?.fatherName||''} / ${student?.parentPhone||''}</td></tr>`;
+   html += `<tr><td>${student?.rollNo||''}</td><td>${student?.registrationNo||''}</td><td>${user.name}</td><td>${user.username}</td><td>${_displayPasswordForSheet(user)}</td><td>${student?.fatherName||''} / ${student?.parentPhone||''}</td></tr>`;
   });
  });
 
@@ -10254,7 +10349,7 @@ function exportLoginSheet() {
   html += `<tr><td colspan="6" style="background:#ede9fe;font-weight:bold;padding:5px;">Class ${cls} parents (${parentByClass[cls].length})</td></tr>`;
   html += '<tr style="background:#f5f5f4;font-weight:bold;"><td>S.No</td><td>Student Reg. No</td><td>Parent Name</td><td>Username</td><td>Password (Phone)</td><td>Student</td></tr>';
   parentByClass[cls].sort((a,b) => (a.student?.rollNo||0) - (b.student?.rollNo||0)).forEach(({ user, student }, i) => {
-   html += `<tr><td>${i+1}</td><td>${student?.registrationNo||''}</td><td>${user.name}</td><td>${user.username}</td><td>${user.password}</td><td>${student?.name||''}</td></tr>`;
+   html += `<tr><td>${i+1}</td><td>${student?.registrationNo||''}</td><td>${user.name}</td><td>${user.username}</td><td>${_displayPasswordForSheet(user)}</td><td>${student?.name||''}</td></tr>`;
   });
  });
 
