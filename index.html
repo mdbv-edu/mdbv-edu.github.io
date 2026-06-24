@@ -214,12 +214,18 @@
 
   /* Mobile menu */
   .mobile-menu { display: none; }
+  .mobile-menu-btn { display: none; }
   @media (max-width: 1024px) {
-    .desktop-nav { display: none; }
-    .mobile-menu-btn { display: flex; }
+    /* !important needed because the element also carries Tailwind's `flex` utility,
+       which would otherwise win over `display:none` and leave the wide desktop nav
+       showing on phones (causing the page to scroll sideways). */
+    .desktop-nav { display: none !important; }
+    .mobile-menu-btn { display: flex !important; }
   }
   @media (min-width: 1025px) {
-    .mobile-menu-btn { display: none; }
+    .desktop-nav { display: flex !important; }
+    .mobile-menu-btn { display: none !important; }
+    .mobile-menu { display: none !important; }
   }
 
   /* Scroll behavior */
@@ -347,29 +353,45 @@
   /* Mobile overflow guard: stop the PAGE scrolling sideways. We avoid overflow-x:hidden
      on body (it can block nested touch-scroll on some mobile browsers) and instead clip
      at the app container level while letting tab bars/tables scroll inside. */
-  html, body { max-width: 100%; }
-  #public-site, #portal { overflow-x: clip; }
+  html, body { max-width: 100%; overflow-x: clip; }
+  #public-site, #portal { overflow-x: clip; max-width: 100vw; }
+  /* Belt-and-suspenders: no direct section of the public site may exceed the viewport.
+     A long word in the huge hero heading, a wide image, or a negative margin can push the
+     page sideways on a narrow phone — these rules contain all of that. */
+  #public-site section, #public-site header, #public-site footer,
+  #public-site > div { max-width: 100vw; overflow-x: clip; }
+  /* Big display headings must wrap, never overflow, on small screens */
+  @media (max-width: 640px) {
+    #public-site h1, #public-site h2 { overflow-wrap: anywhere; word-break: break-word; }
+    #public-site img, #public-site svg { max-width: 100%; height: auto; }
+  }
   /* The portal content host and every panel wrapper inside it must be bounded to the
      viewport width. Without this, the tab strip's width:100% resolves against an
      unbounded parent and the whole page grows instead of the strip scrolling. */
   #portalApp { max-width: 100vw; overflow-x: clip; }
-  #portalApp > div { max-width: 100%; min-width: 0; }
+  #portalApp > div { max-width: 100vw; min-width: 0; box-sizing: border-box; }
+  /* Any flex row inside the portal must be allowed to shrink (min-width:0), otherwise a
+     wide child (like the tab strip) forces the whole row — and the page — to grow. */
+  #portalApp .flex { min-width: 0; }
   /* Generic horizontal scroll containers (wide tables etc.) */
   .overflow-x-auto { -webkit-overflow-scrolling: touch; overflow-x: auto; max-width: 100%; }
   /* TAB BARS: a bounded, single-line, horizontally scrollable strip.
-     width:100% + min-width:0 forces it to respect the viewport so overflow can scroll
-     instead of the strip just growing wider and getting clipped. */
+     The key is flex-basis:0 + min-width:0 + max-width:100% so the strip's width is driven
+     by its parent (which is capped to the viewport), NOT by the total width of its buttons.
+     That makes the overflow scroll inside the strip instead of widening the page. */
   .tab-scroll {
     display: flex !important;
     flex-wrap: nowrap !important;
     width: 100%;
+    max-width: 100%;
     min-width: 0;
     overflow-x: auto !important;
     overflow-y: hidden;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: thin;
+    -ms-overflow-style: -ms-autohiding-scrollbar;
   }
-  .tab-scroll > button {
+  .tab-scroll > button, .tab-scroll > a {
     flex: 0 0 auto;   /* don't shrink, don't grow — keep natural width so the row overflows */
     white-space: nowrap;
   }
