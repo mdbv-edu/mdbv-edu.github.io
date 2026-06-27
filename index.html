@@ -2313,6 +2313,23 @@ function getPayrollSlips(){ return DB.getAll('payrollSlips'); }
 function getChatMessages(){ return DB.getAll('chatMessages'); }
 function getCompliance(){ return DB.getAll('compliance'); }
 function saveStudents(d){ DB.setAll('students', d); }
+
+// Generates the next sequential admission number (MDBV<year><nnn>), continuing past the
+// highest existing one so every new student gets a unique ID and none are left blank.
+function nextAdmissionNo(){
+ const students = getStudents();
+ const year = currentSession ? currentSession().split('-')[0] : String(new Date().getFullYear());
+ const prefix = 'MDBV' + year;
+ let max = 0;
+ students.forEach(s => {
+  const m = (s.admissionNo || '').match(new RegExp('^' + prefix + '(\\d+)$'));
+  if (m) max = Math.max(max, parseInt(m[1]));
+  // also consider any MDBV-prefixed number regardless of year, to avoid collisions
+  const m2 = (s.admissionNo || '').match(/MDBV\d{4}(\d+)/);
+  if (m2) max = Math.max(max, parseInt(m2[1]));
+ });
+ return prefix + String(max + 1).padStart(3, '0');
+}
 function saveFeeTransactions(d){ DB.setAll('feeTransactions', d); }
 function saveHomeworks(d){ DB.setAll('homeworks', d); }
 function saveComplaints(d){ DB.setAll('complaints', d); }
@@ -2852,6 +2869,7 @@ function renderStudentsTab(){
   if(studentFilter.category==='bpl'&&!s.bpl)return false;
   if(studentFilter.category==='cwsn'&&!s.cwsn)return false;
   if(studentFilter.category==='feeDue'&&(s.feeBalance||0)===0)return false;
+  if(studentFilter.category==='noclass'&&(s.class&&ALL_CLASSES.includes(s.class)))return false;
   return true;
  });
  return `<div>
@@ -2874,6 +2892,19 @@ function renderStudentsTab(){
    <button id="clearFilters" class="bg-gray-300 hover:bg-gray-400 text-gray-800 rounded-lg text-sm font-medium">Clear</button>
   </div>
   <div class="text-sm text-gray-600 mb-2">Showing <b>${filt.length}</b> of ${all.length} students</div>
+  ${(() => {
+    const noClass = all.filter(s => !s.class || !ALL_CLASSES.includes(s.class));
+    const noAdm = all.filter(s => !s.admissionNo);
+    if (noClass.length === 0 && noAdm.length === 0) return '';
+    return `<div class="bg-amber-50 border border-amber-300 rounded-lg p-3 mb-3 text-sm">
+     <div class="font-semibold text-amber-900 mb-1"><i class="fas fa-triangle-exclamation mr-1"></i>Data needs attention</div>
+     <div class="flex flex-wrap gap-2 items-center">
+      ${noClass.length ? `<button id="showNoClassBtn" class="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1 rounded text-xs"><i class="fas fa-filter mr-1"></i>${noClass.length} without a valid class — show them</button>` : ''}
+      ${noAdm.length ? `<button id="fixAdmNoBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded text-xs"><i class="fas fa-wand-magic-sparkles mr-1"></i>Assign admission numbers to ${noAdm.length} student${noAdm.length===1?'':'s'}</button>` : ''}
+     </div>
+     ${noClass.length ? `<div class="text-xs text-amber-800 mt-2">Tip: click the button above to list the students with no class, then use the ✎ edit icon on each to set their class.</div>` : ''}
+    </div>`;
+  })()}
   <div class="overflow-x-auto">
    <table class="border text-sm"><thead><tr><th>Photo</th><th>Adm No</th><th>PEN</th><th>Name</th><th>Class</th><th>Sec</th><th>Roll</th><th>Parent</th><th>Fee Due</th><th>Tags</th><th>Actions</th></tr></thead>
    <tbody>
@@ -8344,6 +8375,27 @@ function attachStudentsTabEvents(){
  document.getElementById('studentSectionFilter')?.addEventListener('change',e=>{studentFilter.section=e.target.value;refresh()});
  document.getElementById('studentCategoryFilter')?.addEventListener('change',e=>{studentFilter.category=e.target.value;refresh()});
  document.getElementById('clearFilters')?.addEventListener('click',()=>{studentFilter={search:'',class:'all',section:'all',category:'all'};refresh()});
+ // Data cleanup: show students without a valid class
+ document.getElementById('showNoClassBtn')?.addEventListener('click',()=>{
+  studentFilter={search:'',class:'all',section:'all',category:'noclass'};
+  refresh();
+ });
+ // Data cleanup: assign admission numbers to students missing one
+ document.getElementById('fixAdmNoBtn')?.addEventListener('click',()=>{
+  const students=getStudents();
+  const missing=students.filter(s=>!s.admissionNo);
+  if(missing.length===0){showToast('All students already have admission numbers');return;}
+  if(!confirm(`Assign new admission numbers to ${missing.length} student(s) who don't have one? Existing admission numbers will NOT be changed.`))return;
+  // Compute the running max once, then assign sequentially
+  const year=(typeof currentSession==='function'?currentSession().split('-')[0]:String(new Date().getFullYear()));
+  const prefix='MDBV'+year;
+  let max=0;
+  students.forEach(s=>{const m=(s.admissionNo||'').match(/MDBV\d{4}(\d+)/);if(m)max=Math.max(max,parseInt(m[1]));});
+  missing.forEach(s=>{max++;const rec=students.find(x=>x.id===s.id);if(rec)rec.admissionNo=prefix+String(max).padStart(3,'0');});
+  saveStudents(students);
+  showToast(`Assigned admission numbers to ${missing.length} student(s)`);
+  refresh();
+ });
  document.getElementById('addStudentBtn')?.addEventListener('click',()=>{
   document.getElementById('studentModalTitle').innerText='Add Student';
   ['stuId','stuName','stuAdmNo','stuRoll','stuAadhaar','stuPen','stuParentName','stuParentPhone','stuAddress','stuDob','stuAdmDate','stuPhoto'].forEach(i=>{const el=document.getElementById(i);if(el)el.value=''});
@@ -9142,6 +9194,8 @@ function attachDataManagementEvents(){
    }
   } else {
    document.getElementById('dmStudentModalTitle').innerText = 'Add Student';
+   // Auto-generate the next admission number so new students never end up blank.
+   document.getElementById('dmStuAdmNo').value = nextAdmissionNo();
   }
   document.getElementById('dmStudentModal').classList.remove('hidden');
  };
@@ -9152,10 +9206,14 @@ function attachDataManagementEvents(){
   const name = document.getElementById('dmStuName').value.trim();
   if (!name) { alert('Student name is required'); return; }
   const id = document.getElementById('dmStuId').value;
+  // Admission number must never be blank — use what's typed, else registration no, else auto-generate.
+  let admNo = document.getElementById('dmStuAdmNo').value.trim()
+            || document.getElementById('dmStuRegNo').value.trim();
+  if (!admNo) admNo = nextAdmissionNo();
   const data = {
     name,
     registrationNo: document.getElementById('dmStuRegNo').value.trim(),
-    admissionNo: document.getElementById('dmStuAdmNo').value.trim() || document.getElementById('dmStuRegNo').value.trim(),
+    admissionNo: admNo,
     class: document.getElementById('dmStuClass').value,
     section: document.getElementById('dmStuSection').value,
     rollNo: parseInt(document.getElementById('dmStuRoll').value) || 0,
