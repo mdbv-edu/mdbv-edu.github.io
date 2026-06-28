@@ -623,6 +623,13 @@
 let currentPage = 'home';
 let currentUser = null;
 
+// Roles that see the Owner dashboard. MD and Trustee get the same view as Owner but
+// WITHOUT the dangerous controls (cloud push / wipe / factory reset) — see renderOwnerDashboard.
+const OWNER_LEVEL_ROLES = ['owner', 'managing_director', 'trustee'];
+function isOwnerLevel(role){ return OWNER_LEVEL_ROLES.includes(role || (currentUser && currentUser.role)); }
+// True only for the actual Owner — used to gate destructive actions.
+function isFullOwner(){ return currentUser && currentUser.role === 'owner'; }
+
 /* ============================================================
    PASSWORD SECURITY (Milestone 4, Path A)
    Passwords are stored as PBKDF2-SHA256 hashes, never plaintext.
@@ -2546,7 +2553,7 @@ function renderOwnerDashboard(){
  const auditCount = getAuditLog().length;
  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
   <div class="flex flex-wrap justify-between items-center gap-2">
-   <div class="min-w-0"><h1 class="text-xl md:text-2xl font-bold text-gray-900"><i class="fas fa-crown text-amber-500 mr-2"></i>Owner Dashboard</h1><p class="text-gray-600 text-xs md:text-sm truncate">Welcome, ${currentUser.name} - Binauli, Baghpat</p></div>
+   <div class="min-w-0"><h1 class="text-xl md:text-2xl font-bold text-gray-900"><i class="fas fa-crown text-amber-500 mr-2"></i>${currentUser.role==='managing_director'?'Managing Director':currentUser.role==='trustee'?'Trustee':'Owner'} Dashboard</h1><p class="text-gray-600 text-xs md:text-sm truncate">Welcome, ${currentUser.name} - Binauli, Baghpat</p></div>
    <button id="logoutBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-4 py-2 rounded-lg font-medium text-sm"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
   </div>
   ${renderNoticesForCurrentUser(3)}
@@ -2723,7 +2730,7 @@ function renderOwnerDashboard(){
    </p>
    <div class="flex flex-wrap gap-2 mb-3">
     <button id="cloudPingBtn" class="bg-sky-600 hover:bg-sky-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-satellite-dish mr-1"></i>Test Connection</button>
-    <button id="cloudPushBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-cloud-arrow-up mr-1"></i>Push Local → Cloud</button>
+    ${isFullOwner() ? `<button id="cloudPushBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-cloud-arrow-up mr-1"></i>Push Local → Cloud</button>` : ''}
     <button id="cloudPullBtn" class="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-cloud-arrow-down mr-1"></i>Pull Cloud → Local</button>
    </div>
    <div id="cloudSyncProgress" class="hidden">
@@ -2731,7 +2738,8 @@ function renderOwnerDashboard(){
    </div>
   </div>
 
-  <!-- DANGER ZONE: data reset for production setup -->
+  ${isFullOwner() ? `
+  <!-- DANGER ZONE: data reset for production setup (Owner only) -->
   <div class="bg-rose-50 border-2 border-rose-300 rounded-xl p-5 mt-6">
    <h2 class="font-semibold mb-2 text-rose-900"><i class="fas fa-triangle-exclamation text-rose-600 mr-2"></i>Danger Zone — Production Reset</h2>
    <p class="text-sm text-rose-900 mb-3">When putting the app into actual use after testing, use these tools to wipe demo / test data. <b>Operations are PERMANENT — once cleared, the data cannot be recovered.</b></p>
@@ -2745,7 +2753,7 @@ function renderOwnerDashboard(){
     <b>Wipe All Operational Data</b> — clears the above <i>plus</i> all students, teachers, parent/student login accounts, marks, attendance, homework + submissions, complaints, payroll slips, message log, PTM events, teacher audit log, inventory, vehicles, maintenance, calendar. <b>Keeps:</b> staff logins (Owner / Admin / Principal / Accountant), school config, compliance template, gallery, disclosure docs. <b>Use this to wipe all test data before going live.</b><br>
     <b>Factory Reset</b> — removes <i>everything</i> including all logins. The app reloads and you'll need to log in with the original SEED_USERS credentials.
    </div>
-  </div>
+  </div>` : ''}
  </div>`;
 }
 
@@ -3768,7 +3776,7 @@ function renderNoticesTab(){
 
 function attachFeeStructureEvents(){
  const refresh = () => {
-  if (currentUser?.role === 'owner') renderApp();
+  if (isOwnerLevel()) renderApp();
   else refreshAdminTabContent();
  };
 
@@ -4070,7 +4078,7 @@ function renderEnquiriesTab(){
 
 function attachEnquiriesTabEvents(){
  const refresh = () => {
-  if (currentUser?.role === 'owner') renderApp();
+  if (isOwnerLevel()) renderApp();
   else refreshAdminTabContent();
  };
 
@@ -4155,7 +4163,7 @@ function attachEnquiriesTabEvents(){
 
 function attachNoticesTabEvents(){
  const refresh = () => {
-  if (currentUser?.role === 'owner') { renderApp(); }
+  if (isOwnerLevel()) { renderApp(); }
   else if (activeAdminTab === 'notices') { refreshAdminTabContent(); }
   else { refreshPrincipalTabContent(); }
  };
@@ -8000,6 +8008,8 @@ function renderApp(){
  let html='';
  switch(currentUser.role){
   case 'owner':html=renderOwnerDashboard();break;
+  case 'managing_director':html=renderOwnerDashboard();break;
+  case 'trustee':html=renderOwnerDashboard();break;
   case 'admin':html=renderAdminPanel();break;
   case 'principal':html=renderPrincipalPanel();break;
   case 'teacher':html=renderTeacherPanel();break;
@@ -8009,7 +8019,7 @@ function renderApp(){
   default:html='<div class="p-6">Unknown role</div>';
  }
  app.innerHTML=html;
- if(currentUser.role==='owner')attachOwnerEvents();
+ if(currentUser.role==='owner'||currentUser.role==='managing_director'||currentUser.role==='trustee')attachOwnerEvents();
  else if(currentUser.role==='admin'){refreshAdminTabContent();attachAdminEvents()}
  else if(currentUser.role==='principal'){refreshPrincipalTabContent();attachPrincipalEvents()}
  else if(currentUser.role==='teacher')attachTeacherEvents();
@@ -8217,7 +8227,7 @@ function attachOwnerEvents(){
  const FINANCIAL_KEYS = ['feeTransactions','expenses','bankTransactions','bankAccounts','correctionRequests','accountingAuditLog'];
  // Adds students, teachers + all transactional data. Keeps staff user logins (owner/admin/principal/accountant).
  const OPERATIONAL_KEYS = [...FINANCIAL_KEYS,'students','teachers','examMarks','attendanceRecords','homeworks','homeworkSubmissions','complaints','payrollSlips','messageLog','ptmEvents','teacherAuditLog','inventory','vehicles','routeMovements','maintenance','calendar','documents','chatMessages','busTracking'];
- const STAFF_ROLES = ['owner','admin','principal','accountant'];
+ const STAFF_ROLES = ['owner','managing_director','trustee','admin','principal','accountant'];
 
  document.getElementById('wipeFinanceBtn')?.addEventListener('click', () => {
   if (!confirm('WIPE all financial data?\n\nThis clears:\n• Fee receipts (receipts from students)\n• Expenses\n• Bank accounts and bank transactions\n• Correction requests\n• Accounting audit log\n\nKeeps: users, students, teachers, marks, attendance, homework, etc.\n\nThis is PERMANENT. Continue?')) return;
@@ -8366,7 +8376,7 @@ function attachActivePrincipalTabEvents(){
 /* ---------- STUDENTS TAB EVENTS ---------- */
 function attachStudentsTabEvents(){
  const refresh=()=>{
-  if (currentUser?.role === 'owner') renderApp();
+  if (isOwnerLevel()) renderApp();
   else if (activeAdminTab==='students') refreshAdminTabContent();
   else refreshPrincipalTabContent();
  };
@@ -9053,7 +9063,7 @@ function attachTeachersTabEvents(){
 /* ---------- COMPLIANCE EVENTS ---------- */
 function attachComplianceEvents(){
  const refresh=()=>{
-  if (currentUser?.role === 'owner') { renderApp(); }
+  if (isOwnerLevel()) { renderApp(); }
   else if (activeAdminTab==='compliance') { refreshAdminTabContent(); }
   else { refreshPrincipalTabContent(); }
  };
@@ -9631,7 +9641,7 @@ function _renderAdminAuditLog(){
 function attachAdminAccountsEvents(){
  // Refresh that works for both admin (in tab shell) and owner (full-page view)
  const refresh = () => {
-  if (currentUser.role === 'owner') {
+  if (isOwnerLevel()) {
    renderApp();
   } else {
    refreshAdminTabContent();
@@ -9949,7 +9959,7 @@ function renderUsersTab(){
  }
  // Permission rule: who can the current user act on?
  // Owner → anyone. Admin → everyone EXCEPT owner/principal accounts (protected senior roles).
- const PROTECTED_ROLES = ['owner', 'principal'];
+ const PROTECTED_ROLES = ['owner', 'managing_director', 'trustee', 'principal'];
  const canActOn = (targetUser) => {
   if (myRole === 'owner') return true;            // owner has full authority
   if (myRole === 'admin') return !PROTECTED_ROLES.includes(targetUser.role);
@@ -10003,7 +10013,7 @@ function renderUsersTab(){
      <td class="text-xs text-gray-600">${u.id}${u.id === myId ? ' <span class="pill pill-amber">YOU</span>' : ''}</td>
      <td class="font-medium">${escapeHTML(u.username || '')}</td>
      <td><span class="font-mono text-xs">${'•'.repeat(Math.min(8, (u.password || '').length))}</span></td>
-     <td><span class="pill pill-${u.role === 'owner' ? 'red' : u.role === 'admin' ? 'amber' : u.role === 'principal' ? 'blue' : 'gray'}">${u.role}</span></td>
+     <td><span class="pill pill-${u.role === 'owner' ? 'red' : (u.role === 'managing_director' || u.role === 'trustee') ? 'red' : u.role === 'admin' ? 'amber' : u.role === 'principal' ? 'blue' : 'gray'}">${u.role === 'managing_director' ? 'Managing Director' : u.role === 'trustee' ? 'Trustee' : u.role}</span></td>
      <td>${escapeHTML(u.name || '')}</td>
      <td class="text-xs text-gray-600">${u.teacherId ? 'Teacher #' + u.teacherId : u.studentId ? 'Student #' + u.studentId : '—'}</td>
      <td class="whitespace-nowrap">
@@ -10025,6 +10035,8 @@ function renderUsersTab(){
     <div><label class="text-xs font-medium">Password *</label><input type="text" id="userModalPassword" placeholder="Set a strong password" autocomplete="off"></div>
     <div><label class="text-xs font-medium">Role *</label><select id="userModalRole">
      <option value="owner">Owner</option>
+     <option value="managing_director">Managing Director</option>
+     <option value="trustee">Trustee</option>
      <option value="admin">Admin</option>
      <option value="principal">Principal</option>
      <option value="teacher">Teacher</option>
@@ -10084,12 +10096,12 @@ function renderUsersTab(){
 
 function attachUsersTabEvents(){
  const refresh = () => {
-  if (currentUser?.role === 'owner') { renderApp(); }
+  if (isOwnerLevel()) { renderApp(); }
   else { refreshAdminTabContent(); }
  };
  // Permission enforcement (mirrors renderUsersTab)
  const myRole = currentUser?.role;
- const PROTECTED_ROLES = ['owner', 'principal'];
+ const PROTECTED_ROLES = ['owner', 'managing_director', 'trustee', 'principal'];
  const canActOn = (targetUser) => {
   if (!targetUser) return false;
   if (myRole === 'owner') return true;
