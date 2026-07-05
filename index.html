@@ -438,6 +438,7 @@
         <a class="nav-link" data-page="academics" onclick="showPage('academics'); return false;" href="#">Academics</a>
         <a class="nav-link" data-page="admissions" onclick="showPage('admissions'); return false;" href="#">Admissions</a>
         <a class="nav-link" data-page="gallery" onclick="showPage('gallery'); return false;" href="#">Gallery</a>
+        <a class="nav-link" data-page="calendar" onclick="showPage('calendar'); return false;" href="#">Calendar</a>
         <a class="nav-link" data-page="disclosure" onclick="showPage('disclosure'); return false;" href="#">Disclosure</a>
         <a class="nav-link" data-page="contact" onclick="showPage('contact'); return false;" href="#">Contact</a>
         <button onclick="openLoginModal()" class="btn-primary" style="padding: 0.5rem 1.25rem; font-size: 0.88rem;">
@@ -456,6 +457,7 @@
         <a class="nav-link" onclick="showPage('academics'); toggleMobileMenu(); return false;" href="#">Academics</a>
         <a class="nav-link" onclick="showPage('admissions'); toggleMobileMenu(); return false;" href="#">Admissions</a>
         <a class="nav-link" onclick="showPage('gallery'); toggleMobileMenu(); return false;" href="#">Gallery</a>
+        <a class="nav-link" onclick="showPage('calendar'); toggleMobileMenu(); return false;" href="#">Calendar</a>
         <a class="nav-link" onclick="showPage('disclosure'); toggleMobileMenu(); return false;" href="#">Disclosure</a>
         <a class="nav-link" onclick="showPage('contact'); toggleMobileMenu(); return false;" href="#">Contact</a>
         <button onclick="openLoginModal(); toggleMobileMenu();" class="btn-primary justify-center mt-2">
@@ -630,6 +632,20 @@ function isOwnerLevel(role){ return OWNER_LEVEL_ROLES.includes(role || (currentU
 // True only for the actual Owner — used to gate destructive actions.
 function isFullOwner(){ return currentUser && currentUser.role === 'owner'; }
 
+// CONFIDENTIAL STUDENT NUMBERS (Batch 2):
+// - Admission No  → public (printed on ID card, shown to student)
+// - Scholar Reg No (SR) → confidential, Owner + Managing Director only
+// - UDISE / PEN   → SECRET, Owner + Managing Director only, masked even during entry
+// Only Owner and Managing Director may see SR and UDISE/PEN. Everyone else never sees them.
+function canSeeConfidentialNumbers(){
+ return currentUser && (currentUser.role === 'owner' || currentUser.role === 'managing_director');
+}
+// Masks a confidential value for display to non-privileged users (shows nothing revealing).
+function maskConfidential(val){
+ if (!val) return '';
+ return '•••••• (hidden)';
+}
+
 /* ============================================================
    PASSWORD SECURITY (Milestone 4, Path A)
    Passwords are stored as PBKDF2-SHA256 hashes, never plaintext.
@@ -798,6 +814,7 @@ function renderPage(page) {
     case 'academics': return renderAcademics();
     case 'admissions': return renderAdmissions();
     case 'gallery': return renderGallery();
+    case 'calendar': return renderPublicCalendar();
     case 'disclosure': return renderDisclosure();
     case 'contact': return renderContact();
     default: return renderHome();
@@ -1468,6 +1485,70 @@ function renderDisclosure() {
 }
 
 /* ----- CONTACT ----- */
+function renderPublicCalendar() {
+  // Show only events marked public, upcoming first, grouped by month.
+  const all = (typeof getCalendar === 'function' ? getCalendar() : (DB.getAll('calendar') || []));
+  const today = new Date().toISOString().slice(0,10);
+  const events = all
+    .filter(e => e.public)                          // only publicly-published events
+    .filter(e => !e.date || e.date >= today || (e.date||'').slice(0,7) === today.slice(0,7)) // upcoming + this month
+    .sort((a,b) => (a.date||'').localeCompare(b.date||''));
+
+  const monthName = d => {
+    if (!d) return 'Undated';
+    const dt = new Date(d);
+    return dt.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+  };
+  // Group by month
+  const groups = {};
+  events.forEach(e => { const k = monthName(e.date); (groups[k] = groups[k] || []).push(e); });
+
+  const typeColor = t => ({
+    'Holiday':'burgundy','Exam':'saffron','Event':'forest','PTM':'burgundy','Admission':'saffron'
+  })[t] || 'ink';
+
+  const body = events.length === 0
+    ? `<div class="text-center py-16 text-ink-soft"><i class="fas fa-calendar-day text-4xl mb-3 opacity-40"></i><p class="text-lg">The school calendar will be updated soon. Please check back.</p></div>`
+    : Object.keys(groups).map(month => `
+      <div class="mb-10">
+        <h2 class="font-display text-2xl text-burgundy mb-4 border-b border-line pb-2">${month}</h2>
+        <div class="space-y-3">
+          ${groups[month].map(e => {
+            const dt = e.date ? new Date(e.date) : null;
+            const day = dt ? dt.getDate() : '–';
+            const wd = dt ? dt.toLocaleDateString('en-IN', { weekday: 'short' }) : '';
+            return `<div class="flex gap-4 items-start bg-white border border-line rounded-xl p-4 hover:shadow-sm transition">
+              <div class="flex-shrink-0 text-center w-14">
+                <div class="font-display text-3xl text-ink leading-none">${day}</div>
+                <div class="text-xs uppercase tracking-wide text-ink-soft mt-1">${wd}</div>
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="font-semibold text-ink">${escapeHTML(e.title||'Event')}</span>
+                  ${e.type ? `<span class="text-xs px-2 py-0.5 rounded-full bg-${typeColor(e.type)}/10 text-${typeColor(e.type)} border border-${typeColor(e.type)}/20">${escapeHTML(e.type)}</span>` : ''}
+                </div>
+                ${e.description ? `<p class="text-sm text-ink-soft mt-1">${escapeHTML(e.description)}</p>` : ''}
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`).join('');
+
+  return `
+  <div class="page-section">
+    <section class="bg-cream-deep border-b border-line">
+      <div class="max-w-7xl mx-auto px-6 py-20">
+        <div class="text-xs uppercase tracking-[0.25em] text-burgundy font-semibold mb-4">School Calendar</div>
+        <h1 class="font-display text-6xl text-ink max-w-3xl leading-[1.05]">Dates & events.</h1>
+        <p class="text-lg text-ink-soft mt-6 max-w-2xl">Holidays, examinations, parent-teacher meetings, and school events. Please check here regularly for updates.</p>
+      </div>
+    </section>
+    <section class="max-w-4xl mx-auto px-6 py-16">
+      ${body}
+    </section>
+  </div>`;
+}
+
 function renderContact() {
   return `
   <div class="page-section">
@@ -2338,6 +2419,34 @@ function nextAdmissionNo(){
  return prefix + String(max + 1).padStart(3, '0');
 }
 function saveFeeTransactions(d){ DB.setAll('feeTransactions', d); }
+
+// ===== COMPOSITE FEES + INSTALLMENTS (Batch 5) =====
+// A student's composite fee is the total decided amount after any discount/concession.
+// It is broken into installments: [{id,label,dueDate,amount,paid,paidDate,paidAmount}].
+// The fee balance = sum(installment amounts) - sum(paid amounts).
+function _installmentsTotal(s){
+ const inst = Array.isArray(s.installments) ? s.installments : [];
+ return inst.reduce((a,i) => a + (Number(i.amount)||0), 0);
+}
+function _installmentsPaid(s){
+ const inst = Array.isArray(s.installments) ? s.installments : [];
+ return inst.reduce((a,i) => a + (i.paid ? (Number(i.paidAmount)||Number(i.amount)||0) : 0), 0);
+}
+// Recompute a student's feeBalance from installments (if an installment plan exists),
+// otherwise leave the legacy feeBalance as-is.
+function _recomputeFeeBalance(s){
+ if (Array.isArray(s.installments) && s.installments.length > 0){
+  s.feeBalance = Math.max(0, _installmentsTotal(s) - _installmentsPaid(s));
+ }
+ return s;
+}
+// Returns the next unpaid installment for a student (soonest due first), or null.
+function _nextDueInstallment(s){
+ const inst = (Array.isArray(s.installments) ? s.installments : [])
+   .filter(i => !i.paid)
+   .sort((a,b) => (a.dueDate||'').localeCompare(b.dueDate||''));
+ return inst[0] || null;
+}
 function saveHomeworks(d){ DB.setAll('homeworks', d); }
 function saveComplaints(d){ DB.setAll('complaints', d); }
 function saveTeachers(d){ DB.setAll('teachers', d); }
@@ -2354,6 +2463,92 @@ function showToast(m){const t=document.createElement('div');t.className='toast';
    Reads a file, downscales to max 400px, compresses to JPEG,
    returns a base64 data URL via callback. Keeps DB rows small.
 ============================================================ */
+// Teacher qualification documents — working array while the teacher modal is open
+let _tchQualDocs = [];
+function _renderTchQualDocs(){
+ const box = document.getElementById('tchQualDocsList');
+ const hidden = document.getElementById('tchQualDocs');
+ if (!box) return;
+ if (hidden) hidden.value = JSON.stringify(_tchQualDocs);
+ if (_tchQualDocs.length === 0) { box.innerHTML = '<span class="text-xs text-gray-400">No documents uploaded</span>'; return; }
+ box.innerHTML = _tchQualDocs.map((d, i) => {
+  const isPdf = (d.type || '').includes('pdf');
+  return `<span class="inline-flex items-center gap-1 bg-gray-100 border rounded px-2 py-1 text-xs">
+   <i class="fas fa-${isPdf ? 'file-pdf text-rose-600' : 'file-image text-blue-600'}"></i>
+   <a href="${d.data}" download="${escapeHTML(d.name)}" class="hover:underline max-w-[140px] truncate" title="${escapeHTML(d.name)}">${escapeHTML(d.name)}</a>
+   <button type="button" class="tchQualDocDel text-rose-500 hover:text-rose-700 ml-1" data-idx="${i}"><i class="fas fa-times"></i></button>
+  </span>`;
+ }).join('');
+ box.querySelectorAll('.tchQualDocDel').forEach(b => b.addEventListener('click', () => {
+  _tchQualDocs.splice(parseInt(b.dataset.idx), 1);
+  _renderTchQualDocs();
+ }));
+}
+
+// Student KYC/documents — working array while the student modal is open
+let _stuDocs = [];
+function _renderStuDocs(){
+ const box = document.getElementById('dmStuDocsList');
+ if (!box) return;
+ if (_stuDocs.length === 0) { box.innerHTML = '<span class="text-xs text-gray-400">No documents uploaded yet</span>'; return; }
+ box.innerHTML = _stuDocs.map((d, i) => {
+  const isPdf = (d.type || '').includes('pdf');
+  return `<span class="inline-flex items-center gap-1 bg-gray-100 border rounded px-2 py-1 text-xs">
+   <i class="fas fa-${isPdf ? 'file-pdf text-rose-600' : 'file-image text-blue-600'}"></i>
+   <span class="font-medium">${escapeHTML(d.docType || 'Document')}:</span>
+   <a href="${d.data}" download="${escapeHTML(d.name)}" class="hover:underline max-w-[120px] truncate" title="${escapeHTML(d.name)}">${escapeHTML(d.name)}</a>
+   <button type="button" class="stuDocDel text-rose-500 hover:text-rose-700 ml-1" data-idx="${i}"><i class="fas fa-times"></i></button>
+  </span>`;
+ }).join('');
+ box.querySelectorAll('.stuDocDel').forEach(b => b.addEventListener('click', () => {
+  _stuDocs.splice(parseInt(b.dataset.idx), 1);
+  _renderStuDocs();
+ }));
+}
+
+// Installment plan — working array while the student modal is open
+let _stuInstallments = [];
+function _renderStuInstallments(){
+ const box = document.getElementById('dmInstList');
+ const summary = document.getElementById('dmInstSummary');
+ if (!box) return;
+ if (_stuInstallments.length === 0){
+  box.innerHTML = '<div class="text-xs text-gray-400 py-1">No installments yet. Set the composite fee and click "Split", or "Add row".</div>';
+  if (summary) summary.innerHTML = '';
+  return;
+ }
+ box.innerHTML = `<div class="space-y-1">${_stuInstallments.map((it,i)=>`
+  <div class="flex gap-1 items-center">
+   <input class="instLabel text-xs flex-1" data-i="${i}" value="${escapeHTML(it.label||'')}" placeholder="Label">
+   <input type="number" class="instAmount text-xs w-24" data-i="${i}" value="${it.amount||''}" placeholder="Amount">
+   <input type="date" class="instDate text-xs w-36" data-i="${i}" value="${it.dueDate||''}">
+   <label class="text-xs flex items-center gap-1 whitespace-nowrap ${it.paid?'text-emerald-700':'text-gray-500'}"><input type="checkbox" class="instPaid w-auto" data-i="${i}" ${it.paid?'checked':''}>Paid</label>
+   <button type="button" class="instDel text-rose-500 hover:text-rose-700 px-1" data-i="${i}"><i class="fas fa-times"></i></button>
+  </div>`).join('')}</div>`;
+
+ const total = _stuInstallments.reduce((a,i)=>a+(Number(i.amount)||0),0);
+ const paid = _stuInstallments.reduce((a,i)=>a+(i.paid?(Number(i.amount)||0):0),0);
+ const composite = parseInt(document.getElementById('dmStuDecided')?.value)||0;
+ const mismatch = composite && total !== composite;
+ if (summary) summary.innerHTML = `Total of installments: <b>Rs.${total.toLocaleString('en-IN')}</b> · Paid: <b class="text-emerald-700">Rs.${paid.toLocaleString('en-IN')}</b> · Balance: <b class="text-rose-700">Rs.${(total-paid).toLocaleString('en-IN')}</b>${mismatch?` <span class="text-amber-700">⚠ doesn't match composite fee (Rs.${composite.toLocaleString('en-IN')})</span>`:''}`;
+
+ // Wire inline edits
+ box.querySelectorAll('.instLabel').forEach(el=>el.addEventListener('input',e=>{_stuInstallments[+e.target.dataset.i].label=e.target.value;}));
+ box.querySelectorAll('.instAmount').forEach(el=>el.addEventListener('input',e=>{_stuInstallments[+e.target.dataset.i].amount=parseInt(e.target.value)||0;_renderInstSummaryOnly();}));
+ box.querySelectorAll('.instDate').forEach(el=>el.addEventListener('input',e=>{_stuInstallments[+e.target.dataset.i].dueDate=e.target.value;}));
+ box.querySelectorAll('.instPaid').forEach(el=>el.addEventListener('change',e=>{const it=_stuInstallments[+e.target.dataset.i];it.paid=e.target.checked;if(it.paid&&!it.paidDate)it.paidDate=new Date().toISOString().slice(0,10);_renderStuInstallments();}));
+ box.querySelectorAll('.instDel').forEach(el=>el.addEventListener('click',e=>{_stuInstallments.splice(+e.target.closest('.instDel').dataset.i,1);_renderStuInstallments();}));
+}
+function _renderInstSummaryOnly(){
+ const summary = document.getElementById('dmInstSummary');
+ if (!summary) return;
+ const total = _stuInstallments.reduce((a,i)=>a+(Number(i.amount)||0),0);
+ const paid = _stuInstallments.reduce((a,i)=>a+(i.paid?(Number(i.amount)||0):0),0);
+ const composite = parseInt(document.getElementById('dmStuDecided')?.value)||0;
+ const mismatch = composite && total !== composite;
+ summary.innerHTML = `Total of installments: <b>Rs.${total.toLocaleString('en-IN')}</b> · Paid: <b class="text-emerald-700">Rs.${paid.toLocaleString('en-IN')}</b> · Balance: <b class="text-rose-700">Rs.${(total-paid).toLocaleString('en-IN')}</b>${mismatch?` <span class="text-amber-700">⚠ doesn't match composite fee (Rs.${composite.toLocaleString('en-IN')})</span>`:''}`;
+}
+
 function compressImageFile(file, callback, maxDim = 400, quality = 0.7){
  if (!file) { callback(null); return; }
  if (!file.type.startsWith('image/')) { alert('Please choose an image file (JPG or PNG).'); callback(null); return; }
@@ -2671,7 +2866,7 @@ function renderOwnerDashboard(){
     <h2 class="font-semibold mb-1"><i class="fas fa-user-graduate text-indigo-600 mr-2"></i>Students</h2>
     <p class="text-sm text-gray-700">View all student details, photos, ID cards, fees and profiles.</p>
     <div class="flex flex-wrap gap-2 mt-2 text-xs">
-     <span class="text-gray-700"><i class="fas fa-users mr-1"></i>${getStudents().length} students enrolled</span>
+     <span class="text-gray-700"><i class="fas fa-users mr-1"></i>${getStudents().filter(s=>!s.archived).length} students enrolled</span>
     </div>
     <button id="ownerOpenStudentsBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
      <i class="fas fa-arrow-right-to-bracket mr-1"></i>View Students
@@ -2695,7 +2890,7 @@ function renderOwnerDashboard(){
     <button id="ownerSnapshotStudentsBtn" class="text-indigo-600 hover:text-indigo-800 text-sm font-medium"><i class="fas fa-arrow-right mr-1"></i>Open Students</button>
    </div>
    ${(() => {
-     const studs = getStudents();
+     const studs = getStudents().filter(s => !s.archived);
      const marks = getExamMarks();
      if (studs.length === 0) return '<div class="text-gray-500 text-sm">No students enrolled yet.</div>';
      const classes = ALL_CLASSES.filter(c => studs.some(s => s.class === c));
@@ -2871,6 +3066,10 @@ function renderStudentsTab(){
  const extraSections = [...new Set(all.map(s => s.section).filter(s => s && !ALL_SECTIONS.includes(s)))].sort();
  const sections = [...ALL_SECTIONS, ...extraSections];
  const filt=all.filter(s=>{
+  // Archive handling: normally hide archived (TC-issued) students; the Archive view shows only them
+  const viewingArchive = studentFilter.category === 'archived';
+  if (viewingArchive) { if (!s.archived) return false; }
+  else { if (s.archived) return false; }
   if(studentFilter.search&&!(s.name.toLowerCase().includes(studentFilter.search.toLowerCase())||String(s.rollNo).includes(studentFilter.search)||(s.admissionNo||'').toLowerCase().includes(studentFilter.search.toLowerCase())))return false;
   if(studentFilter.class!=='all'&&s.class!==studentFilter.class)return false;
   if(studentFilter.section!=='all'&&s.section!==studentFilter.section)return false;
@@ -2880,16 +3079,23 @@ function renderStudentsTab(){
   if(studentFilter.category==='noclass'&&(s.class&&ALL_CLASSES.includes(s.class)))return false;
   return true;
  });
+ const activeCount = all.filter(s=>!s.archived).length;
+ const archivedCount = all.filter(s=>s.archived).length;
+ const inArchiveView = studentFilter.category === 'archived';
  return `<div>
   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
-   <h2 class="text-lg font-bold"><i class="fas fa-user-graduate text-indigo-600 mr-1"></i>Students Management</h2>
+   <h2 class="text-lg font-bold"><i class="fas fa-user-graduate text-indigo-600 mr-1"></i>Students Management${inArchiveView?' <span class="text-sm font-normal text-gray-500">— Archive (TC issued)</span>':''}</h2>
    <div class="flex gap-2 flex-wrap">
+    ${inArchiveView ? `<button id="backToActiveBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-arrow-left mr-1"></i>Back to Active (${activeCount})</button>` : `
     <button id="addStudentBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-plus mr-1"></i>Add Student</button>
     <button id="downloadStudentTemplateBtn" class="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Download Excel template for bulk entry"><i class="fas fa-file-arrow-down mr-1"></i>Template</button>
     <button id="bulkImportStudentsBtn" class="bg-cyan-600 hover:bg-cyan-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Upload filled template to bulk-add students"><i class="fas fa-file-arrow-up mr-1"></i>Bulk Import</button>
     <input type="file" id="bulkImportStudentsFile" class="hidden" accept=".xlsx,.xls,.csv">
     <button id="exportStudentsBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-file-excel mr-1"></i>Export</button>
     <button id="promoteStudentsBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-arrow-up mr-1"></i>Promote</button>
+    <button id="assignRollBtn" class="bg-teal-600 hover:bg-teal-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Auto-number roll numbers alphabetically within each class"><i class="fas fa-sort-alpha-down mr-1"></i>Assign Roll Nos</button>
+    <button id="viewArchiveBtn" class="bg-gray-600 hover:bg-gray-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="View students who left (TC issued)"><i class="fas fa-box-archive mr-1"></i>Archive${archivedCount?` (${archivedCount})`:''}</button>
+    `}
    </div>
   </div>
   <div class="bg-gray-50 p-3 rounded-lg mb-4 grid grid-cols-2 md:grid-cols-5 gap-2">
@@ -2914,12 +3120,12 @@ function renderStudentsTab(){
     </div>`;
   })()}
   <div class="overflow-x-auto">
-   <table class="border text-sm"><thead><tr><th>Photo</th><th>Adm No</th><th>PEN</th><th>Name</th><th>Class</th><th>Sec</th><th>Roll</th><th>Parent</th><th>Fee Due</th><th>Tags</th><th>Actions</th></tr></thead>
+   <table class="border text-sm"><thead><tr><th>Photo</th><th>Adm No</th>${canSeeConfidentialNumbers()?'<th title="Scholar Register No — confidential">SR No</th><th title="UDISE/PEN — confidential">UDISE</th>':''}<th>Name</th><th>Class</th><th>Sec</th><th>Roll</th><th>Parent</th><th>Fee Due</th><th>Tags</th><th>Actions</th></tr></thead>
    <tbody>
     ${filt.map(s=>`<tr>
      <td>${s.photo?`<img src="${s.photo}" class="w-8 h-8 rounded object-cover" alt="">`:`<div class="w-8 h-8 rounded bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold">${initials(s.name)}</div>`}</td>
      <td class="text-xs text-gray-600">${s.admissionNo||'-'}</td>
-     <td class="text-xs text-gray-600 font-mono">${s.pen||'<span class="text-gray-400">—</span>'}</td>
+     ${canSeeConfidentialNumbers()?`<td class="text-xs text-gray-600 font-mono">${s.registrationNo||'<span class="text-gray-400">—</span>'}</td><td class="text-xs text-gray-600 font-mono">${s.pen||'<span class="text-gray-400">—</span>'}</td>`:''}
      <td class="font-medium">${s.name}</td>
      <td>${s.class}</td><td>${s.section}</td><td>${s.rollNo}</td>
      <td class="text-xs">${s.parentName||'-'}<br><span class="text-gray-500">${s.parentPhone||''}</span></td>
@@ -2929,9 +3135,12 @@ function renderStudentsTab(){
       <button class="viewStudentBtn text-indigo-600 hover:text-indigo-800" data-id="${s.id}" title="View"><i class="fas fa-eye"></i></button>
       <button class="idCardBtn text-emerald-600 hover:text-emerald-800 ml-1" data-id="${s.id}" title="Print ID Card"><i class="fas fa-id-card"></i></button>
       <button class="editStudentBtn text-blue-600 hover:text-blue-800 ml-1" data-id="${s.id}" title="Edit"><i class="fas fa-edit"></i></button>
+      ${s.archived
+        ? `<button class="restoreStudentBtn text-emerald-700 hover:text-emerald-900 ml-1" data-id="${s.id}" title="Restore (re-admit)"><i class="fas fa-rotate-left"></i></button>`
+        : `<button class="archiveStudentBtn text-amber-600 hover:text-amber-800 ml-1" data-id="${s.id}" title="Issue TC / Archive"><i class="fas fa-box-archive"></i></button>`}
       <button class="delStudentBtn2 text-red-600 hover:text-red-800 ml-1" data-id="${s.id}" title="Delete"><i class="fas fa-trash"></i></button>
      </td>
-    </tr>`).join('')||'<tr><td colspan="11" class="text-center text-gray-500 py-6">No students match</td></tr>'}
+    </tr>`).join('')||`<tr><td colspan="${canSeeConfidentialNumbers()?13:11}" class="text-center text-gray-500 py-6">No students match</td></tr>`}
    </tbody></table>
   </div>
 
@@ -2997,8 +3206,9 @@ function generateStudentIDCard(s){
  const school = SCHOOL_INFO;
  const photo = s.photo || '';
  const initialsTxt = (s.name||'?').split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
- // QR payload: school short name + admission no + PEN + name (compact, scannable)
- const qrPayload = `MDBV|ADM:${s.admissionNo||'-'}|PEN:${s.pen||'-'}|NAME:${s.name}|CLASS:${s.class||''}-${s.section||''}`;
+ // QR payload: school short name + admission no + name + class (NO confidential numbers).
+ // UDISE/PEN and SR number are confidential and must NEVER be encoded on a public ID card QR.
+ const qrPayload = `MDBV|ADM:${s.admissionNo||'-'}|NAME:${s.name}|CLASS:${s.class||''}-${s.section||''}`;
 
  const w = window.open('', '_blank', 'width=420,height=720');
  if(!w){ alert('Please allow popups to print the ID card.'); return; }
@@ -3110,21 +3320,61 @@ function generateReportCard(student, examName){
  const allMarks = getExamMarks().filter(m => m.studentId === s.id && (!examName || m.examName === examName));
  if (allMarks.length === 0) { alert(`No marks found for ${s.name}${examName ? ' in '+examName : ''}.`); return; }
 
- // Group by subject (in case of duplicates, take latest)
- const bySubject = {};
- allMarks.forEach(m => { bySubject[m.subject] = m; });
- const subjects = Object.keys(bySubject).sort();
+ const isConsolidated = !examName;
+ // For a single exam: group by subject. For consolidated: build a subject × exam matrix.
+ const examsInData = [...new Set(allMarks.map(m => m.examName).filter(Boolean))];
 
  let totalObtained = 0, totalMax = 0;
- const rows = subjects.map(subj => {
-  const m = bySubject[subj];
-  const obt = parseInt(m.marks) || 0;
-  const max = parseInt(m.maxMarks) || 100;
-  totalObtained += obt; totalMax += max;
-  const pct = max > 0 ? Math.round((obt/max)*100) : 0;
-  const g = gradeFromPercent(pct);
-  return { subject: subj, obt, max, pct, grade: g.grade };
- });
+ let marksTableHTML = '';
+
+ if (isConsolidated && examsInData.length > 1) {
+  // CONSOLIDATED / COMPLETE REPORT CARD — show every exam's performance
+  const subjects = [...new Set(allMarks.map(m => m.subject))].sort();
+  // Per-exam totals
+  const examTotals = examsInData.map(ex => {
+   const em = allMarks.filter(m => m.examName === ex);
+   const obt = em.reduce((a,m)=>a+(parseInt(m.marks)||0),0);
+   const max = em.reduce((a,m)=>a+(parseInt(m.maxMarks)||100),0);
+   return { ex, obt, max, pct: max>0?Math.round(obt/max*100):0 };
+  });
+  // Build matrix: row per subject, column per exam (percentage)
+  const head = `<thead><tr><th>Subject</th>${examsInData.map(ex=>`<th class="num">${escapeHTML(ex)}</th>`).join('')}<th class="num">Overall %</th><th class="num">Grade</th></tr></thead>`;
+  const bodyRows = subjects.map(subj => {
+   let sObt=0, sMax=0;
+   const cells = examsInData.map(ex => {
+    const m = allMarks.find(x => x.subject===subj && x.examName===ex);
+    if (!m) return '<td class="num">—</td>';
+    const obt=parseInt(m.marks)||0, max=parseInt(m.maxMarks)||100;
+    sObt+=obt; sMax+=max;
+    return `<td class="num">${obt}/${max}</td>`;
+   });
+   const pct = sMax>0?Math.round(sObt/sMax*100):0;
+   totalObtained+=sObt; totalMax+=sMax;
+   return `<tr><td>${subj}</td>${cells.join('')}<td class="num">${pct}%</td><td class="num"><b>${gradeFromPercent(pct).grade}</b></td></tr>`;
+  }).join('');
+  const overallPctTmp = totalMax>0?Math.round(totalObtained/totalMax*100):0;
+  const footCells = examsInData.map(ex => { const et=examTotals.find(e=>e.ex===ex); return `<td class="num">${et.pct}%</td>`; }).join('');
+  marksTableHTML = `<table>${head}<tbody>${bodyRows}</tbody>
+   <tfoot><tr><td>OVERALL</td>${footCells}<td class="num">${overallPctTmp}%</td><td class="num">${gradeFromPercent(overallPctTmp).grade}</td></tr></tfoot></table>`;
+ } else {
+  // SINGLE-EXAM REPORT CARD (e.g. UT1) — focused subject table
+  const bySubject = {};
+  allMarks.forEach(m => { bySubject[m.subject] = m; });
+  const subjects = Object.keys(bySubject).sort();
+  const rows = subjects.map(subj => {
+   const m = bySubject[subj];
+   const obt = parseInt(m.marks) || 0;
+   const max = parseInt(m.maxMarks) || 100;
+   totalObtained += obt; totalMax += max;
+   const pct = max > 0 ? Math.round((obt/max)*100) : 0;
+   return { subject: subj, obt, max, pct, grade: gradeFromPercent(pct).grade };
+  });
+  const overallPctTmp = totalMax > 0 ? Math.round((totalObtained/totalMax)*100) : 0;
+  marksTableHTML = `<table>
+   <thead><tr><th>Subject</th><th class="num">Marks Obtained</th><th class="num">Max Marks</th><th class="num">%</th><th class="num">Grade</th></tr></thead>
+   <tbody>${rows.map(r => `<tr><td>${r.subject}</td><td class="num">${r.obt}</td><td class="num">${r.max}</td><td class="num">${r.pct}%</td><td class="num"><b>${r.grade}</b></td></tr>`).join('')}</tbody>
+   <tfoot><tr><td>TOTAL</td><td class="num">${totalObtained}</td><td class="num">${totalMax}</td><td class="num">${overallPctTmp}%</td><td class="num">${gradeFromPercent(overallPctTmp).grade}</td></tr></tfoot></table>`;
+ }
 
  const overallPct = totalMax > 0 ? Math.round((totalObtained/totalMax)*100) : 0;
  const overallGrade = gradeFromPercent(overallPct);
@@ -3132,7 +3382,7 @@ function generateReportCard(student, examName){
  const session = currentSession();
  const photo = s.photo || '';
  const initialsTxt = (s.name||'?').split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
- const examTitle = examName || 'Consolidated Report';
+ const examTitle = examName ? examName : (examsInData.length > 1 ? 'Consolidated Report (All Exams)' : 'Consolidated Report');
 
  const w = window.open('', '_blank', 'width=820,height=1000');
  if (!w) { alert('Please allow popups to print the report card.'); return; }
@@ -3195,18 +3445,12 @@ function generateReportCard(student, examName){
       <div><span class="lbl">Admission No:</span> <b>${s.admissionNo||'-'}</b></div>
       <div><span class="lbl">Father/Guardian:</span> <b>${s.parentName||'-'}</b></div>
       <div><span class="lbl">Date of Birth:</span> <b>${s.dob?new Date(s.dob).toLocaleDateString('en-IN'):'-'}</b></div>
-      <div><span class="lbl">PEN:</span> <b>${s.pen||'-'}</b></div>
+      ${canSeeConfidentialNumbers()?`<div><span class="lbl">Scholar Reg No:</span> <b>${s.registrationNo||'-'}</b></div><div><span class="lbl">UDISE/PEN:</span> <b>${s.pen||'-'}</b></div>`:''}
      </div>
     </div>
     <div class="stuphoto">${photo?`<img src="${photo}">`:`<div class="ini">${initialsTxt}</div>`}</div>
    </div>
-   <table>
-    <thead><tr><th>Subject</th><th class="num">Marks Obtained</th><th class="num">Max Marks</th><th class="num">%</th><th class="num">Grade</th></tr></thead>
-    <tbody>
-     ${rows.map(r => `<tr><td>${r.subject}</td><td class="num">${r.obt}</td><td class="num">${r.max}</td><td class="num">${r.pct}%</td><td class="num"><b>${r.grade}</b></td></tr>`).join('')}
-    </tbody>
-    <tfoot><tr><td>TOTAL</td><td class="num">${totalObtained}</td><td class="num">${totalMax}</td><td class="num">${overallPct}%</td><td class="num">${overallGrade.grade}</td></tr></tfoot>
-   </table>
+   ${marksTableHTML}
    <div class="summary">
     <div class="box"><div class="v">${overallPct}%</div><div class="l">Overall</div></div>
     <div class="box"><div class="v">${overallGrade.grade}</div><div class="l">Grade</div></div>
@@ -3250,16 +3494,53 @@ function renderStudentProfile(id){
    <div><div class="text-xs text-gray-500">Blood Group</div><div class="font-medium">${s.bloodGroup||'-'}</div></div>
    <div><div class="text-xs text-gray-500">Caste</div><div class="font-medium">${s.caste}</div></div>
    <div><div class="text-xs text-gray-500">Aadhaar</div><div class="font-medium">${s.aadhaar||'-'}</div></div>
-   <div><div class="text-xs text-gray-500">PEN (UDISE+)</div><div class="font-medium font-mono">${s.pen||'-'}</div></div>
+   ${canSeeConfidentialNumbers()?`<div><div class="text-xs text-gray-500">Scholar Reg No <i class="fas fa-lock text-amber-500" title="Confidential"></i></div><div class="font-medium font-mono">${s.registrationNo||'-'}</div></div><div><div class="text-xs text-gray-500">UDISE/PEN <i class="fas fa-lock text-amber-500" title="Confidential"></i></div><div class="font-medium font-mono">${s.pen||'-'}</div></div>`:''}
    <div><div class="text-xs text-gray-500">BPL / CWSN</div><div class="font-medium">${s.bpl?'BPL':''} ${s.cwsn?'CWSN':''} ${!s.bpl&&!s.cwsn?'-':''}</div></div>
    <div><div class="text-xs text-gray-500">Admission Date</div><div class="font-medium">${fmtDate(s.admissionDate)}</div></div>
    <div class="col-span-2"><div class="text-xs text-gray-500">Parent</div><div class="font-medium">${s.parentName||'-'} - ${s.parentPhone||'-'}</div></div>
    <div class="col-span-3"><div class="text-xs text-gray-500">Address</div><div class="font-medium">${s.address||'-'}</div></div>
-  </div>`;
+  </div>
+  ${s.archived ? `<div class="mt-3 bg-amber-50 border border-amber-300 rounded-lg p-3 text-sm">
+   <div class="font-semibold text-amber-900 mb-1"><i class="fas fa-box-archive mr-1"></i>Archived — TC Issued</div>
+   <div class="grid grid-cols-2 gap-1 text-xs">
+    <div>TC Number: <b>${s.tcNumber||'-'}</b></div><div>TC Date: <b>${s.tcDate?fmtDate(s.tcDate):'-'}</b></div>
+    <div>Reason: <b>${s.tcReason||'-'}</b></div><div>Archived on: <b>${s.archivedDate?fmtDate(s.archivedDate):'-'}</b></div>
+    ${s.tcRemarks?`<div class="col-span-2">Remarks: ${escapeHTML(s.tcRemarks)}</div>`:''}
+   </div>
+  </div>` : ''}
+  ${(() => {
+    const docs = Array.isArray(s.documents) ? s.documents : [];
+    if (docs.length === 0) return '<div class="mt-3 text-xs text-gray-400"><i class="fas fa-folder-open mr-1"></i>No KYC documents uploaded</div>';
+    return `<div class="mt-3">
+     <div class="text-xs font-semibold text-gray-700 mb-1"><i class="fas fa-folder-open text-amber-600 mr-1"></i>KYC / Documents</div>
+     <div class="flex flex-wrap gap-2">
+      ${docs.map(d => {
+        const isPdf = (d.type||'').includes('pdf');
+        return `<a href="${d.data}" download="${escapeHTML(d.name)}" class="inline-flex items-center gap-1 bg-gray-100 border rounded px-2 py-1 text-xs hover:bg-gray-200">
+         <i class="fas fa-${isPdf?'file-pdf text-rose-600':'file-image text-blue-600'}"></i>
+         <span class="font-medium">${escapeHTML(d.docType||'Document')}</span>
+        </a>`;
+      }).join('')}
+     </div>
+    </div>`;
+  })()}`;
  } else if(t==='fees'){
+  const inst = Array.isArray(s.installments) ? s.installments : [];
+  const instTotal = inst.reduce((a,i)=>a+(Number(i.amount)||0),0);
+  const instPaid = inst.reduce((a,i)=>a+(i.paid?(Number(i.amount)||0):0),0);
+  const today = new Date().toISOString().slice(0,10);
   body=`<div>
-   <div class="bg-${s.feeBalance>0?'red':'green'}-50 p-3 rounded-lg mb-3"><b>Current Balance:</b> Rs.${(s.feeBalance||0).toLocaleString('en-IN')}</div>
-   <table class="border text-sm"><thead><tr><th>Receipt</th><th>Date</th><th>Mode</th><th>Amount</th><th>Status</th></tr></thead>
+   <div class="bg-${s.feeBalance>0?'red':'green'}-50 p-3 rounded-lg mb-3"><b>Current Balance:</b> Rs.${(s.feeBalance||0).toLocaleString('en-IN')}${s.decidedFees?` &bull; <span class="text-gray-600">Composite Fee: Rs.${(s.decidedFees||0).toLocaleString('en-IN')}</span>`:''}</div>
+   ${inst.length>0?`<div class="mb-4">
+    <div class="text-sm font-semibold mb-1"><i class="fas fa-list-ol text-indigo-600 mr-1"></i>Installment Plan <span class="text-xs font-normal text-gray-500">(Paid Rs.${instPaid.toLocaleString('en-IN')} of Rs.${instTotal.toLocaleString('en-IN')})</span></div>
+    <table class="border text-sm w-full"><thead class="bg-gray-50"><tr><th class="text-left p-2">Installment</th><th class="text-left p-2">Due Date</th><th class="text-right p-2">Amount</th><th class="text-center p-2">Status</th></tr></thead>
+    <tbody>${inst.map(it=>{
+      const overdue = !it.paid && it.dueDate && it.dueDate < today;
+      return `<tr class="border-t"><td class="p-2">${escapeHTML(it.label||'-')}</td><td class="p-2 ${overdue?'text-rose-600 font-medium':''}">${it.dueDate?fmtDate(it.dueDate):'-'}${overdue?' (overdue)':''}</td><td class="p-2 text-right">Rs.${(Number(it.amount)||0).toLocaleString('en-IN')}</td><td class="p-2 text-center">${it.paid?'<span class="pill pill-green">Paid</span>':overdue?'<span class="pill pill-red">Overdue</span>':'<span class="pill pill-amber">Due</span>'}</td></tr>`;
+    }).join('')}</tbody></table>
+   </div>`:''}
+   <div class="text-sm font-semibold mb-1"><i class="fas fa-receipt text-emerald-600 mr-1"></i>Payment Receipts</div>
+   <table class="border text-sm w-full"><thead><tr><th>Receipt</th><th>Date</th><th>Mode</th><th>Amount</th><th>Status</th></tr></thead>
    <tbody>${fees.map(f=>`<tr><td>${f.receiptNo}</td><td>${fmtDate(f.date)}</td><td>${f.mode}</td><td>Rs.${f.amount.toLocaleString('en-IN')}</td><td><span class="pill pill-green">${f.status}</span></td></tr>`).join('')||'<tr><td colspan="5" class="text-center text-gray-500 py-4">No payments</td></tr>'}</tbody></table>
   </div>`;
  } else if(t==='marks'){
@@ -3439,6 +3720,13 @@ function renderTeachersTab(){
      ${ALL_CLASSES.map(c => `<label class="inline-flex items-center gap-1 text-xs border rounded px-2 py-1 cursor-pointer hover:bg-purple-50"><input type="checkbox" class="tchClassChk w-auto" value="${c}"> ${c}</label>`).join('')}
     </div>
    </div>
+   <div class="mt-3 border-t pt-3">
+    <label class="text-xs font-semibold block mb-1"><i class="fas fa-file-pdf mr-1 text-rose-600"></i>Qualification Documents</label>
+    <p class="text-xs text-gray-500 mb-2">Upload degree/certificate PDFs or images (e.g. B.Ed, graduation). Stored securely with the teacher record.</p>
+    <input type="file" id="tchQualDocFile" accept="application/pdf,image/*" class="text-xs">
+    <input type="hidden" id="tchQualDocs">
+    <div id="tchQualDocsList" class="mt-2 flex flex-wrap gap-2"></div>
+   </div>
    <div class="flex justify-end gap-2 mt-4"><button class="closeModal bg-gray-300 px-4 py-2 rounded-lg">Cancel</button><button id="saveTeacherBtn" class="bg-indigo-600 text-white px-4 py-2 rounded-lg">Save</button></div>
   </div></div>
  </div>`;
@@ -3536,7 +3824,7 @@ function renderDataManagement(){
    <input type="hidden" id="dmStuId">
    <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
     <div><label class="text-xs font-medium">Full Name *</label><input id="dmStuName"></div>
-    <div><label class="text-xs font-medium">Registration No</label><input id="dmStuRegNo"></div>
+    <div${canSeeConfidentialNumbers()?'':' style="display:none"'}><label class="text-xs font-medium">Scholar Reg No <i class="fas fa-lock text-amber-500" title="Confidential — Owner/MD only"></i></label><input id="dmStuRegNo" placeholder="SR register number" autocomplete="off"></div>
     <div><label class="text-xs font-medium">Admission No</label><input id="dmStuAdmNo"></div>
     <div><label class="text-xs font-medium">Class *</label><select id="dmStuClass">${ALL_CLASSES.map(c=>`<option>${c}</option>`).join('')}</select></div>
     <div><label class="text-xs font-medium">Section</label><select id="dmStuSection">${ALL_SECTIONS.map(c=>`<option>${c}</option>`).join('')}</select></div>
@@ -3551,16 +3839,50 @@ function renderDataManagement(){
     <div><label class="text-xs font-medium">Blood Group</label><select id="dmStuBlood"><option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>AB+</option><option>AB-</option><option>O+</option><option>O-</option></select></div>
     <div><label class="text-xs font-medium">Caste</label><select id="dmStuCaste"><option>General</option><option>OBC</option><option>SC</option><option>ST</option></select></div>
     <div><label class="text-xs font-medium">Aadhaar (masked)</label><input id="dmStuAadhaar" placeholder="XXXX-XXXX-1234"></div>
-    <div><label class="text-xs font-medium">PEN (UDISE+ ID)</label><input id="dmStuPen" placeholder="11-digit Permanent Education No."></div>
+    <div${canSeeConfidentialNumbers()?'':' style="display:none"'}><label class="text-xs font-medium">UDISE / PEN <i class="fas fa-lock text-rose-500" title="SECRET — Owner/MD only, masked"></i></label>
+     <div class="flex gap-1">
+      <input id="dmStuPen" type="password" placeholder="11-digit UDISE/PEN (secret)" autocomplete="off" class="flex-1">
+      <button type="button" id="dmStuPenToggle" class="bg-gray-200 hover:bg-gray-300 px-2 rounded text-xs" title="Show/hide"><i class="fas fa-eye"></i></button>
+     </div>
+     <div class="text-xs text-rose-600 mt-0.5">Confidential — stored securely, never shown on ID cards/receipts.</div>
+    </div>
     <div><label class="text-xs font-medium">Admission Date</label><input type="date" id="dmStuAdmDate"></div>
     <div><label class="text-xs font-medium">Annual Fees (Rs.)</label><input type="number" id="dmStuAnnual" placeholder="e.g. 24000"></div>
-    <div><label class="text-xs font-medium">Decided Fees (Rs.)</label><input type="number" id="dmStuDecided" placeholder="negotiated/concession"></div>
+    <div><label class="text-xs font-medium">Composite Fee (Rs.) <i class="fas fa-circle-info text-gray-400" title="Total fee after any discount/concession — the amount actually payable"></i></label><input type="number" id="dmStuDecided" placeholder="total after discount"></div>
     <div><label class="text-xs font-medium">Transport (monthly Rs.)</label><input type="number" id="dmStuTransport" placeholder="0 if not using"></div>
-    <div><label class="text-xs font-medium">Current Fee Balance (Rs.)</label><input type="number" id="dmStuFeeBal" value="0"></div>
+    <div><label class="text-xs font-medium">Fee Balance (Rs.) <i class="fas fa-circle-info text-gray-400" title="Auto-calculated from installments if a plan is set below"></i></label><input type="number" id="dmStuFeeBal" value="0"></div>
     <div class="col-span-2 md:col-span-3 flex flex-wrap gap-4 mt-2">
      <label class="text-sm flex items-center gap-1"><input type="checkbox" id="dmStuBpl" class="w-auto"> BPL (Below Poverty Line)</label>
      <label class="text-sm flex items-center gap-1"><input type="checkbox" id="dmStuCwsn" class="w-auto"> CWSN (Children with Special Needs)</label>
      <label class="text-sm flex items-center gap-1"><input type="checkbox" id="dmStuFreeChild" class="w-auto"> RTE Free Child</label>
+    </div>
+    <div class="col-span-2 md:col-span-3 mt-3 pt-3 border-t border-gray-200 bg-indigo-50 -mx-1 px-3 py-3 rounded">
+     <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+      <div class="text-xs font-semibold text-indigo-900"><i class="fas fa-list-ol mr-1"></i>Installment Plan</div>
+      <div class="flex gap-1 items-center">
+       <input type="number" id="dmInstCount" value="3" min="1" max="12" class="w-14 text-sm" title="Number of installments">
+       <button type="button" id="dmGenInstBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-1 rounded text-xs"><i class="fas fa-wand-magic-sparkles mr-1"></i>Split Composite Fee</button>
+       <button type="button" id="dmAddInstBtn" class="bg-gray-200 hover:bg-gray-300 px-2 py-1 rounded text-xs"><i class="fas fa-plus mr-1"></i>Add row</button>
+      </div>
+     </div>
+     <p class="text-xs text-indigo-700 mb-2">Set the Composite Fee above, choose how many installments, then "Split" to divide it evenly. You can edit each row's label, amount, and due date. The Fee Balance updates from unpaid installments.</p>
+     <div id="dmInstList"></div>
+     <div id="dmInstSummary" class="text-xs font-medium text-indigo-900 mt-1"></div>
+    </div>
+    <div class="col-span-2 md:col-span-3 mt-3 pt-3 border-t border-gray-200">
+     <div class="text-xs font-semibold text-gray-800 mb-1"><i class="fas fa-folder-open text-amber-600 mr-1"></i>KYC / Documents</div>
+     <p class="text-xs text-gray-500 mb-2">Upload Aadhaar, birth certificate, address proof, previous school TC, caste/income certificate, etc. (PDF or image).</p>
+     <div class="flex flex-wrap gap-2 items-end mb-2">
+      <div><label class="text-xs">Document type</label>
+       <select id="dmStuDocType" class="text-sm">
+        <option>Aadhaar Card</option><option>Birth Certificate</option><option>Address Proof</option>
+        <option>Transfer Certificate (previous school)</option><option>Caste Certificate</option>
+        <option>Income Certificate</option><option>Passport Photo</option><option>Report Card (previous)</option><option>Other</option>
+       </select>
+      </div>
+      <input type="file" id="dmStuDocFile" accept="application/pdf,image/*" class="text-xs">
+     </div>
+     <div id="dmStuDocsList" class="flex flex-wrap gap-2"></div>
     </div>
     <div class="col-span-2 md:col-span-3 mt-3 pt-3 border-t border-gray-200 bg-blue-50 -mx-1 px-3 py-3 rounded">
      <div class="text-xs font-semibold text-blue-900 mb-2"><i class="fas fa-key mr-1"></i>LOGIN ACCOUNTS (auto-created — admin can edit/disable later)</div>
@@ -3569,8 +3891,8 @@ function renderDataManagement(){
       <label class="text-sm flex items-center gap-1"><input type="checkbox" id="dmStuCreateParent" class="w-auto" checked> Create parent login</label>
      </div>
      <div class="text-xs text-blue-900 mt-2 leading-relaxed">
-      Student login: username = <b>Registration No</b>, password = <b>regno@123</b>.<br>
-      Parent login: username = <b>p_</b> + Registration No, password = <b>contact number</b>.<br>
+      Student login: username = <b>Admission No</b>, password = <b>admissionno@123</b>.<br>
+      Parent login: username = <b>p_</b> + Admission No, password = <b>contact number</b>.<br>
       <span class="text-amber-900">Both accounts can be edited or deleted later from the Users tab.</span>
      </div>
     </div>
@@ -3578,6 +3900,26 @@ function renderDataManagement(){
    <div class="flex justify-end gap-2 mt-4">
     <button class="closeModal bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded-lg text-sm font-medium">Cancel</button>
     <button id="dmSaveStudentBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium">Save Student</button>
+   </div>
+  </div></div>
+
+  <!-- Issue TC / Archive modal -->
+  <div id="tcModal" class="hidden modal"><div class="modal-content" style="max-width:480px">
+   <h3 class="text-lg font-bold mb-1"><i class="fas fa-box-archive text-amber-600 mr-1"></i>Issue TC & Archive Student</h3>
+   <p class="text-xs text-gray-500 mb-3">This moves the student to the archive. Their full record is preserved and can be restored later. They will no longer appear in the active class list, attendance, or fee reports.</p>
+   <input type="hidden" id="tcStudentId">
+   <div class="bg-gray-50 rounded p-2 mb-3 text-sm" id="tcStudentInfo"></div>
+   <div class="grid grid-cols-2 gap-3">
+    <div><label class="text-xs font-medium">TC Number</label><input id="tcNumber" placeholder="e.g. TC/2026/045"></div>
+    <div><label class="text-xs font-medium">TC Date</label><input type="date" id="tcDate"></div>
+    <div class="col-span-2"><label class="text-xs font-medium">Reason for Leaving</label>
+     <select id="tcReason"><option>Transfer to another school</option><option>Relocation</option><option>Completed final class</option><option>Financial reasons</option><option>Other</option></select>
+    </div>
+    <div class="col-span-2"><label class="text-xs font-medium">Remarks (optional)</label><input id="tcRemarks" placeholder="Any note for records"></div>
+   </div>
+   <div class="flex justify-end gap-2 mt-4">
+    <button class="closeModal bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded-lg text-sm">Cancel</button>
+    <button id="tcConfirmBtn" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-box-archive mr-1"></i>Issue TC & Archive</button>
    </div>
   </div></div>
  </div>`;
@@ -3730,6 +4072,7 @@ function renderNoticesTab(){
         </div>
        </div>
        <div class="flex gap-1 flex-shrink-0">
+        <button class="sendNoticeBtn bg-emerald-500 hover:bg-emerald-600 text-white px-2 py-1 rounded text-xs" data-id="${n.id}" title="Send via WhatsApp/SMS"><i class="fab fa-whatsapp"></i></button>
         <button class="editNoticeBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${n.id}" title="Edit"><i class="fas fa-edit"></i></button>
         <button class="delNoticeBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs" data-id="${n.id}" title="Delete"><i class="fas fa-trash"></i></button>
        </div>
@@ -3770,6 +4113,15 @@ function renderNoticesTab(){
     <button class="closeModal bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded-lg text-sm font-medium">Cancel</button>
     <button id="saveNoticeBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium">Post</button>
    </div>
+  </div></div>
+
+  <!-- Send notice via WhatsApp/SMS (individual, one recipient at a time) -->
+  <div id="noticeSendModal" class="hidden modal"><div class="modal-content" style="max-width:640px">
+   <h3 class="text-lg font-bold mb-1"><i class="fab fa-whatsapp text-emerald-600 mr-1"></i>Send Notice to Parents</h3>
+   <p class="text-xs text-gray-500 mb-3">Tap <b>WhatsApp</b> or <b>SMS</b> next to each parent — the app opens with the message ready, you tap send. Messages go out <b>individually</b> (one parent at a time), not as a mass blast.</p>
+   <div id="noticeSendInfo" class="bg-amber-50 border border-amber-200 rounded p-2 text-sm mb-3"></div>
+   <div id="noticeSendList" class="max-h-96 overflow-auto border rounded"></div>
+   <div class="flex justify-end gap-2 mt-3"><button class="closeModal bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded-lg text-sm">Close</button></div>
   </div></div>
  </div>`;
 }
@@ -3888,7 +4240,7 @@ function renderReportCardsTab(){
  const classes = ALL_CLASSES.filter(c => students.some(s => s.class === c));
  return `<div>
   <h2 class="text-lg font-bold mb-1"><i class="fas fa-file-lines text-indigo-600 mr-1"></i>Report Cards</h2>
-  <p class="text-sm text-gray-600 mb-4">Generate printable report cards from entered exam marks. Pick a term and class, then print individually or for the whole class.</p>
+  <p class="text-sm text-gray-600 mb-4">Generate printable report cards from entered exam marks. Choose a <b>single exam</b> (e.g. UT1) for that exam's report card, or <b>Consolidated</b> for a complete report card showing all exams together. Both are always available.</p>
 
   ${exams.length === 0 ? `<div class="bg-amber-50 border-l-4 border-amber-400 p-4 rounded text-sm text-amber-900"><i class="fas fa-info-circle mr-1"></i>No exam marks have been entered yet. Teachers enter marks via their <b>Marks</b> tab. Once marks exist, report cards can be generated here.</div>` : `
 
@@ -3926,7 +4278,7 @@ function attachReportCardsEvents(){
   const container = document.getElementById('rcStudentList');
   if (!container) return;
   if (!cls) { container.innerHTML = '<div class="text-sm text-gray-500 py-3">Select a class and click "Show Students".</div>'; return; }
-  const students = getStudents().filter(s => s.class === cls).sort((a,b) => (a.rollNo||0)-(b.rollNo||0));
+  const students = getStudents().filter(s => s.class === cls && !s.archived).sort((a,b) => (a.rollNo||0)-(b.rollNo||0));
   const marks = getExamMarks();
   if (students.length === 0) { container.innerHTML = '<div class="text-sm text-gray-500 py-3">No students in this class.</div>'; return; }
 
@@ -4189,6 +4541,47 @@ function attachNoticesTabEvents(){
  };
  document.getElementById('addNoticeBtn')?.addEventListener('click', () => openNoticeModal(null));
  document.querySelectorAll('.editNoticeBtn').forEach(b => b.addEventListener('click', () => openNoticeModal(b.dataset.id)));
+ // Send notice via WhatsApp/SMS — resolve recipients from the notice's audience
+ document.querySelectorAll('.sendNoticeBtn').forEach(b => b.addEventListener('click', () => {
+  const n = getNotices().find(x => x.id === parseInt(b.dataset.id));
+  if (!n) return;
+  const aud = n.audience || 'all';
+  // Resolve which students' parents should receive this (staff notices have no parent phones)
+  let recipients = [];
+  const students = getStudents().filter(s => !s.archived);
+  if (aud === 'all' || aud === 'parents' || aud === 'students') {
+   recipients = students;
+  } else if (aud.startsWith('class:')) {
+   const cls = aud.slice(6);
+   recipients = students.filter(s => s.class === cls);
+  } else {
+   // staff/teachers audiences — no parent phones to message
+   recipients = [];
+  }
+  recipients = recipients.filter(s => s.parentPhone);
+  const msg = `*${n.title}*\n\n${n.body || ''}\n\n— ${SCHOOL_INFO.name}`;
+  const info = document.getElementById('noticeSendInfo');
+  const list = document.getElementById('noticeSendList');
+  if (recipients.length === 0) {
+   info.innerHTML = `<i class="fas fa-info-circle mr-1"></i>No parent phone numbers found for this notice's audience (<b>${escapeHTML(aud)}</b>). ${aud.startsWith('staff')||aud==='teachers'?'Staff notices are shown on dashboards, not sent to parents.':''}`;
+   list.innerHTML = '';
+  } else {
+   info.innerHTML = `Audience: <b>${aud==='all'?'All parents':aud.startsWith('class:')?'Class '+aud.slice(6):aud}</b> · ${recipients.length} recipient${recipients.length===1?'':'s'} with a phone number. Send each individually:`;
+   list.innerHTML = recipients.map(s => {
+    const phone = _cleanPhone(s.parentPhone);
+    const wa = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
+    const sms = `sms:${s.parentPhone.replace(/[^\d+]/g,'')}?&body=${encodeURIComponent(msg)}`;
+    return `<div class="flex items-center justify-between gap-2 border-b px-3 py-2 text-sm">
+     <div class="min-w-0"><div class="font-medium truncate">${escapeHTML(s.name)}</div><div class="text-xs text-gray-500">Class ${s.class||'-'} · ${escapeHTML(s.parentName||'Parent')} · ${escapeHTML(s.parentPhone)}</div></div>
+     <div class="flex gap-1 flex-shrink-0">
+      <a href="${wa}" target="_blank" class="bg-emerald-500 hover:bg-emerald-600 text-white px-2 py-1 rounded text-xs"><i class="fab fa-whatsapp"></i></a>
+      <a href="${sms}" class="bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs"><i class="fas fa-sms"></i></a>
+     </div>
+    </div>`;
+   }).join('');
+  }
+  document.getElementById('noticeSendModal').classList.remove('hidden');
+ }));
  document.querySelectorAll('.delNoticeBtn').forEach(b => b.addEventListener('click', () => {
   if (!confirm('Delete this notice?')) return;
   saveNotices(getNotices().filter(x => x.id !== parseInt(b.dataset.id)));
@@ -4225,11 +4618,34 @@ function attachNoticesTabEvents(){
 }
 
 function renderCalendar(){
- const events=get('calendar');
+ const events=get('calendar').sort((a,b)=>(a.date||'').localeCompare(b.date||''));
  return `<div>
   <div class="flex justify-between items-center mb-3"><h2 class="text-lg font-bold"><i class="fas fa-calendar-days text-purple-600 mr-1"></i>School Calendar</h2><button id="addCalEvent" class="bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-sm">+ Add Event</button></div>
-  <div class="grid md:grid-cols-3 gap-3">${events.map(e=>`<div class="border p-3 rounded-lg"><div class="font-semibold">${e.title}</div><div class="text-sm text-indigo-600">${fmtDate(e.date)}</div><div class="text-xs text-gray-600 mt-1">${e.description||''}</div><button class="delEvent mt-2 text-red-600 text-sm" data-id="${e.id}"><i class="fas fa-trash"></i> Delete</button></div>`).join('')}</div>
-  <div id="calModal" class="hidden modal"><div class="modal-content"><h3 class="font-bold mb-3">Add Event</h3><div class="space-y-2"><input id="calTitle" placeholder="Title"><input type="date" id="calDate"><input id="calDesc" placeholder="Description"></div><div class="flex justify-end gap-2 mt-3"><button class="closeModal bg-gray-300 px-3 py-1.5 rounded">Cancel</button><button id="saveCalModal" class="bg-indigo-600 text-white px-3 py-1.5 rounded">Save</button></div></div></div>
+  <p class="text-xs text-gray-500 mb-3"><i class="fas fa-globe mr-1"></i>Events marked <b>"Show on public website"</b> appear on the school's public Calendar page for parents and visitors.</p>
+  <div class="grid md:grid-cols-3 gap-3">${events.map(e=>`<div class="border p-3 rounded-lg ${e.public?'border-emerald-300 bg-emerald-50':''}">
+    <div class="flex items-start justify-between gap-1">
+      <div class="font-semibold">${escapeHTML(e.title)}</div>
+      ${e.public?'<span class="text-xs bg-emerald-600 text-white px-1.5 py-0.5 rounded" title="Visible on public website"><i class="fas fa-globe"></i> Public</span>':'<span class="text-xs bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded">Internal</span>'}
+    </div>
+    <div class="text-sm text-indigo-600">${fmtDate(e.date)}${e.type?` · <span class="text-gray-600">${escapeHTML(e.type)}</span>`:''}</div>
+    <div class="text-xs text-gray-600 mt-1">${escapeHTML(e.description||'')}</div>
+    <div class="mt-2 flex gap-2">
+      <button class="editEvent text-blue-600 text-sm" data-id="${e.id}"><i class="fas fa-edit"></i> Edit</button>
+      <button class="delEvent text-red-600 text-sm" data-id="${e.id}"><i class="fas fa-trash"></i> Delete</button>
+    </div>
+  </div>`).join('')||'<div class="text-gray-500 col-span-3 text-sm py-4">No events yet. Add your first event.</div>'}</div>
+  <div id="calModal" class="hidden modal"><div class="modal-content"><h3 class="font-bold mb-3" id="calModalTitle">Add Event</h3>
+   <input type="hidden" id="calEventId">
+   <div class="space-y-2">
+    <div><label class="text-xs font-medium">Title *</label><input id="calTitle" placeholder="e.g. Independence Day"></div>
+    <div class="grid grid-cols-2 gap-2">
+     <div><label class="text-xs font-medium">Date</label><input type="date" id="calDate"></div>
+     <div><label class="text-xs font-medium">Type</label><select id="calType"><option>Holiday</option><option>Exam</option><option>Event</option><option>PTM</option><option>Admission</option><option>Other</option></select></div>
+    </div>
+    <div><label class="text-xs font-medium">Description</label><input id="calDesc" placeholder="Optional details"></div>
+    <label class="flex items-center gap-2 text-sm bg-emerald-50 border border-emerald-200 rounded p-2 mt-1"><input type="checkbox" id="calPublic" class="w-auto"> <span><i class="fas fa-globe text-emerald-600 mr-1"></i><b>Show on public website</b> — visible to parents & visitors on the Calendar page</span></label>
+   </div>
+   <div class="flex justify-end gap-2 mt-3"><button class="closeModal bg-gray-300 px-3 py-1.5 rounded">Cancel</button><button id="saveCalModal" class="bg-indigo-600 text-white px-3 py-1.5 rounded">Save</button></div></div></div>
  </div>`;
 }
 function renderDocuments(){
@@ -4341,7 +4757,8 @@ function _teacherAssignedClasses(){
 function _teacherScopedStudents(){
  const classes = _teacherAssignedClasses();
  if (classes.length === 0) return [];
- return getStudents().filter(s => classes.includes(s.class));
+ // Exclude archived (TC-issued) students — they've left the school
+ return getStudents().filter(s => !s.archived && classes.includes(s.class));
 }
 // Small reusable "no classes assigned" notice
 function _noClassAssignedNotice(){
@@ -5995,7 +6412,7 @@ function renderAccountantPanel(){
 function renderFeeRemindersTab(){
  const students = getStudents();
  const overdue = students
-  .filter(s => (s.feeBalance || 0) > 0)
+  .filter(s => !s.archived && (s.feeBalance || 0) > 0)
   .sort((a,b) => (b.feeBalance||0) - (a.feeBalance||0));
  const totalDue = overdue.reduce((sum, s) => sum + (s.feeBalance||0), 0);
  const withPhone = overdue.filter(s => s.parentPhone).length;
@@ -6428,6 +6845,12 @@ function renderAccPayments(){
      <label class="text-xs font-medium">Description</label>
      <input id="expDescription" placeholder="what was the payment for">
     </div>
+    <div class="md:col-span-2">
+     <label class="text-xs font-medium"><i class="fas fa-paperclip mr-1 text-gray-500"></i>Attach Voucher / Bill (PDF or image)</label>
+     <input type="file" id="expBillFile" accept="application/pdf,image/*" class="text-xs">
+     <input type="hidden" id="expBillData"><input type="hidden" id="expBillName">
+     <div id="expBillPreview" class="text-xs text-gray-500 mt-1"></div>
+    </div>
    </div>
    <button id="expSaveBtn" class="bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
     <i class="fas fa-plus mr-1"></i>Record Payment
@@ -6529,7 +6952,7 @@ function renderAccPayments(){
       <td class="p-2 text-xs whitespace-nowrap">${fmtDate(e.date)}</td>
       <td class="p-2 text-xs"><span class="pill pill-amber">${e.category || '-'}</span></td>
       <td class="p-2 text-xs">${e.vendor || '-'}</td>
-      <td class="p-2 text-xs">${e.description || '-'}</td>
+      <td class="p-2 text-xs">${e.description || '-'}${e.billData ? ` <a href="${e.billData}" download="${escapeHTML(e.billName||'bill')}" class="text-blue-600 hover:underline ml-1" title="Download attached bill/voucher"><i class="fas fa-paperclip"></i></a>` : ''}</td>
       <td class="p-2 text-xs">${e.mode || '-'}</td>
       <td class="p-2 text-right font-semibold text-rose-700">${fmtINR(e.amount)}</td>
       <td class="p-2 whitespace-nowrap"><button class="expRequestBtn bg-amber-100 hover:bg-amber-200 text-amber-700 px-2 py-1 rounded text-xs" data-id="${e.id}" title="Request a fix from owner"><i class="fas fa-flag mr-1"></i>Request Fix</button></td>
@@ -6789,7 +7212,7 @@ function _generateReceiptHTML(txn){
        <div class="payer-name">${s.name}</div>
        <div class="payer-meta">Class ${s.class}${s.section ? '-' + s.section : ''} &middot; Roll #${s.rollNo || '-'} &middot; Adm.No: ${s.admissionNo || '-'}</div>
        ${s.fatherName ? `<div class="payer-meta">D/o ${s.fatherName}</div>` : ''}
-       ${s.pen ? `<div class="payer-meta mono small">PEN: ${s.pen}</div>` : ''}
+       ${''/* UDISE/PEN removed from receipts — confidential, Owner/MD only */}
       </div>` : `
       <div class="payer-block">
        <div class="payer-name">${txn.payerName || '-'}</div>
@@ -7709,6 +8132,19 @@ function _attachPaymentEvents(){
  updateExpModeUI();
 
  // Save expense
+ document.getElementById('expBillFile')?.addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  if (f.size > 5 * 1024 * 1024) { alert('File too large (max 5MB). Please scan at lower resolution.'); e.target.value=''; return; }
+  const reader = new FileReader();
+  reader.onload = ev => {
+   document.getElementById('expBillData').value = ev.target.result;
+   document.getElementById('expBillName').value = f.name;
+   const isPdf = (f.type||'').includes('pdf');
+   document.getElementById('expBillPreview').innerHTML = `<i class="fas fa-${isPdf?'file-pdf text-rose-600':'file-image text-blue-600'} mr-1"></i>${escapeHTML(f.name)} attached`;
+  };
+  reader.readAsDataURL(f);
+ });
  document.getElementById('expSaveBtn')?.addEventListener('click', () => {
   const cat = document.getElementById('expCategory').value;
   const amt = parseInt(document.getElementById('expAmount').value);
@@ -7725,7 +8161,9 @@ function _attachPaymentEvents(){
    id: Date.now(), date, category: cat, vendor: vendor || undefined,
    description: description || cat, amount: amt, mode,
    chequeNo: chequeNo || undefined,
-   bankAccountId: bankAccId || undefined
+   bankAccountId: bankAccId || undefined,
+   billData: document.getElementById('expBillData')?.value || undefined,
+   billName: document.getElementById('expBillName')?.value || undefined
   };
 
   // If non-cash, debit the bank account
@@ -8016,6 +8454,8 @@ function renderApp(){
   case 'parent':html=renderParentPanel();break;
   case 'student':html=renderStudentPanel();break;
   case 'accountant':html=renderAccountantPanel();break;
+  case 'admin_teacher':html=_comboSwitcher('admin','teacher')+(comboView==='teacher'?renderTeacherPanel():renderAdminPanel());break;
+  case 'accountant_teacher':html=_comboSwitcher('accountant','teacher')+(comboView==='teacher'?renderTeacherPanel():renderAccountantPanel());break;
   default:html='<div class="p-6">Unknown role</div>';
  }
  app.innerHTML=html;
@@ -8026,7 +8466,36 @@ function renderApp(){
  else if(currentUser.role==='parent')attachParentEvents();
  else if(currentUser.role==='student')attachStudentEvents();
  else if(currentUser.role==='accountant')attachAccountantEvents();
+ else if(currentUser.role==='admin_teacher'){
+  _attachComboSwitcher();
+  if(comboView==='teacher')attachTeacherEvents();
+  else {refreshAdminTabContent();attachAdminEvents();}
+ }
+ else if(currentUser.role==='accountant_teacher'){
+  _attachComboSwitcher();
+  if(comboView==='teacher')attachTeacherEvents();
+  else attachAccountantEvents();
+ }
  renderChatOnly();
+}
+
+// Combined-role view switcher (for staff doing two jobs, e.g. accountant + teacher)
+let comboView = 'primary'; // 'primary' (admin/accountant) or 'teacher'
+function _comboSwitcher(primaryRole, secondaryRole){
+ const label = r => ({admin:'Admin', accountant:'Accountant', teacher:'Teacher'})[r] || r;
+ const active = comboView === 'teacher' ? 'teacher' : 'primary';
+ return `<div class="bg-indigo-900 text-white px-4 py-2 flex items-center gap-2 text-sm sticky top-0 z-40">
+  <span class="font-semibold mr-2"><i class="fas fa-user-gear mr-1"></i>Dual Role:</span>
+  <button class="comboSwitchBtn px-3 py-1 rounded ${active==='primary'?'bg-white text-indigo-900 font-semibold':'bg-indigo-700 hover:bg-indigo-600'}" data-view="primary">${label(primaryRole)}</button>
+  <button class="comboSwitchBtn px-3 py-1 rounded ${active==='teacher'?'bg-white text-indigo-900 font-semibold':'bg-indigo-700 hover:bg-indigo-600'}" data-view="teacher">${label(secondaryRole)}</button>
+  <span class="ml-auto text-xs opacity-80">Switch between your two roles</span>
+ </div>`;
+}
+function _attachComboSwitcher(){
+ document.querySelectorAll('.comboSwitchBtn').forEach(b => b.addEventListener('click', () => {
+  comboView = b.dataset.view === 'teacher' ? 'teacher' : 'primary';
+  renderApp();
+ }));
 }
 
 function refreshAdminTabContent(){
@@ -8385,6 +8854,25 @@ function attachStudentsTabEvents(){
  document.getElementById('studentSectionFilter')?.addEventListener('change',e=>{studentFilter.section=e.target.value;refresh()});
  document.getElementById('studentCategoryFilter')?.addEventListener('change',e=>{studentFilter.category=e.target.value;refresh()});
  document.getElementById('clearFilters')?.addEventListener('click',()=>{studentFilter={search:'',class:'all',section:'all',category:'all'};refresh()});
+ // Assign roll numbers alphabetically within each class+section
+ document.getElementById('assignRollBtn')?.addEventListener('click',()=>{
+  if(!confirm('Auto-assign roll numbers alphabetically (by student name) within each class and section? This will renumber all students. Continue?'))return;
+  const students=getStudents();
+  // Group by class+section
+  const groups={};
+  students.forEach(s=>{
+   const key=(s.class||'')+'|'+(s.section||'');
+   (groups[key]=groups[key]||[]).push(s);
+  });
+  Object.values(groups).forEach(list=>{
+   // sort alphabetically by name (case-insensitive), then assign roll 1..n
+   list.sort((a,b)=>String(a.name||'').toLowerCase().localeCompare(String(b.name||'').toLowerCase()));
+   list.forEach((s,i)=>{ const rec=students.find(x=>x.id===s.id); if(rec) rec.rollNo=i+1; });
+  });
+  saveStudents(students);
+  showToast('Roll numbers assigned alphabetically within each class');
+  refresh();
+ });
  // Data cleanup: show students without a valid class
  document.getElementById('showNoClassBtn')?.addEventListener('click',()=>{
   studentFilter={search:'',class:'all',section:'all',category:'noclass'};
@@ -8515,6 +9003,56 @@ function attachStudentsTabEvents(){
   showToast('Student deleted');
   refresh();
  }));
+ // Archive view toggle
+ document.getElementById('viewArchiveBtn')?.addEventListener('click',()=>{
+  studentFilter={search:'',class:'all',section:'all',category:'archived'};
+  refresh();
+ });
+ document.getElementById('backToActiveBtn')?.addEventListener('click',()=>{
+  studentFilter={search:'',class:'all',section:'all',category:'all'};
+  refresh();
+ });
+ // Open the Issue-TC / Archive modal
+ document.querySelectorAll('.archiveStudentBtn').forEach(b=>b.addEventListener('click',()=>{
+  const s=getStudents().find(x=>x.id===parseInt(b.dataset.id));
+  if(!s)return;
+  document.getElementById('tcStudentId').value=s.id;
+  document.getElementById('tcStudentInfo').innerHTML=`<b>${escapeHTML(s.name)}</b> — Class ${s.class||'-'}${s.section?'-'+s.section:''}, Adm No ${s.admissionNo||'-'}`;
+  document.getElementById('tcNumber').value='';
+  document.getElementById('tcDate').value=new Date().toISOString().slice(0,10);
+  document.getElementById('tcReason').value='Transfer to another school';
+  document.getElementById('tcRemarks').value='';
+  document.getElementById('tcModal').classList.remove('hidden');
+ }));
+ // Confirm archive
+ document.getElementById('tcConfirmBtn')?.addEventListener('click',()=>{
+  const id=parseInt(document.getElementById('tcStudentId').value);
+  const students=getStudents();
+  const s=students.find(x=>x.id===id);
+  if(!s)return;
+  s.archived=true;
+  s.archivedDate=new Date().toISOString();
+  s.tcNumber=document.getElementById('tcNumber').value.trim();
+  s.tcDate=document.getElementById('tcDate').value;
+  s.tcReason=document.getElementById('tcReason').value;
+  s.tcRemarks=document.getElementById('tcRemarks').value.trim();
+  s.archivedBy=currentUser?.name||'';
+  saveStudents(students);
+  document.getElementById('tcModal').classList.add('hidden');
+  showToast(`${s.name} archived (TC issued)`);
+  refresh();
+ });
+ // Restore an archived student
+ document.querySelectorAll('.restoreStudentBtn').forEach(b=>b.addEventListener('click',()=>{
+  const students=getStudents();
+  const s=students.find(x=>x.id===parseInt(b.dataset.id));
+  if(!s)return;
+  if(!confirm(`Restore ${s.name} to active students? Their TC record will be cleared.`))return;
+  delete s.archived; delete s.archivedDate; delete s.tcNumber; delete s.tcDate; delete s.tcReason; delete s.tcRemarks; delete s.archivedBy;
+  saveStudents(students);
+  showToast(`${s.name} restored to active students`);
+  refresh();
+ }));
  document.querySelectorAll('.viewStudentBtn').forEach(b=>b.addEventListener('click',()=>{
   viewingStudentId=parseInt(b.dataset.id);
   activeStudentProfileTab='personal';
@@ -8527,9 +9065,14 @@ function attachStudentsTabEvents(){
  }));
  document.getElementById('exportStudentsBtn')?.addEventListener('click',()=>{
   const s=getStudents();
-  let h='<table border="1"><tr><th>Adm No</th><th>PEN (UDISE+)</th><th>Name</th><th>Class</th><th>Section</th><th>Roll</th><th>Gender</th><th>DOB</th><th>Blood</th><th>Caste</th><th>BPL</th><th>CWSN</th><th>Aadhaar</th><th>Parent</th><th>Phone</th><th>Address</th><th>Adm Date</th><th>Fee Balance</th></tr>';
-  s.forEach(x=>h+=`<tr><td>${x.admissionNo||''}</td><td>${x.pen||''}</td><td>${x.name}</td><td>${x.class}</td><td>${x.section}</td><td>${x.rollNo}</td><td>${x.gender||''}</td><td>${x.dob||''}</td><td>${x.bloodGroup||''}</td><td>${x.caste}</td><td>${x.bpl?'Yes':'No'}</td><td>${x.cwsn?'Yes':'No'}</td><td>${x.aadhaar||''}</td><td>${x.parentName||''}</td><td>${x.parentPhone||''}</td><td>${x.address||''}</td><td>${x.admissionDate||''}</td><td>${x.feeBalance||0}</td></tr>`);
-  h+='</table>';downloadExcel(h,'Students_Full_'+new Date().toISOString().slice(0,10));
+  const conf = canSeeConfidentialNumbers(); // only Owner/MD get SR + UDISE columns
+  const confHead = conf ? '<th>Scholar Reg No</th><th>UDISE/PEN</th>' : '';
+  let h='<table border="1"><tr><th>Adm No</th>'+confHead+'<th>Name</th><th>Class</th><th>Section</th><th>Roll</th><th>Gender</th><th>DOB</th><th>Blood</th><th>Caste</th><th>BPL</th><th>CWSN</th><th>Aadhaar</th><th>Parent</th><th>Phone</th><th>Address</th><th>Adm Date</th><th>Fee Balance</th></tr>';
+  s.forEach(x=>{
+   const confCells = conf ? `<td>${x.registrationNo||''}</td><td>${x.pen||''}</td>` : '';
+   h+=`<tr><td>${x.admissionNo||''}</td>${confCells}<td>${x.name}</td><td>${x.class}</td><td>${x.section}</td><td>${x.rollNo}</td><td>${x.gender||''}</td><td>${x.dob||''}</td><td>${x.bloodGroup||''}</td><td>${x.caste}</td><td>${x.bpl?'Yes':'No'}</td><td>${x.cwsn?'Yes':'No'}</td><td>${x.aadhaar||''}</td><td>${x.parentName||''}</td><td>${x.parentPhone||''}</td><td>${x.address||''}</td><td>${x.admissionDate||''}</td><td>${x.feeBalance||0}</td></tr>`;
+  });
+  h+='</table>';downloadExcel(h,'Students_'+(conf?'Full_':'Basic_')+new Date().toISOString().slice(0,10));
  });
  document.getElementById('promoteStudentsBtn')?.addEventListener('click',()=>{
   if(!confirm('Promote ALL students to the next class? Class 12 students stay in Class 12. Continue?'))return;
@@ -8973,6 +9516,9 @@ function attachTeachersTabEvents(){
     document.getElementById('tchAddress').value = t.address || '';
     document.getElementById('tchBlood').value = t.bloodGroup || '';
     document.getElementById('tchPhoto').value = t.photo || '';
+    // Load qualification documents
+    _tchQualDocs = Array.isArray(t.qualificationDocs) ? [...t.qualificationDocs] : [];
+    _renderTchQualDocs();
     // Tick assigned classes
     const assigned = Array.isArray(t.assignedClasses) ? t.assignedClasses : [];
     document.querySelectorAll('.tchClassChk').forEach(chk => { chk.checked = assigned.includes(chk.value); });
@@ -8983,9 +9529,25 @@ function attachTeachersTabEvents(){
    }
   } else {
    document.getElementById('teacherModalTitle').innerText = 'Add Teacher';
+   _tchQualDocs = [];
+   _renderTchQualDocs();
   }
   document.getElementById('teacherModal').classList.remove('hidden');
  };
+
+ // Qualification document upload (PDF or image) — stored as base64 in a working array
+ document.getElementById('tchQualDocFile')?.addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  if (f.size > 5 * 1024 * 1024) { alert('File too large (max 5MB). Please compress or scan at lower resolution.'); e.target.value=''; return; }
+  const reader = new FileReader();
+  reader.onload = ev => {
+   _tchQualDocs.push({ name: f.name, type: f.type, data: ev.target.result });
+   _renderTchQualDocs();
+   e.target.value = '';
+  };
+  reader.readAsDataURL(f);
+ });
 
  // Photo upload wiring for teacher modal
  document.getElementById('tchPhotoFile')?.addEventListener('change', e => {
@@ -9027,6 +9589,7 @@ function attachTeachersTabEvents(){
    address: document.getElementById('tchAddress').value.trim(),
    bloodGroup: document.getElementById('tchBlood').value,
    photo: document.getElementById('tchPhoto').value || '',
+   qualificationDocs: _tchQualDocs.slice(),
    assignedClasses: Array.from(document.querySelectorAll('.tchClassChk')).filter(c => c.checked).map(c => c.value)
   };
   const teachers = getTeachers();
@@ -9201,14 +9764,77 @@ function attachDataManagementEvents(){
     document.getElementById('dmStuBpl').checked = !!s.bpl;
     document.getElementById('dmStuCwsn').checked = !!s.cwsn;
     document.getElementById('dmStuFreeChild').checked = !!s.freeChild;
+    _stuDocs = Array.isArray(s.documents) ? [...s.documents] : [];
+    _renderStuDocs();
+    _stuInstallments = Array.isArray(s.installments) ? JSON.parse(JSON.stringify(s.installments)) : [];
+    _renderStuInstallments();
    }
   } else {
    document.getElementById('dmStudentModalTitle').innerText = 'Add Student';
    // Auto-generate the next admission number so new students never end up blank.
    document.getElementById('dmStuAdmNo').value = nextAdmissionNo();
+   _stuDocs = [];
+   _renderStuDocs();
+   _stuInstallments = [];
+   _renderStuInstallments();
   }
   document.getElementById('dmStudentModal').classList.remove('hidden');
+  // UDISE/PEN always starts masked when the modal opens (confidential)
+  const penEl = document.getElementById('dmStuPen');
+  if (penEl) penEl.type = 'password';
+  const penToggle = document.getElementById('dmStuPenToggle');
+  if (penToggle) penToggle.innerHTML = '<i class="fas fa-eye"></i>';
  };
+ // Show/hide toggle for the confidential UDISE/PEN field
+ document.getElementById('dmStuPenToggle')?.addEventListener('click', () => {
+  const el = document.getElementById('dmStuPen');
+  const btn = document.getElementById('dmStuPenToggle');
+  if (!el) return;
+  if (el.type === 'password') { el.type = 'text'; btn.innerHTML = '<i class="fas fa-eye-slash"></i>'; }
+  else { el.type = 'password'; btn.innerHTML = '<i class="fas fa-eye"></i>'; }
+ });
+ // KYC document upload (PDF or image), tagged with the selected document type
+ document.getElementById('dmStuDocFile')?.addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  if (f.size > 5 * 1024 * 1024) { alert('File too large (max 5MB). Please scan at lower resolution.'); e.target.value=''; return; }
+  const docType = document.getElementById('dmStuDocType').value;
+  const reader = new FileReader();
+  reader.onload = ev => {
+   _stuDocs.push({ docType, name: f.name, type: f.type, data: ev.target.result, uploadedAt: new Date().toISOString() });
+   _renderStuDocs();
+   e.target.value = '';
+  };
+  reader.readAsDataURL(f);
+ });
+ // Installment plan: split composite fee evenly into N installments (editable after)
+ document.getElementById('dmGenInstBtn')?.addEventListener('click', () => {
+  const composite = parseInt(document.getElementById('dmStuDecided').value) || 0;
+  if (!composite) { alert('Enter the Composite Fee first, then split it into installments.'); return; }
+  const n = Math.max(1, Math.min(12, parseInt(document.getElementById('dmInstCount').value) || 3));
+  // Even split, with any remainder added to the first installment
+  const base = Math.floor(composite / n);
+  const remainder = composite - base * n;
+  const admDate = document.getElementById('dmStuAdmDate').value;
+  const startYear = admDate ? new Date(admDate).getFullYear() : new Date().getFullYear();
+  _stuInstallments = Array.from({length:n}, (_,i) => {
+   // Space due dates ~2 months apart starting from admission month (or April)
+   const startMonth = admDate ? new Date(admDate).getMonth() : 3; // April default
+   const d = new Date(startYear, startMonth + i*2, 10);
+   return {
+    id: Date.now()+i,
+    label: `Installment ${i+1}`,
+    amount: base + (i===0 ? remainder : 0),
+    dueDate: d.toISOString().slice(0,10),
+    paid: false
+   };
+  });
+  _renderStuInstallments();
+ });
+ document.getElementById('dmAddInstBtn')?.addEventListener('click', () => {
+  _stuInstallments.push({ id: Date.now(), label: `Installment ${_stuInstallments.length+1}`, amount: 0, dueDate: '', paid: false });
+  _renderStuInstallments();
+ });
  document.getElementById('dmAddStudentBtn')?.addEventListener('click', () => openStudentModal(null));
  document.querySelectorAll('.dmEditStudentBtn').forEach(b => b.addEventListener('click', () => openStudentModal(b.dataset.id)));
 
@@ -9222,7 +9848,6 @@ function attachDataManagementEvents(){
   if (!admNo) admNo = nextAdmissionNo();
   const data = {
     name,
-    registrationNo: document.getElementById('dmStuRegNo').value.trim(),
     admissionNo: admNo,
     class: document.getElementById('dmStuClass').value,
     section: document.getElementById('dmStuSection').value,
@@ -9238,7 +9863,6 @@ function attachDataManagementEvents(){
     bloodGroup: document.getElementById('dmStuBlood').value,
     caste: document.getElementById('dmStuCaste').value,
     aadhaar: document.getElementById('dmStuAadhaar').value.trim(),
-    pen: document.getElementById('dmStuPen').value.trim(),
     admissionDate: document.getElementById('dmStuAdmDate').value,
     annualFees: parseInt(document.getElementById('dmStuAnnual').value) || 0,
     decidedFees: parseInt(document.getElementById('dmStuDecided').value) || 0,
@@ -9246,8 +9870,22 @@ function attachDataManagementEvents(){
     feeBalance: parseInt(document.getElementById('dmStuFeeBal').value) || 0,
     bpl: document.getElementById('dmStuBpl').checked,
     cwsn: document.getElementById('dmStuCwsn').checked,
-    freeChild: document.getElementById('dmStuFreeChild').checked
+    freeChild: document.getElementById('dmStuFreeChild').checked,
+    documents: _stuDocs.slice(),
+    installments: _stuInstallments.slice()
   };
+  // If an installment plan exists, the fee balance is derived from it (unpaid installments).
+  if (Array.isArray(data.installments) && data.installments.length > 0){
+   const total = data.installments.reduce((a,i)=>a+(Number(i.amount)||0),0);
+   const paid = data.installments.reduce((a,i)=>a+(i.paid?(Number(i.amount)||0):0),0);
+   data.feeBalance = Math.max(0, total - paid);
+  }
+  // Confidential numbers (SR + UDISE/PEN) can only be set by Owner/MD. For everyone else,
+  // do NOT overwrite them — the fields are hidden and would otherwise blank out real data.
+  if (canSeeConfidentialNumbers()) {
+    data.registrationNo = document.getElementById('dmStuRegNo').value.trim();
+    data.pen = document.getElementById('dmStuPen').value.trim();
+  }
   const all = getStudents();
   let createdMsg = '';
   if (id) {
@@ -9338,16 +9976,49 @@ function attachGenericModuleEvents(){
   if(ai>-1){acc[ai].balance=(acc[ai].balance||0)+(type==='Credit'?amount:-amount);set('bankAccounts',acc)}
   set('bankTransactions',t);document.getElementById('transModal').classList.add('hidden');refreshAdminTabContent();
  });
- document.getElementById('addCalEvent')?.addEventListener('click',()=>document.getElementById('calModal').classList.remove('hidden'));
+ const _calRefresh = () => {
+  if (isOwnerLevel()) renderApp();
+  else if (activeAdminTab==='calendar') refreshAdminTabContent();
+  else refreshPrincipalTabContent();
+ };
+ const _openCalModal = (ev) => {
+  document.getElementById('calModalTitle').innerText = ev ? 'Edit Event' : 'Add Event';
+  document.getElementById('calEventId').value = ev ? ev.id : '';
+  document.getElementById('calTitle').value = ev ? (ev.title||'') : '';
+  document.getElementById('calDate').value = ev ? (ev.date||'') : '';
+  document.getElementById('calType').value = ev ? (ev.type||'Event') : 'Event';
+  document.getElementById('calDesc').value = ev ? (ev.description||'') : '';
+  document.getElementById('calPublic').checked = ev ? !!ev.public : false;
+  document.getElementById('calModal').classList.remove('hidden');
+ };
+ document.getElementById('addCalEvent')?.addEventListener('click',()=>_openCalModal(null));
+ document.querySelectorAll('.editEvent').forEach(b=>b.addEventListener('click',()=>{
+  const ev=get('calendar').find(x=>x.id===parseInt(b.dataset.id));
+  if(ev)_openCalModal(ev);
+ }));
  document.getElementById('saveCalModal')?.addEventListener('click',()=>{
+  const title=document.getElementById('calTitle').value.trim();
+  if(!title){alert('Title is required');return;}
+  const id=document.getElementById('calEventId').value;
+  const data={
+   title,
+   date:document.getElementById('calDate').value,
+   type:document.getElementById('calType').value,
+   description:document.getElementById('calDesc').value.trim(),
+   public:document.getElementById('calPublic').checked
+  };
   const e=get('calendar');
-  e.push({id:Date.now(),title:document.getElementById('calTitle').value,date:document.getElementById('calDate').value,description:document.getElementById('calDesc').value,type:'Event'});
-  set('calendar',e);document.getElementById('calModal').classList.add('hidden');
-  activeAdminTab==='calendar'?refreshAdminTabContent():refreshPrincipalTabContent();
+  if(id){ const i=e.findIndex(x=>x.id===parseInt(id)); if(i>-1) e[i]={...e[i],...data}; }
+  else { data.id=Date.now(); e.push(data); }
+  set('calendar',e);
+  document.getElementById('calModal').classList.add('hidden');
+  showToast(data.public?'Event saved & published to website':'Event saved');
+  _calRefresh();
  });
  document.querySelectorAll('.delEvent').forEach(b=>b.addEventListener('click',()=>{
+  if(!confirm('Delete this event?'))return;
   set('calendar',get('calendar').filter(x=>x.id!==parseInt(b.dataset.id)));
-  activeAdminTab==='calendar'?refreshAdminTabContent():refreshPrincipalTabContent();
+  _calRefresh();
  }));
  document.getElementById('uploadDocBtn')?.addEventListener('click',()=>document.getElementById('docModal').classList.remove('hidden'));
  document.getElementById('saveDocModal')?.addEventListener('click',()=>{
@@ -10040,6 +10711,8 @@ function renderUsersTab(){
      <option value="admin">Admin</option>
      <option value="principal">Principal</option>
      <option value="teacher">Teacher</option>
+     <option value="admin_teacher">Admin + Teacher</option>
+     <option value="accountant_teacher">Accountant + Teacher</option>
      <option value="parent">Parent</option>
      <option value="accountant">Accountant</option>
      <option value="student">Student</option>
@@ -10150,7 +10823,8 @@ function attachUsersTabEvents(){
    });
   }
   const updateLinkedRows = () => {
-   document.getElementById('teacherIdRow').style.display = roleSel.value === 'teacher' ? '' : 'none';
+   const needsTeacher = ['teacher','admin_teacher','accountant_teacher'].includes(roleSel.value);
+   document.getElementById('teacherIdRow').style.display = needsTeacher ? '' : 'none';
    document.getElementById('studentIdRow').style.display = roleSel.value === 'student' ? '' : 'none';
   };
   roleSel.onchange = updateLinkedRows;
@@ -10201,7 +10875,7 @@ function attachUsersTabEvents(){
   const data = { name, username, role };
   const teacherId = parseInt(document.getElementById('userModalTeacherId').value);
   const studentId = parseInt(document.getElementById('userModalStudentId').value);
-  if (role === 'teacher' && teacherId) data.teacherId = teacherId;
+  if (['teacher','admin_teacher','accountant_teacher'].includes(role) && teacherId) data.teacherId = teacherId;
   if (role === 'student' && studentId) data.studentId = studentId;
   // Hash the password if one was entered; otherwise keep the existing one (edit mode)
   if (password) { data.password = await hashPassword(password); data.defaultPw = false; }
@@ -10252,11 +10926,13 @@ function attachUsersTabEvents(){
 
 // Returns the canonical username for a given record. Pure function (no side-effects).
 function _genUsername(kind, record) {
+ // Logins use the ADMISSION NUMBER (public, on the ID card) — never the SR/registration
+ // number, which is confidential. Falls back to registration only if no admission no exists.
  if (kind === 'student') {
-  return (record.registrationNo || record.admissionNo || ('s' + record.id) || '').toString().trim();
+  return (record.admissionNo || record.registrationNo || ('s' + record.id) || '').toString().trim();
  }
  if (kind === 'parent') {
-  return ('p_' + (record.registrationNo || record.admissionNo || ('s' + record.id))).toString().trim();
+  return ('p_' + (record.admissionNo || record.registrationNo || ('s' + record.id))).toString().trim();
  }
  if (kind === 'teacher') {
   // First word of name, lowercased, alphanumeric only
@@ -10267,7 +10943,7 @@ function _genUsername(kind, record) {
 }
 
 function _genPassword(kind, record) {
- if (kind === 'student') return (record.registrationNo || record.admissionNo || ('s' + record.id)) + '@123';
+ if (kind === 'student') return (record.admissionNo || record.registrationNo || ('s' + record.id)) + '@123';
  if (kind === 'parent')  return (record.parentPhone || '').replace(/\D/g, '').slice(-10) || ('parent' + record.id);
  if (kind === 'teacher') return 'Teacher@' + record.id;
  return 'CHANGE_ME';
