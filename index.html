@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1783281735 - modal fix: KYC/composite/archive now in Students list -->
+<!-- BUILD: v-1783327614 - fix: Cancel buttons close modals everywhere -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -8489,6 +8489,9 @@ function renderApp(){
   else attachAccountantEvents();
  }
  renderChatOnly();
+ // Wire ALL Cancel/close buttons (.closeModal) across every view, after every render.
+ // This ensures modals in the Notice Board, Students, and other tabs always close properly.
+ if (typeof attachUniversalCloseEvents === 'function') attachUniversalCloseEvents();
 }
 
 // Combined-role view switcher (for staff doing two jobs, e.g. accountant + teacher)
@@ -10177,7 +10180,29 @@ function attachStudentEvents(){
 
 /* ---------- UNIVERSAL MODAL CLOSE ---------- */
 function attachUniversalCloseEvents(){
- document.querySelectorAll('.closeModal').forEach(b=>b.addEventListener('click',e=>{e.target.closest('.modal')?.classList.add('hidden')}));
+ // Wire every Cancel/close (.closeModal) button. Mark each so repeated calls don't stack handlers.
+ document.querySelectorAll('.closeModal').forEach(b=>{
+  if (b.dataset._closeWired === '1') return;
+  b.dataset._closeWired = '1';
+  b.addEventListener('click', e => {
+   e.preventDefault();
+   const modal = e.target.closest('.modal');
+   if (modal) modal.classList.add('hidden');
+  });
+ });
+ // Also allow clicking the dark backdrop (outside the modal content) to close.
+ document.querySelectorAll('.modal').forEach(m=>{
+  if (m.dataset._backdropWired === '1') return;
+  m.dataset._backdropWired = '1';
+  m.addEventListener('click', e => { if (e.target === m) m.classList.add('hidden'); });
+ });
+ // Escape key closes any open modal (wire once globally).
+ if (!window._escCloseWired){
+  window._escCloseWired = true;
+  document.addEventListener('keydown', e => {
+   if (e.key === 'Escape') document.querySelectorAll('.modal:not(.hidden)').forEach(m => m.classList.add('hidden'));
+  });
+ }
 }
 
 /* ============================================================
