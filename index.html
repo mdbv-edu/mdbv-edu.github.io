@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1783334675 - curriculum: admin can assign tasks + month-by-month detail -->
+<!-- BUILD: v-1783587200 - Batch D: attendance insights + salary slip print -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -1899,7 +1899,7 @@ function initDB(){
  ]);
 
  // Empty array tables (ready for real-world data)
- ['feeTransactions','homeworks','complaints','examMarks','payrollSlips','inventory','vehicles','routeMovements','maintenance','expenses','bankAccounts','bankTransactions','correctionRequests','accountingAuditLog','messageLog','ptmEvents','homeworkSubmissions','teacherAuditLog','calendar','documents','chatMessages','notices','feeStructures','curriculum','teacherAppraisals'].forEach(t => seedArray(t, []));
+ ['feeTransactions','homeworks','complaints','examMarks','payrollSlips','inventory','vehicles','routeMovements','maintenance','expenses','bankAccounts','bankTransactions','correctionRequests','accountingAuditLog','messageLog','ptmEvents','homeworkSubmissions','teacherAuditLog','calendar','documents','chatMessages','notices','feeStructures','curriculum','teacherAppraisals','salaryPayments'].forEach(t => seedArray(t, []));
 
  // Singleton-object tables (correctly use setObject so they don't get stored as arrays)
  seedObject('busTracking',   {route1:{lat:null,lng:null,lastUpdate:'',status:''}});
@@ -2456,6 +2456,52 @@ function saveComplaints(d){ DB.setAll('complaints', d); }
 function saveTeachers(d){ DB.setAll('teachers', d); }
 function saveExamMarks(d){ DB.setAll('examMarks', d); }
 function saveAttendanceRecords(d){ DB.setObject('attendanceRecords', d); }
+
+// ===== ATTENDANCE INSIGHTS =====
+// Per-student attendance % over a window; low-attendance flagging; monthly breakdown.
+function _attendanceInsights(fromDate, toDate, classFilter){
+ const ar = getAttendanceRecords();
+ const students = getStudents().filter(s => !s.archived && (!classFilter || s.class === classFilter));
+ const rows = students.map(s => {
+  const rec = ar[s.id] || {};
+  let present = 0, absent = 0, leave = 0, total = 0;
+  Object.keys(rec).forEach(date => {
+   if (fromDate && date < fromDate) return;
+   if (toDate && date > toDate) return;
+   const v = rec[date];
+   if (v==='P'){present++;total++;}
+   else if (v==='A'){absent++;total++;}
+   else if (v==='L'){leave++;total++;}
+  });
+  const pct = total>0 ? Math.round(((present+leave)/total)*100) : null;
+  return { student:s, present, absent, leave, total, pct };
+ });
+ return rows;
+}
+// Monthly attendance % across the session for a class (or whole school).
+function _monthlyAttendance(classFilter){
+ const ar = getAttendanceRecords();
+ const students = getStudents().filter(s => !s.archived && (!classFilter || s.class === classFilter));
+ const sess = currentSession();
+ const startYear = parseInt(sess.slice(0,4));
+ const monthly = {};
+ SESSION_MONTHS.forEach(m => { monthly[m] = { present:0, total:0 }; });
+ students.forEach(s => {
+  const rec = ar[s.id] || {};
+  Object.keys(rec).forEach(date => {
+   const d = new Date(date);
+   if (isNaN(d)) return;
+   // Only current session dates
+   const m = d.getMonth(), y = d.getFullYear();
+   const inSession = (m >= 3 && y === startYear) || (m < 3 && y === startYear + 1);
+   if (!inSession) return;
+   const mName = SESSION_MONTHS[m >= 3 ? m-3 : m+9];
+   const v = rec[date];
+   if (v==='P'||v==='A'||v==='L'){ monthly[mName].total++; if(v==='P'||v==='L') monthly[mName].present++; }
+  });
+ });
+ return monthly;
+}
 function savePayrollSlips(d){ DB.setAll('payrollSlips', d); }
 
 // ===== CLASS-WISE CURRICULUM + ACTIVITIES (monthly, per class) =====
@@ -2489,6 +2535,133 @@ function _teacherCurriculumStats(teacher){
 }
 function getTeacherAppraisals(){ return DB.getAll('teacherAppraisals'); }
 function saveTeacherAppraisals(d){ DB.setAll('teacherAppraisals', d); }
+
+// ===== FINANCIAL SUMMARY / P&L (management view) =====
+// Aggregates income (fee receipts) and expenses (general expenses + salary payments)
+// across the session, broken down by month. Returns a structure the dashboard renders.
+function _monthKeyFromDate(dateStr){
+ // Returns session-month name (April..March) for a date string, or null.
+ if (!dateStr) return null;
+ const d = new Date(dateStr);
+ if (isNaN(d)) return null;
+ return SESSION_MONTHS[d.getMonth() >= 3 ? d.getMonth()-3 : d.getMonth()+9];
+}
+function _dateInCurrentSession(dateStr){
+ if (!dateStr) return false;
+ const d = new Date(dateStr);
+ if (isNaN(d)) return false;
+ const sess = currentSession();
+ const startYear = parseInt(sess.slice(0,4));
+ const m = d.getMonth(), y = d.getFullYear();
+ return (m >= 3 && y === startYear) || (m < 3 && y === startYear + 1);
+}
+function computeFinancialSummary(){
+ const fees = getFeeTransactions().filter(f => !f._deleted);
+ const expenses = get('expenses').filter(e => !e._deleted);
+ const salaries = _activeSalaryPayments();
+
+ // Per-month buckets
+ const byMonth = {};
+ SESSION_MONTHS.forEach(m => { byMonth[m] = { income:0, salary:0, otherExpense:0 }; });
+
+ fees.forEach(f => {
+  if (!_dateInCurrentSession(f.date)) return;
+  const m = _monthKeyFromDate(f.date); if (m) byMonth[m].income += Number(f.amount)||0;
+ });
+ salaries.forEach(p => {
+  if (!_dateInCurrentSession(p.date)) return;
+  const m = _monthKeyFromDate(p.date); if (m) byMonth[m].salary += Number(p.amount)||0;
+ });
+ expenses.forEach(e => {
+  if (!_dateInCurrentSession(e.date)) return;
+  const m = _monthKeyFromDate(e.date); if (m) byMonth[m].otherExpense += Number(e.amount)||0;
+ });
+
+ // Totals
+ let totalIncome=0, totalSalary=0, totalOther=0;
+ SESSION_MONTHS.forEach(m => {
+  totalIncome += byMonth[m].income;
+  totalSalary += byMonth[m].salary;
+  totalOther += byMonth[m].otherExpense;
+ });
+ const totalExpense = totalSalary + totalOther;
+
+ // Expense breakdown by category (general expenses only) + salary as its own head
+ const byCategory = { 'Salary': totalSalary };
+ expenses.forEach(e => {
+  if (!_dateInCurrentSession(e.date)) return;
+  const cat = e.category || 'Other';
+  byCategory[cat] = (byCategory[cat]||0) + (Number(e.amount)||0);
+ });
+
+ // Total outstanding fee dues (from students)
+ const dues = getStudents().filter(s=>!s.archived).reduce((a,s)=>a+(Number(s.feeBalance)||0),0);
+
+ return {
+  byMonth, totalIncome, totalSalary, totalOther, totalExpense,
+  net: totalIncome - totalExpense, byCategory, dues,
+  session: currentSession()
+ };
+}
+
+// ===== STAGGERED TEACHER SALARY PAYMENTS =====
+// Each payment: {id, teacherId, teacherName, amount, date, mode, chequeNo, forMonth, note, paidBy}
+// Teachers are paid in cash/cheque/online, partial and on any date. Dues shown to management only.
+function getSalaryPayments(){ return DB.getAll('salaryPayments'); }
+// Active (non-recycled) salary payments — used for all calculations/display.
+function _activeSalaryPayments(){ return getSalaryPayments().filter(p => !p._deleted); }
+function saveSalaryPayments(d){ DB.setAll('salaryPayments', d); }
+// Total paid to a teacher (optionally within a session window by month string).
+function _salaryPaidToTeacher(teacherId){
+ return _activeSalaryPayments().filter(p => p.teacherId === teacherId).reduce((a,p)=>a+(Number(p.amount)||0),0);
+}
+// Expected salary for a teacher across the session so far (monthly salary × months elapsed Apr→now).
+// Map a session month name (April..March) to its index in the session (April=0 ... March=11).
+function _sessionMonthIndex(monthName){
+ const i = SESSION_MONTHS.indexOf(monthName);
+ return i; // -1 if not found
+}
+// The current month's index within the session (April=0 ... March=11).
+function _currentSessionMonthIndex(){
+ const m = new Date().getMonth(); // 0=Jan
+ return m >= 3 ? (m - 3) : (m + 9);
+}
+// Determine a teacher's salary start index within the session:
+// 1) explicit salaryStartMonth if set, else 2) their date-of-joining month if within this session, else 3) April (0).
+function _salaryStartIndex(teacher){
+ if (teacher?.salaryStartMonth) {
+  const i = _sessionMonthIndex(teacher.salaryStartMonth);
+  if (i >= 0) return i;
+ }
+ if (teacher?.trainingDate) {
+  const d = new Date(teacher.trainingDate);
+  if (!isNaN(d)) {
+   // Only use joining month if it falls in the current session year window
+   const jm = d.getMonth(); // 0=Jan
+   const jIdx = jm >= 3 ? (jm - 3) : (jm + 9);
+   // Check the joining date is within the current session (not a past/future year)
+   const sess = currentSession();
+   const startYear = parseInt(sess.slice(0,4));
+   const jy = d.getFullYear();
+   const inSession = (jm >= 3 && jy === startYear) || (jm < 3 && jy === startYear + 1);
+   if (inSession) return jIdx;
+  }
+ }
+ return 0; // default: April
+}
+function _salaryExpectedToDate(teacher){
+ const monthly = Number(teacher?.salary)||0;
+ if (!monthly) return 0;
+ const startIdx = _salaryStartIndex(teacher);
+ const nowIdx = _currentSessionMonthIndex();
+ // Months from start through current month inclusive; never negative.
+ const monthsElapsed = Math.max(0, nowIdx - startIdx + 1);
+ return monthly * monthsElapsed;
+}
+// Dues = expected-to-date minus paid (for management view). Can be negative if advance-paid.
+function _salaryDue(teacher){
+ return _salaryExpectedToDate(teacher) - _salaryPaidToTeacher(teacher.id);
+}
 function saveChatMessages(d){ DB.setAll('chatMessages', d); }
 function saveCompliance(d){ DB.setAll('compliance', d); }
 
@@ -2615,11 +2788,70 @@ function compressImageFile(file, callback, maxDim = 400, quality = 0.7){
  reader.readAsDataURL(file);
 }
 function fmtDate(d){if(!d)return '-';return new Date(d).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})}
+// Global rupee formatter (local consts named fmtINR elsewhere shadow this harmlessly).
+function fmtINRg(n){ return 'Rs.' + (Number(n)||0).toLocaleString('en-IN'); }
+if (typeof globalThis !== 'undefined' && typeof globalThis.fmtINR === 'undefined') { globalThis.fmtINR = fmtINRg; }
 function fmtTime(d){return new Date(d).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}
 function initials(n){return(n||'?').split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase()}
 function daysUntil(d){if(!d)return 1/0;return Math.ceil((new Date(d)-new Date())/(1000*60*60*24))}
 function escapeHTML(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function downloadExcel(html,name){const b=new Blob([html],{type:'application/vnd.ms-excel'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name+'.xls';a.click();URL.revokeObjectURL(a.href)}
+
+// ===== FULL DATA BACKUP & RESTORE =====
+// Dumps every localStorage key (all tables + settings) into a single JSON file the user keeps.
+// Restore reads that file back. This is the safety net for the whole system.
+function _internalKeys(){
+ // Keys we do NOT back up (transient/auth/UI state that shouldn't be restored)
+ return ['_lastReceiptId','_syncQueue','_pendingSync'];
+}
+function buildBackupObject(){
+ const skip = _internalKeys();
+ const data = {};
+ for (let i = 0; i < localStorage.length; i++) {
+  const key = localStorage.key(i);
+  if (!key || skip.includes(key)) continue;
+  data[key] = localStorage.getItem(key); // store raw string (already JSON)
+ }
+ return {
+  _backup: true,
+  _app: 'MDBV School Portal',
+  _version: 1,
+  _createdAt: new Date().toISOString(),
+  _createdBy: (currentUser && currentUser.name) || 'unknown',
+  _tableCount: Object.keys(data).length,
+  data
+ };
+}
+function downloadFullBackup(){
+ try {
+  const backup = buildBackupObject();
+  const json = JSON.stringify(backup, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  const stamp = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+  a.download = 'MDBV_Backup_' + stamp + '.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  return backup._tableCount;
+ } catch (e) {
+  alert('Backup failed: ' + e.message);
+  return 0;
+ }
+}
+// Restore from a parsed backup object. Returns {ok, restored, error}.
+function restoreFromBackup(backupObj){
+ if (!backupObj || !backupObj._backup || !backupObj.data) {
+  return { ok:false, error:'This does not look like a valid MDBV backup file.' };
+ }
+ try {
+  const entries = Object.entries(backupObj.data);
+  entries.forEach(([key, value]) => { localStorage.setItem(key, value); });
+  return { ok:true, restored: entries.length };
+ } catch (e) {
+  return { ok:false, error: e.message };
+ }
+}
 function exportUdisCSV(){
  const st=getStudents(),tc=getTeachers(),inf=getSchoolInfra();
  let rows=[['UDISE Code','UP-0987-12345','School','Murti Devi Balika Vidyapeeth']];
@@ -2754,6 +2986,34 @@ function renderOwnerDashboard(){
     <button id="logoutBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
    </div>
    ${renderStudentsTab()}
+  </div>`;
+ }
+
+ if (ownerView === 'attendance') {
+  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+    <div>
+     <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
+     <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-crown text-amber-500 mr-2"></i>${currentUser.role==='managing_director'?'Managing Director':currentUser.role==='trustee'?'Trustee':'Owner'} · Attendance Insights</h1>
+     <p class="text-gray-600 text-xs">${currentUser.name}</p>
+    </div>
+    <button id="logoutBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
+   </div>
+   ${renderAttendanceInsights()}
+  </div>`;
+ }
+
+ if (ownerView === 'finance') {
+  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+    <div>
+     <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
+     <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-crown text-amber-500 mr-2"></i>${currentUser.role==='managing_director'?'Managing Director':currentUser.role==='trustee'?'Trustee':'Owner'} · Financial Summary</h1>
+     <p class="text-gray-600 text-xs">${currentUser.name}</p>
+    </div>
+    <button id="logoutBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
+   </div>
+   ${renderFinancialSummary()}
   </div>`;
  }
 
@@ -2942,6 +3202,29 @@ function renderOwnerDashboard(){
      <i class="fas fa-arrow-right-to-bracket mr-1"></i>Teacher Appraisal
     </button>
    </div>
+   <div class="bg-gradient-to-r from-blue-50 to-sky-50 border-2 border-blue-200 rounded-xl p-5">
+    <h2 class="font-semibold mb-1"><i class="fas fa-chart-line text-blue-600 mr-2"></i>Financial Summary</h2>
+    <p class="text-sm text-gray-700">Income, expenses, and net position — month by month.</p>
+    ${(() => { const f = computeFinancialSummary(); const net = f.net; return `<div class="flex flex-wrap gap-2 mt-2 text-xs">
+     <span class="text-emerald-700"><i class="fas fa-arrow-down mr-1"></i>In: Rs.${f.totalIncome.toLocaleString('en-IN')}</span>
+     <span class="text-rose-700"><i class="fas fa-arrow-up mr-1"></i>Out: Rs.${f.totalExpense.toLocaleString('en-IN')}</span>
+     <span class="${net>=0?'text-blue-700':'text-amber-700'}"><i class="fas fa-scale-balanced mr-1"></i>Net: ${net>=0?'+':'−'}Rs.${Math.abs(net).toLocaleString('en-IN')}</span>
+    </div>`; })()}
+    <button id="ownerOpenFinanceBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
+     <i class="fas fa-arrow-right-to-bracket mr-1"></i>Financial Summary
+    </button>
+   </div>
+   <div class="bg-gradient-to-r from-emerald-50 to-green-50 border-2 border-emerald-200 rounded-xl p-5">
+    <h2 class="font-semibold mb-1"><i class="fas fa-calendar-check text-emerald-600 mr-2"></i>Attendance Insights</h2>
+    <p class="text-sm text-gray-700">Overall %, monthly trend, and students needing attention.</p>
+    ${(() => { const sess=currentSession(); const sy=parseInt(sess.slice(0,4)); const rows=_attendanceInsights(`${sy}-04-01`, new Date().toISOString().slice(0,10)).filter(r=>r.total>0); const low=rows.filter(r=>r.pct!==null&&r.pct<75).length; return `<div class="flex flex-wrap gap-2 mt-2 text-xs">
+     <span class="text-emerald-700"><i class="fas fa-users mr-1"></i>${rows.length} tracked</span>
+     ${low>0?`<span class="text-rose-700"><i class="fas fa-triangle-exclamation mr-1"></i>${low} below 75%</span>`:'<span class="text-emerald-700"><i class="fas fa-circle-check mr-1"></i>all above 75%</span>'}
+    </div>`; })()}
+    <button id="ownerOpenAttendanceBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
+     <i class="fas fa-arrow-right-to-bracket mr-1"></i>Attendance Insights
+    </button>
+   </div>
   </div>
 
   <div class="bg-white rounded-xl shadow-sm p-5 mt-6">
@@ -2972,6 +3255,19 @@ function renderOwnerDashboard(){
      </table></div>
      <p class="text-xs text-gray-500 mt-2">For individual student details and report cards, use the <b>Students</b> card above.</p>`;
    })()}
+  </div>
+
+  <!-- BACKUP & RESTORE: download all data as a file; restore from a file (Owner-only restore) -->
+  <div class="bg-teal-50 border-2 border-teal-300 rounded-xl p-5 mt-6">
+   <h2 class="font-semibold mb-2 text-teal-900"><i class="fas fa-shield-halved text-teal-600 mr-2"></i>Backup &amp; Restore</h2>
+   <p class="text-sm text-teal-900 mb-3">Download a complete backup of <b>all</b> school data (students, fees, salary, expenses, marks, everything) as a single file. Keep it safe — it's your insurance against data loss. We recommend backing up <b>weekly</b>.</p>
+   <div class="flex flex-wrap gap-2">
+    <button id="backupDownloadBtn" class="bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-download mr-1"></i>Backup Everything (Download)</button>
+    ${isFullOwner() ? `<button id="backupRestoreBtn" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-upload mr-1"></i>Restore from Backup</button>
+    <input type="file" id="backupRestoreFile" class="hidden" accept="application/json,.json">` : ''}
+   </div>
+   ${isFullOwner() ? '<div class="mt-2 text-xs text-amber-800"><i class="fas fa-triangle-exclamation mr-1"></i>Restore <b>overwrites</b> current data with the backup file\'s contents. Take a fresh backup first, then restore.</div>' : ''}
+   <div id="backupStatus" class="mt-2 text-xs text-teal-800"></div>
   </div>
 
   <!-- CLOUD SYNC: Supabase status and push/pull controls -->
@@ -3649,7 +3945,7 @@ function renderStudentProfile(id){
  if(!s)return '<div>Student not found</div>';
  const marks=getExamMarks().filter(m=>m.studentId===s.id);
  const att=getAttendanceRecords()[s.id]||{};
- const fees=getFeeTransactions().filter(f=>f.studentId===s.id);
+ const fees=getFeeTransactions().filter(f=>f.studentId===s.id && !f._deleted);
  const pr=Object.values(att).filter(v=>v==='P').length;
  const tot=Object.values(att).length;
  const hws=getHomeworks().filter(h=>String(h.className)===String(s.class));
@@ -3699,8 +3995,32 @@ function renderStudentProfile(id){
   const instTotal = inst.reduce((a,i)=>a+(Number(i.amount)||0),0);
   const instPaid = inst.reduce((a,i)=>a+(i.paid?(Number(i.amount)||0):0),0);
   const today = new Date().toISOString().slice(0,10);
+  const plan = (typeof getFeeStructureForClass==='function') ? getFeeStructureForClass(s.class) : null;
+  const planItems = plan && Array.isArray(plan.items) ? plan.items.filter(x=>(parseInt(x.amount)||0)>0) : [];
+  const planTotalAmt = (typeof planTotal==='function' && plan) ? planTotal(plan) : 0;
+  // Total collected per fee head (from this student's receipts)
+  const paidByHead = {};
+  fees.forEach(f => { const h = f.feeHead || 'Tuition Fee'; paidByHead[h] = (paidByHead[h]||0) + (Number(f.amount)||0); });
+  const totalPaid = fees.reduce((a,f)=>a+(Number(f.amount)||0),0);
   body=`<div>
-   <div class="bg-${s.feeBalance>0?'red':'green'}-50 p-3 rounded-lg mb-3"><b>Current Balance:</b> Rs.${(s.feeBalance||0).toLocaleString('en-IN')}${s.decidedFees?` &bull; <span class="text-gray-600">Composite Fee: Rs.${(s.decidedFees||0).toLocaleString('en-IN')}</span>`:''}</div>
+   <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
+    <div class="bg-indigo-50 rounded-lg p-3"><div class="text-xs text-gray-500">Composite Fee</div><div class="font-bold text-indigo-700">Rs.${(s.decidedFees||0).toLocaleString('en-IN')}</div></div>
+    <div class="bg-emerald-50 rounded-lg p-3"><div class="text-xs text-gray-500">Total Paid</div><div class="font-bold text-emerald-700">Rs.${totalPaid.toLocaleString('en-IN')}</div></div>
+    <div class="bg-${s.feeBalance>0?'rose':'green'}-50 rounded-lg p-3"><div class="text-xs text-gray-500">Balance Due</div><div class="font-bold text-${s.feeBalance>0?'rose':'green'}-700">Rs.${(s.feeBalance||0).toLocaleString('en-IN')}</div></div>
+    <div class="bg-gray-50 rounded-lg p-3"><div class="text-xs text-gray-500">Annual Fee (class)</div><div class="font-bold text-gray-700">Rs.${(planTotalAmt||s.annualFees||0).toLocaleString('en-IN')}</div></div>
+   </div>
+
+   ${planItems.length>0?`<div class="mb-4">
+    <div class="text-sm font-semibold mb-1"><i class="fas fa-file-invoice-dollar text-indigo-600 mr-1"></i>Fee Structure — Class ${s.class}</div>
+    <table class="border text-sm w-full"><thead class="bg-gray-50"><tr><th class="text-left p-2">Fee Head</th><th class="text-right p-2">Annual Amount</th><th class="text-right p-2">Paid So Far</th></tr></thead>
+    <tbody>${planItems.map(x=>`<tr class="border-t"><td class="p-2">${escapeHTML(x.head)}</td><td class="p-2 text-right">Rs.${(parseInt(x.amount)||0).toLocaleString('en-IN')}</td><td class="p-2 text-right text-emerald-700">${paidByHead[x.head]?'Rs.'+paidByHead[x.head].toLocaleString('en-IN'):'<span class="text-gray-300">—</span>'}</td></tr>`).join('')}
+    ${(parseInt(plan.transport)||0)>0?`<tr class="border-t"><td class="p-2">Transport</td><td class="p-2 text-right">Rs.${(parseInt(plan.transport)||0).toLocaleString('en-IN')}</td><td class="p-2 text-right text-emerald-700">${paidByHead['Transport']?'Rs.'+paidByHead['Transport'].toLocaleString('en-IN'):'<span class="text-gray-300">—</span>'}</td></tr>`:''}
+    </tbody>
+    <tfoot><tr class="border-t bg-gray-50 font-semibold"><td class="p-2">Total Annual</td><td class="p-2 text-right">Rs.${planTotalAmt.toLocaleString('en-IN')}</td><td class="p-2 text-right text-emerald-700">Rs.${totalPaid.toLocaleString('en-IN')}</td></tr></tfoot>
+    </table>
+    <p class="text-xs text-gray-500 mt-1">This is the standard fee for Class ${s.class}. The student's actual payable is the <b>Composite Fee</b> above (after any concession).</p>
+   </div>`:`<div class="mb-4 text-xs text-gray-400 bg-gray-50 rounded p-3"><i class="fas fa-circle-info mr-1"></i>No fee structure set for Class ${s.class} yet. Set it in Fee Structure (Owner/Accountant).</div>`}
+
    ${inst.length>0?`<div class="mb-4">
     <div class="text-sm font-semibold mb-1"><i class="fas fa-list-ol text-indigo-600 mr-1"></i>Installment Plan <span class="text-xs font-normal text-gray-500">(Paid Rs.${instPaid.toLocaleString('en-IN')} of Rs.${instTotal.toLocaleString('en-IN')})</span></div>
     <table class="border text-sm w-full"><thead class="bg-gray-50"><tr><th class="text-left p-2">Installment</th><th class="text-left p-2">Due Date</th><th class="text-right p-2">Amount</th><th class="text-center p-2">Status</th></tr></thead>
@@ -3709,9 +4029,10 @@ function renderStudentProfile(id){
       return `<tr class="border-t"><td class="p-2">${escapeHTML(it.label||'-')}</td><td class="p-2 ${overdue?'text-rose-600 font-medium':''}">${it.dueDate?fmtDate(it.dueDate):'-'}${overdue?' (overdue)':''}</td><td class="p-2 text-right">Rs.${(Number(it.amount)||0).toLocaleString('en-IN')}</td><td class="p-2 text-center">${it.paid?'<span class="pill pill-green">Paid</span>':overdue?'<span class="pill pill-red">Overdue</span>':'<span class="pill pill-amber">Due</span>'}</td></tr>`;
     }).join('')}</tbody></table>
    </div>`:''}
+
    <div class="text-sm font-semibold mb-1"><i class="fas fa-receipt text-emerald-600 mr-1"></i>Payment Receipts</div>
-   <table class="border text-sm w-full"><thead><tr><th>Receipt</th><th>Date</th><th>Mode</th><th>Amount</th><th>Status</th></tr></thead>
-   <tbody>${fees.map(f=>`<tr><td>${f.receiptNo}</td><td>${fmtDate(f.date)}</td><td>${f.mode}</td><td>Rs.${f.amount.toLocaleString('en-IN')}</td><td><span class="pill pill-green">${f.status}</span></td></tr>`).join('')||'<tr><td colspan="5" class="text-center text-gray-500 py-4">No payments</td></tr>'}</tbody></table>
+   <table class="border text-sm w-full"><thead class="bg-gray-50"><tr><th class="text-left p-2">Receipt</th><th class="text-left p-2">Date</th><th class="text-left p-2">Fee Head</th><th class="text-left p-2">Mode</th><th class="text-right p-2">Amount</th></tr></thead>
+   <tbody>${fees.map(f=>`<tr class="border-t"><td class="p-2 text-xs">${f.receiptNo||'-'}</td><td class="p-2 text-xs">${fmtDate(f.date)}</td><td class="p-2 text-xs">${escapeHTML(f.feeHead||'Tuition Fee')}</td><td class="p-2 text-xs">${escapeHTML(f.mode||'-')}</td><td class="p-2 text-right font-medium">Rs.${(Number(f.amount)||0).toLocaleString('en-IN')}</td></tr>`).join('')||'<tr><td colspan="5" class="text-center text-gray-500 py-4">No payments recorded yet</td></tr>'}</tbody></table>
   </div>`;
  } else if(t==='marks'){
   const examList = [...new Set(marks.map(m=>m.examName).filter(Boolean))];
@@ -3876,6 +4197,7 @@ function renderTeachersTab(){
     <div><label class="text-xs">Employee ID</label><input id="tchEmpId" placeholder="e.g. MDB-T-001"></div>
     <div><label class="text-xs">Date of Joining</label><input type="date" id="tchTrain"></div>
     <div><label class="text-xs">Salary</label><input type="number" id="tchSalary"></div>
+    <div><label class="text-xs">Salary Start Month <i class="fas fa-circle-info text-gray-400" title="Month salary began this session — used to calculate dues precisely for mid-year joiners. Leave blank to use April."></i></label><select id="tchSalaryStart"><option value="">April (session start)</option>${SESSION_MONTHS.map(m=>`<option value="${m}">${m}</option>`).join('')}</select></div>
     <div><label class="text-xs">Phone</label><input id="tchPhone"></div>
     <div><label class="text-xs">Email</label><input id="tchEmail" placeholder="name@example.com"></div>
     <div><label class="text-xs">Date of Birth</label><input type="date" id="tchDob"></div>
@@ -4021,7 +4343,7 @@ function renderMaintenance(){
  </div>`;
 }
 function renderExpenses(){
- const ex=get('expenses'),tot=ex.reduce((s,e)=>s+e.amount,0);
+ const ex=get('expenses').filter(e=>!e._deleted),tot=ex.reduce((s,e)=>s+(Number(e.amount)||0),0);
  return `<div>
   <div class="flex justify-between items-center mb-3"><h2 class="text-lg font-bold"><i class="fas fa-receipt text-red-600 mr-1"></i>Daily Expenses <span class="text-sm text-gray-500">(Total: Rs.${tot.toLocaleString('en-IN')})</span></h2><button id="addExp" class="bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-sm">+ Add Expense</button></div>
   <div class="overflow-x-auto"><table class="border"><thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Amount</th><th>Mode</th><th>Action</th></tr></thead><tbody>${ex.map(e=>`<tr><td>${e.date}</td><td>${e.category}</td><td>${e.description||'-'}</td><td>Rs.${e.amount}</td><td>${e.mode}</td><td><button class="delExp text-red-600" data-id="${e.id}"><i class="fas fa-trash"></i></button></td></tr>`).join('')}</tbody></table></div>
@@ -4305,6 +4627,91 @@ function attachFeeStructureEvents(){
 // Shows each teacher's curriculum completion (auto %) plus a manual rating + comments.
 let _apprSelectedTeacher = null;
 let _apprDetailClass = null;
+/* ---------- FINANCIAL SUMMARY / P&L (management) ---------- */
+function renderFinancialSummary(){
+ const f = computeFinancialSummary();
+ const inr = n => 'Rs.' + (Number(n)||0).toLocaleString('en-IN');
+ const maxMonthly = Math.max(1, ...SESSION_MONTHS.map(m => Math.max(f.byMonth[m].income, f.byMonth[m].salary + f.byMonth[m].otherExpense)));
+ const netPositive = f.net >= 0;
+
+ // Category breakdown (sorted desc), excluding zero
+ const cats = Object.entries(f.byCategory).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]);
+ const maxCat = Math.max(1, ...cats.map(c=>c[1]));
+
+ return `<div class="space-y-4">
+  <!-- Headline figures -->
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+   <div class="bg-emerald-50 border-2 border-emerald-200 rounded-xl p-4">
+    <div class="text-xs text-emerald-700 font-semibold uppercase">Total Income</div>
+    <div class="text-2xl font-bold text-emerald-900 mt-1">${inr(f.totalIncome)}</div>
+    <div class="text-xs text-emerald-700 mt-1">Fees collected this session</div>
+   </div>
+   <div class="bg-rose-50 border-2 border-rose-200 rounded-xl p-4">
+    <div class="text-xs text-rose-700 font-semibold uppercase">Total Expenses</div>
+    <div class="text-2xl font-bold text-rose-900 mt-1">${inr(f.totalExpense)}</div>
+    <div class="text-xs text-rose-700 mt-1">Salary ${inr(f.totalSalary)} + other ${inr(f.totalOther)}</div>
+   </div>
+   <div class="bg-${netPositive?'blue':'amber'}-50 border-2 border-${netPositive?'blue':'amber'}-200 rounded-xl p-4">
+    <div class="text-xs text-${netPositive?'blue':'amber'}-700 font-semibold uppercase">Net Position</div>
+    <div class="text-2xl font-bold text-${netPositive?'blue':'amber'}-900 mt-1">${netPositive?'+':'−'}${inr(Math.abs(f.net))}</div>
+    <div class="text-xs text-${netPositive?'blue':'amber'}-700 mt-1">${netPositive?'Surplus':'Deficit'} (income − expenses)</div>
+   </div>
+   <div class="bg-purple-50 border-2 border-purple-200 rounded-xl p-4">
+    <div class="text-xs text-purple-700 font-semibold uppercase">Outstanding Dues</div>
+    <div class="text-2xl font-bold text-purple-900 mt-1">${inr(f.dues)}</div>
+    <div class="text-xs text-purple-700 mt-1">Fees still owed by students</div>
+   </div>
+  </div>
+
+  <!-- Month-by-month income vs expense -->
+  <div class="bg-white border rounded-xl p-4">
+   <div class="flex items-center justify-between mb-3">
+    <h3 class="font-semibold"><i class="fas fa-chart-column text-indigo-600 mr-1"></i>Month-by-Month — Session ${f.session}</h3>
+    <div class="flex gap-3 text-xs">
+     <span><span class="inline-block w-3 h-3 bg-emerald-500 rounded-sm mr-1"></span>Income</span>
+     <span><span class="inline-block w-3 h-3 bg-rose-400 rounded-sm mr-1"></span>Expense</span>
+    </div>
+   </div>
+   <div class="space-y-2">
+    ${SESSION_MONTHS.map(m => {
+      const inc = f.byMonth[m].income;
+      const exp = f.byMonth[m].salary + f.byMonth[m].otherExpense;
+      const incW = Math.round((inc/maxMonthly)*100);
+      const expW = Math.round((exp/maxMonthly)*100);
+      if (inc===0 && exp===0) return `<div class="flex items-center gap-2 text-xs opacity-40"><div class="w-16 flex-shrink-0">${m.slice(0,3)}</div><div class="flex-1 text-gray-400">—</div></div>`;
+      return `<div class="text-xs">
+       <div class="flex items-center gap-2 mb-0.5"><div class="w-16 flex-shrink-0 font-medium">${m.slice(0,3)}</div>
+        <div class="flex-1">
+         <div class="flex items-center gap-1"><div class="bg-emerald-500 h-3 rounded-sm" style="width:${incW}%"></div><span class="text-emerald-700">${inc>0?inr(inc):''}</span></div>
+         <div class="flex items-center gap-1 mt-0.5"><div class="bg-rose-400 h-3 rounded-sm" style="width:${expW}%"></div><span class="text-rose-700">${exp>0?inr(exp):''}</span></div>
+        </div>
+       </div>
+      </div>`;
+    }).join('')}
+   </div>
+  </div>
+
+  <!-- Expense breakdown by category -->
+  <div class="bg-white border rounded-xl p-4">
+   <h3 class="font-semibold mb-3"><i class="fas fa-tags text-rose-600 mr-1"></i>Where the money went (by category)</h3>
+   ${cats.length===0?'<div class="text-sm text-gray-400">No expenses recorded this session yet.</div>':`
+   <div class="space-y-2">
+    ${cats.map(([cat,amt])=>`<div class="text-sm">
+     <div class="flex justify-between mb-0.5"><span>${escapeHTML(cat)}</span><span class="font-semibold">${inr(amt)}</span></div>
+     <div class="bg-gray-100 rounded-full h-2 overflow-hidden"><div class="bg-rose-400 h-2" style="width:${Math.round((amt/maxCat)*100)}%"></div></div>
+    </div>`).join('')}
+   </div>`}
+  </div>
+
+  <!-- Export -->
+  <div class="flex justify-end">
+   <button id="finExportBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-file-excel mr-1"></i>Export Financial Summary</button>
+  </div>
+
+  <p class="text-xs text-gray-400">Income = fee receipts recorded. Expenses = salary payments + all other recorded expenses. Figures cover the current session (${f.session}, April–March) based on transaction dates.</p>
+ </div>`;
+}
+
 function renderTeacherAppraisalTab(){
  const teachers = getTeachers();
  const session = currentSession();
@@ -4971,6 +5378,7 @@ function renderPrincipalPanel(){
   {id:'notices',label:'Notice Board',icon:'thumbtack'},
   {id:'reportcards',label:'Report Cards',icon:'file-lines'},
   {id:'appraisal',label:'Teacher Appraisal',icon:'clipboard-user'},
+  {id:'attendance',label:'Attendance Insights',icon:'calendar-check'},
   {id:'calendar',label:'Calendar',icon:'calendar-days'},
   {id:'reports',label:'Reports',icon:'chart-bar'}
  ];
@@ -5009,6 +5417,7 @@ function renderPrincipalTabContent(){
  else if(activePrincipalTab==='notices')return renderNoticesTab();
  else if(activePrincipalTab==='reportcards')return renderReportCardsTab();
  else if(activePrincipalTab==='appraisal')return renderTeacherAppraisalTab();
+ else if(activePrincipalTab==='attendance')return renderAttendanceInsights();
  else if(activePrincipalTab==='calendar')return renderCalendar();
  else if(activePrincipalTab==='reports')return `<div>
   <h2 class="text-lg font-bold mb-3"><i class="fas fa-chart-bar mr-1"></i>Reports</h2>
@@ -6820,8 +7229,12 @@ function renderAccountantPanel(){
   {id:'overview', label:'Overview',  icon:'gauge-high'},
   {id:'receipts', label:'Receipts',  icon:'hand-holding-dollar'},
   {id:'payments', label:'Payments',  icon:'money-bill-transfer'},
+  {id:'salary',   label:'Salary',    icon:'money-check-dollar'},
+  {id:'vehicles', label:'Vehicle Expenses', icon:'bus'},
   {id:'reminders',label:'Fee Reminders', icon:'bell'},
-  {id:'ledger',   label:'Ledger',    icon:'book'}
+  {id:'ledger',   label:'Ledger',    icon:'book'},
+  {id:'audit',    label:'Audit Trail', icon:'clipboard-list'},
+  {id:'recyclebin',label:'Recycle Bin', icon:'trash-arrow-up'}
  ];
  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
@@ -6891,19 +7304,32 @@ function renderFeeRemindersTab(){
     <table class="text-sm w-full border">
      <thead class="bg-gray-100"><tr>
       <th class="text-left p-2">Roll</th><th class="text-left p-2">Student</th><th class="text-left p-2">Class</th>
-      <th class="text-left p-2">Parent</th><th class="text-right p-2">Balance</th><th class="text-center p-2">Reminder</th>
+      <th class="text-left p-2">Parent</th><th class="text-right p-2">Composite Fee</th><th class="text-right p-2">Balance Due</th><th class="text-center p-2">% Paid</th><th class="text-center p-2">Overdue</th><th class="text-center p-2">Reminder</th>
      </tr></thead>
      <tbody id="frTableBody">
-      ${overdue.map(s => `<tr class="border-t" data-class="${s.class}">
+      ${overdue.map(s => {
+        const composite = Number(s.decidedFees)||Number(s.annualFees)||0;
+        const bal = Number(s.feeBalance)||0;
+        const paidAmt = Math.max(0, composite - bal);
+        const pctPaid = composite > 0 ? Math.round((paidAmt/composite)*100) : 0;
+        const today = new Date().toISOString().slice(0,10);
+        const inst = Array.isArray(s.installments) ? s.installments : [];
+        const overdueInst = inst.filter(i => !i.paid && i.dueDate && i.dueDate < today).length;
+        const pctColor = pctPaid>=75?'emerald':pctPaid>=40?'amber':'rose';
+        return `<tr class="border-t" data-class="${s.class}" data-balance="${bal}">
        <td class="p-2">${s.rollNo||'-'}</td>
        <td class="p-2 font-medium">${escapeHTML(s.name)}</td>
        <td class="p-2">${s.class}-${s.section||''}</td>
        <td class="p-2 text-xs">${escapeHTML(s.parentName||'-')}<br><span class="text-gray-500 font-mono">${s.parentPhone||'<span class="text-rose-500">no phone</span>'}</span></td>
-       <td class="p-2 text-right font-semibold text-rose-700">Rs.${(s.feeBalance||0).toLocaleString('en-IN')}</td>
+       <td class="p-2 text-right text-gray-600">Rs.${composite.toLocaleString('en-IN')}</td>
+       <td class="p-2 text-right font-semibold text-rose-700">Rs.${bal.toLocaleString('en-IN')}</td>
+       <td class="p-2 text-center"><div class="flex items-center gap-1 justify-center"><div class="w-10 bg-gray-200 rounded-full h-1.5 overflow-hidden"><div class="bg-${pctColor}-500 h-1.5" style="width:${pctPaid}%"></div></div><span class="text-xs">${pctPaid}%</span></div></td>
+       <td class="p-2 text-center">${overdueInst>0?`<span class="pill pill-red">${overdueInst} late</span>`:'<span class="text-gray-300 text-xs">—</span>'}</td>
        <td class="p-2 text-center">
         ${s.parentPhone ? `<button class="frRemindBtn bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1 rounded text-xs" data-id="${s.id}"><i class="fab fa-whatsapp mr-1"></i>Send</button>` : '<span class="text-xs text-gray-400">no phone</span>'}
        </td>
-      </tr>`).join('')}
+      </tr>`;
+      }).join('')}
      </tbody>
     </table>
    </div>
@@ -6954,11 +7380,20 @@ function attachFeeRemindersEvents(){
 
  // Export dues list
  document.getElementById('frExportBtn')?.addEventListener('click', () => {
-  const overdue = getStudents().filter(s => (s.feeBalance||0) > 0).sort((a,b) => (b.feeBalance||0)-(a.feeBalance||0));
-  let h = '<table border="1"><tr><th>Roll</th><th>Student</th><th>Class</th><th>Section</th><th>Parent</th><th>Phone</th><th>Outstanding (Rs.)</th></tr>';
-  overdue.forEach(s => h += `<tr><td>${s.rollNo||''}</td><td>${s.name}</td><td>${s.class}</td><td>${s.section||''}</td><td>${s.parentName||''}</td><td>${s.parentPhone||''}</td><td>${s.feeBalance||0}</td></tr>`);
+  const overdue = getStudents().filter(s => !s.archived && (s.feeBalance||0) > 0).sort((a,b) => (b.feeBalance||0)-(a.feeBalance||0));
+  const today = new Date().toISOString().slice(0,10);
+  let h = '<table border="1"><tr><th>Roll</th><th>Student</th><th>Class</th><th>Section</th><th>Parent</th><th>Phone</th><th>Composite Fee</th><th>Paid</th><th>Balance Due</th><th>% Paid</th><th>Overdue Installments</th></tr>';
+  overdue.forEach(s => {
+   const composite = Number(s.decidedFees)||Number(s.annualFees)||0;
+   const bal = Number(s.feeBalance)||0;
+   const paid = Math.max(0, composite-bal);
+   const pct = composite>0?Math.round((paid/composite)*100):0;
+   const inst = Array.isArray(s.installments)?s.installments:[];
+   const overdueInst = inst.filter(i=>!i.paid && i.dueDate && i.dueDate < today).length;
+   h += `<tr><td>${s.rollNo||''}</td><td>${s.name}</td><td>${s.class}</td><td>${s.section||''}</td><td>${s.parentName||''}</td><td>${s.parentPhone||''}</td><td>${composite}</td><td>${paid}</td><td>${bal}</td><td>${pct}%</td><td>${overdueInst}</td></tr>`;
+  });
   h += '</table>';
-  downloadExcel(h, 'Fee_Dues_' + new Date().toISOString().slice(0,10));
+  downloadExcel(h, 'MDBV_Fee_Defaulters_' + new Date().toISOString().slice(0,10));
  });
 }
 
@@ -6967,8 +7402,12 @@ function renderAccountantTabContent(){
   case 'overview': return renderAccOverview();
   case 'receipts': return renderAccReceipts();
   case 'payments': return renderAccPayments();
+  case 'salary': return renderAccSalary();
+  case 'vehicles': return renderAccVehicleExpenses();
   case 'reminders': return renderFeeRemindersTab();
   case 'ledger':   return renderAccLedger();
+  case 'audit':    return renderMoneyAuditTrail();
+  case 'recyclebin': return renderRecycleBin();
   default: return renderAccOverview();
  }
 }
@@ -6976,7 +7415,7 @@ function renderAccountantTabContent(){
 /* ---------- Helpers: derive cash/bank position from transactions ---------- */
 function _calcAccountantStats(){
  const receipts = getFeeTransactions();
- const expenses = get('expenses');
+ const expenses = get('expenses').filter(e => !e._deleted);
  const banks = get('bankAccounts');
  const today = new Date().toISOString().slice(0,10);
  const monthStart = today.slice(0,7); // YYYY-MM
@@ -7000,8 +7439,8 @@ function _calcAccountantStats(){
 /* ---------- TAB 1: OVERVIEW ---------- */
 function renderAccOverview(){
  const stats = _calcAccountantStats();
- const recentReceipts = getFeeTransactions().slice(-5).reverse();
- const recentExpenses = get('expenses').slice(-5).reverse();
+ const recentReceipts = getFeeTransactions().filter(t=>!t._deleted).slice(-5).reverse();
+ const recentExpenses = get('expenses').filter(e=>!e._deleted).slice(-5).reverse();
  const students = getStudents();
  const fmtINR = n => 'Rs.' + (n||0).toLocaleString('en-IN');
 
@@ -7219,10 +7658,339 @@ function renderAccReceipts(){
 }
 
 /* ---------- TAB 3: PAYMENTS (expenses + bank movements) ---------- */
+/* ---------- ATTENDANCE INSIGHTS (management) ---------- */
+let _attInsightClass = '';
+let _attInsightThreshold = 75;
+function renderAttendanceInsights(){
+ const cls = _attInsightClass;
+ const threshold = _attInsightThreshold;
+ // Window: current session start → today
+ const sess = currentSession();
+ const startYear = parseInt(sess.slice(0,4));
+ const fromDate = `${startYear}-04-01`;
+ const toDate = new Date().toISOString().slice(0,10);
+ const rows = _attendanceInsights(fromDate, toDate, cls).filter(r => r.total > 0);
+ const lowAttendance = rows.filter(r => r.pct !== null && r.pct < threshold).sort((a,b)=>a.pct-b.pct);
+ const monthly = _monthlyAttendance(cls);
+ const overallPresent = rows.reduce((a,r)=>a+r.present+r.leave,0);
+ const overallTotal = rows.reduce((a,r)=>a+r.total,0);
+ const overallPct = overallTotal>0 ? Math.round((overallPresent/overallTotal)*100) : 0;
+ const maxMonthPct = 100;
+
+ return `<div class="space-y-4">
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+   <div class="bg-emerald-50 border-2 border-emerald-200 rounded-xl p-4"><div class="text-xs text-emerald-700 font-semibold uppercase">Overall Attendance</div><div class="text-2xl font-bold text-emerald-900 mt-1">${overallPct}%</div><div class="text-xs text-emerald-700 mt-1">Session ${sess}</div></div>
+   <div class="bg-blue-50 border-2 border-blue-200 rounded-xl p-4"><div class="text-xs text-blue-700 font-semibold uppercase">Students Tracked</div><div class="text-2xl font-bold text-blue-900 mt-1">${rows.length}</div></div>
+   <div class="bg-rose-50 border-2 border-rose-200 rounded-xl p-4"><div class="text-xs text-rose-700 font-semibold uppercase">Below ${threshold}%</div><div class="text-2xl font-bold text-rose-900 mt-1">${lowAttendance.length}</div><div class="text-xs text-rose-700 mt-1">Need attention</div></div>
+   <div class="bg-gray-50 border-2 border-gray-200 rounded-xl p-4"><div class="text-xs text-gray-600 font-semibold uppercase">Days Recorded</div><div class="text-2xl font-bold text-gray-800 mt-1">${overallTotal}</div></div>
+  </div>
+
+  <div class="bg-white border rounded-xl p-4">
+   <div class="flex flex-wrap items-end gap-2 mb-3">
+    <div><label class="text-xs font-medium block">Class</label><select id="attInsClass" class="text-sm"><option value="">All classes</option>${ALL_CLASSES.map(c=>`<option value="${c}" ${c===cls?'selected':''}>Class ${c}</option>`).join('')}</select></div>
+    <div><label class="text-xs font-medium block">Low-attendance threshold</label><select id="attInsThreshold" class="text-sm">${[60,65,70,75,80,85].map(t=>`<option value="${t}" ${t===threshold?'selected':''}>Below ${t}%</option>`).join('')}</select></div>
+    <button id="attInsExport" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-xs font-medium"><i class="fas fa-file-excel mr-1"></i>Export</button>
+   </div>
+
+   <!-- Monthly bars -->
+   <h3 class="font-semibold text-sm mb-2"><i class="fas fa-chart-column text-indigo-600 mr-1"></i>Monthly Attendance %</h3>
+   <div class="space-y-1 mb-4">
+    ${SESSION_MONTHS.map(m => {
+      const md = monthly[m];
+      const pct = md.total>0 ? Math.round((md.present/md.total)*100) : null;
+      if (pct===null) return `<div class="flex items-center gap-2 text-xs opacity-40"><div class="w-16 flex-shrink-0">${m.slice(0,3)}</div><div class="flex-1 text-gray-400">no data</div></div>`;
+      const color = pct>=85?'emerald':pct>=70?'amber':'rose';
+      return `<div class="flex items-center gap-2 text-xs"><div class="w-16 flex-shrink-0 font-medium">${m.slice(0,3)}</div><div class="flex-1 bg-gray-100 rounded-full h-4 overflow-hidden"><div class="bg-${color}-500 h-4 flex items-center justify-end pr-2 text-white text-xs font-medium" style="width:${Math.max(pct,8)}%">${pct}%</div></div></div>`;
+    }).join('')}
+   </div>
+  </div>
+
+  <!-- Low attendance list -->
+  <div class="bg-white border rounded-xl p-4">
+   <h3 class="font-semibold text-sm mb-2"><i class="fas fa-triangle-exclamation text-rose-600 mr-1"></i>Students Below ${threshold}% ${cls?`— Class ${cls}`:''}</h3>
+   ${lowAttendance.length===0 ? `<div class="text-center text-emerald-600 py-6"><i class="fas fa-circle-check text-2xl mb-1"></i><p class="text-sm">No students below ${threshold}% attendance. </p></div>` : `
+   <div class="overflow-auto">
+    <table class="w-full text-sm border">
+     <thead class="bg-gray-50"><tr><th class="p-2 text-left">Roll</th><th class="p-2 text-left">Student</th><th class="p-2 text-left">Class</th><th class="p-2 text-center">Present</th><th class="p-2 text-center">Absent</th><th class="p-2 text-center">Days</th><th class="p-2 text-center">Attendance</th></tr></thead>
+     <tbody>${lowAttendance.map(r => {
+       const color = r.pct>=70?'amber':'rose';
+       return `<tr class="border-t">
+        <td class="p-2">${r.student.rollNo||'-'}</td>
+        <td class="p-2 font-medium">${escapeHTML(r.student.name)}</td>
+        <td class="p-2">${r.student.class}-${r.student.section||''}</td>
+        <td class="p-2 text-center text-emerald-700">${r.present}</td>
+        <td class="p-2 text-center text-rose-700">${r.absent}</td>
+        <td class="p-2 text-center">${r.total}</td>
+        <td class="p-2 text-center"><div class="flex items-center gap-1 justify-center"><div class="w-12 bg-gray-200 rounded-full h-2 overflow-hidden"><div class="bg-${color}-500 h-2" style="width:${r.pct}%"></div></div><span class="font-semibold text-${color}-700">${r.pct}%</span></div></td>
+       </tr>`;
+     }).join('')}</tbody>
+    </table>
+   </div>`}
+  </div>
+  <p class="text-xs text-gray-400">Attendance % counts Present and Leave as attended, Absent as not. Based on recorded attendance for the current session (${sess}).</p>
+ </div>`;
+}
+
+function _attachAttendanceInsightEvents(){
+ document.getElementById('attInsClass')?.addEventListener('change', e => { _attInsightClass = e.target.value; renderApp(); });
+ document.getElementById('attInsThreshold')?.addEventListener('change', e => { _attInsightThreshold = parseInt(e.target.value); renderApp(); });
+ document.getElementById('attInsExport')?.addEventListener('click', () => {
+  const sess = currentSession(); const sy = parseInt(sess.slice(0,4));
+  const rows = _attendanceInsights(`${sy}-04-01`, new Date().toISOString().slice(0,10), _attInsightClass).filter(r=>r.total>0).sort((a,b)=>(a.pct||0)-(b.pct||0));
+  let h = '<table border="1"><tr><th>Roll</th><th>Student</th><th>Class</th><th>Section</th><th>Present</th><th>Absent</th><th>Leave</th><th>Days</th><th>Attendance %</th></tr>';
+  rows.forEach(r => h += `<tr><td>${r.student.rollNo||''}</td><td>${r.student.name}</td><td>${r.student.class}</td><td>${r.student.section||''}</td><td>${r.present}</td><td>${r.absent}</td><td>${r.leave}</td><td>${r.total}</td><td>${r.pct===null?'-':r.pct+'%'}</td></tr>`);
+  h += '</table>';
+  downloadExcel(h, 'MDBV_Attendance_Insights_' + new Date().toISOString().slice(0,10));
+ });
+}
+
+/* ---------- RECYCLE BIN (soft-deleted money records) ---------- */
+function renderRecycleBin(){
+ const items = _recycleBinItems();
+ const inr = n => 'Rs.' + (Number(n)||0).toLocaleString('en-IN');
+ const kindLabel = { expense:'Expense', salary:'Salary Payment', receipt:'Fee Receipt' };
+ const kindColor = { expense:'rose', salary:'amber', receipt:'emerald' };
+ return `<div class="bg-white rounded-xl border p-4 md:p-5">
+  <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+   <div>
+    <h2 class="text-lg font-bold"><i class="fas fa-trash-arrow-up text-gray-600 mr-1"></i>Recycle Bin</h2>
+    <p class="text-xs text-gray-500">Deleted money records are kept here so you can restore them if a deletion was a mistake.</p>
+   </div>
+   ${items.length>0 && isOwnerLevel() ? `<button id="rbPurgeAllBtn" class="bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-trash mr-1"></i>Empty Bin</button>` : ''}
+  </div>
+  ${items.length===0 ? `<div class="text-center text-gray-400 py-10"><i class="fas fa-trash text-4xl mb-2"></i><p>The recycle bin is empty.</p></div>` : `
+  <div class="overflow-auto">
+   <table class="w-full text-sm border">
+    <thead class="bg-gray-50"><tr><th class="p-2 text-left">Type</th><th class="p-2 text-left">Details</th><th class="p-2 text-left">Deleted</th><th class="p-2 text-right">Amount</th><th class="p-2 text-center">Actions</th></tr></thead>
+    <tbody>${items.map(it => {
+      const r = it._row;
+      let detail = '';
+      if (it.kind==='salary') detail = `${escapeHTML(r.teacherName||'staff')} · ${escapeHTML(r.forMonth||'')} · ${escapeHTML(r.mode||'')}`;
+      else if (it.kind==='expense') detail = `${escapeHTML(r.category||r.vehicleExpenseType||'-')}${r.vendor?' · '+escapeHTML(r.vendor):''}${r.description?' · '+escapeHTML(r.description):''}`;
+      else if (it.kind==='receipt') detail = `Receipt ${escapeHTML(r.receiptNo||'-')} · ${escapeHTML(r.feeHead||'')}`;
+      return `<tr class="border-t">
+       <td class="p-2"><span class="pill pill-${kindColor[it.kind]==='rose'?'red':kindColor[it.kind]==='amber'?'amber':'green'}">${kindLabel[it.kind]}</span></td>
+       <td class="p-2 text-xs">${detail}<br><span class="text-gray-400">was dated ${fmtDate(r.date)}</span></td>
+       <td class="p-2 text-xs">${r._deletedAt?fmtDate(r._deletedAt):'-'}<br><span class="text-gray-400">by ${escapeHTML(r._deletedBy||'?')}</span></td>
+       <td class="p-2 text-right font-medium">${inr(r.amount)}</td>
+       <td class="p-2 text-center whitespace-nowrap">
+        <button class="rbRestoreBtn bg-emerald-100 hover:bg-emerald-200 text-emerald-700 px-2 py-1 rounded text-xs font-medium" data-table="${it.table}" data-id="${r.id}"><i class="fas fa-rotate-left mr-1"></i>Restore</button>
+        ${isOwnerLevel()?`<button class="rbPurgeBtn bg-rose-100 hover:bg-rose-200 text-rose-700 px-2 py-1 rounded text-xs font-medium ml-1" data-table="${it.table}" data-id="${r.id}"><i class="fas fa-xmark mr-1"></i>Delete Forever</button>`:''}
+       </td>
+      </tr>`;
+    }).join('')}</tbody>
+   </table>
+  </div>
+  <p class="text-xs text-gray-400 mt-3"><i class="fas fa-circle-info mr-1"></i>Restoring puts the record back into the accounts. "Delete Forever" (Owner only) removes it permanently and cannot be undone.</p>
+  `}
+ </div>`;
+}
+
+/* ---------- MONEY AUDIT TRAIL ---------- */
+function renderMoneyAuditTrail(){
+ const log = getAuditLog().slice().sort((a,b)=>(b.performedAt||'').localeCompare(a.performedAt||''));
+ const inr = n => 'Rs.' + (Number(n)||0).toLocaleString('en-IN');
+ const actionColor = { edit:'blue', delete:'amber', restore:'emerald', purge:'rose', approve:'emerald', reject:'rose', create:'gray' };
+ const kindLabel = { receipt:'Fee Receipt', expense:'Expense', salary:'Salary', request:'Correction' };
+ return `<div class="bg-white rounded-xl border p-4 md:p-5">
+  <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+   <div>
+    <h2 class="text-lg font-bold"><i class="fas fa-clipboard-list text-indigo-600 mr-1"></i>Money Audit Trail</h2>
+    <p class="text-xs text-gray-500">Every change to receipts, expenses, and salary payments — who did what, and when.</p>
+   </div>
+   ${log.length>0 && isOwnerLevel() ? `<button id="auditClearBtn" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-eraser mr-1"></i>Clear Log</button>` : ''}
+  </div>
+  ${log.length===0 ? `<div class="text-center text-gray-400 py-10"><i class="fas fa-clipboard text-4xl mb-2"></i><p>No money changes recorded yet.</p><p class="text-xs">Edits, deletions, and restores will appear here.</p></div>` : `
+  <div class="overflow-auto">
+   <table class="w-full text-sm border">
+    <thead class="bg-gray-50"><tr><th class="p-2 text-left">When</th><th class="p-2 text-left">Who</th><th class="p-2 text-left">Action</th><th class="p-2 text-left">What</th><th class="p-2 text-right">Amount</th><th class="p-2 text-left">Note</th></tr></thead>
+    <tbody>${log.slice(0,200).map(e => {
+      const amt = (e.before && e.before.amount) || (e.after && e.after.amount) || 0;
+      const ac = actionColor[e.action] || 'gray';
+      return `<tr class="border-t">
+       <td class="p-2 text-xs whitespace-nowrap">${e.performedAt?new Date(e.performedAt).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):'-'}</td>
+       <td class="p-2 text-xs">${escapeHTML(e.performedBy||'?')}</td>
+       <td class="p-2 text-xs"><span class="px-2 py-0.5 rounded-full bg-${ac}-100 text-${ac}-700">${(e.action||'').toUpperCase()}</span></td>
+       <td class="p-2 text-xs">${kindLabel[e.kind]||e.kind||'-'}</td>
+       <td class="p-2 text-right text-xs font-medium">${inr(amt)}</td>
+       <td class="p-2 text-xs text-gray-500">${escapeHTML(e.reason||'-')}</td>
+      </tr>`;
+    }).join('')}</tbody>
+   </table>
+  </div>
+  ${log.length>200?`<p class="text-xs text-gray-400 mt-2">Showing most recent 200 of ${log.length} entries.</p>`:''}
+  `}
+ </div>`;
+}
+
+/* ---------- STAGGERED SALARY PAYMENTS ---------- */
+let _salarySelectedTeacher = null;
+function renderAccSalary(){
+ const teachers = getTeachers();
+ const payments = _activeSalaryPayments();
+ const canSeeDues = isOwnerLevel() || currentUser?.role === 'principal' || currentUser?.role === 'accountant';
+ const showDuesColumn = isOwnerLevel() || currentUser?.role === 'principal'; // management sees dues prominently
+
+ if (teachers.length === 0) {
+  return `<div class="bg-white rounded-xl border p-6 text-center text-gray-500"><i class="fas fa-user-slash text-3xl mb-2"></i><p>No teachers added yet. Add teachers first (Admin → Teachers).</p></div>`;
+ }
+
+ // Detail view: one teacher's full payment history + record form
+ if (_salarySelectedTeacher) {
+  const t = teachers.find(x => x.id === _salarySelectedTeacher);
+  if (!t) { _salarySelectedTeacher = null; return renderAccSalary(); }
+  const tp = payments.filter(p => p.teacherId === t.id).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const paid = _salaryPaidToTeacher(t.id);
+  const due = _salaryDue(t);
+  const expected = _salaryExpectedToDate(t);
+  return `<div class="bg-white rounded-xl border p-4 md:p-5">
+   <button id="salBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-3"><i class="fas fa-arrow-left mr-1"></i>Back to all staff</button>
+   <div class="flex items-center gap-3 mb-4">
+    ${t.photo?`<img src="${t.photo}" class="w-14 h-14 rounded-full object-cover border-2 border-emerald-200">`:`<div class="w-14 h-14 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-lg font-bold">${initials(t.name)}</div>`}
+    <div>
+     <div class="text-lg font-bold">${escapeHTML(t.name)}</div>
+     <div class="text-xs text-gray-500">${t.subject||'-'} · Monthly salary: Rs.${(Number(t.salary)||0).toLocaleString('en-IN')}${t.salaryStartMonth?` · Salary from ${escapeHTML(t.salaryStartMonth)}`:(t.trainingDate?` · Joined ${fmtDate(t.trainingDate)}`:'')}</div>
+    </div>
+   </div>
+
+   <div class="grid grid-cols-2 md:grid-cols-3 gap-2 mb-4">
+    <div class="bg-emerald-50 rounded-lg p-3"><div class="text-xs text-gray-500">Total Paid (session)</div><div class="font-bold text-emerald-700">Rs.${paid.toLocaleString('en-IN')}</div></div>
+    ${canSeeDues?`<div class="bg-gray-50 rounded-lg p-3"><div class="text-xs text-gray-500">Expected to date</div><div class="font-bold text-gray-700">Rs.${expected.toLocaleString('en-IN')}</div></div>
+    <div class="bg-${due>0?'rose':'green'}-50 rounded-lg p-3"><div class="text-xs text-gray-500">${due>0?'Dues (owed)':'Advance/Clear'}</div><div class="font-bold text-${due>0?'rose':'green'}-700">Rs.${Math.abs(due).toLocaleString('en-IN')}</div></div>`:''}
+   </div>
+
+   <!-- Record a payment -->
+   <div class="bg-emerald-50 border border-emerald-100 rounded-lg p-3 mb-4">
+    <div class="text-sm font-semibold text-emerald-900 mb-2"><i class="fas fa-plus-circle mr-1"></i>Record a Salary Payment</div>
+    <input type="hidden" id="salTeacherId" value="${t.id}">
+    <div class="grid md:grid-cols-3 gap-2">
+     <div><label class="text-xs">Amount (Rs.)</label><input type="number" id="salAmount" placeholder="${Number(t.salary)||''}" class="text-sm w-full"></div>
+     <div><label class="text-xs">Date</label><input type="date" id="salDate" value="${new Date().toISOString().slice(0,10)}" class="text-sm w-full"></div>
+     <div><label class="text-xs">For Month</label><select id="salMonth" class="text-sm w-full">${SESSION_MONTHS.map(m=>`<option ${m===new Date().toLocaleDateString('en-IN',{month:'long'})?'selected':''}>${m}</option>`).join('')}</select></div>
+     <div><label class="text-xs">Mode</label><select id="salMode" class="text-sm w-full">${PAYMENT_MODES.map(m=>`<option>${m}</option>`).join('')}</select></div>
+     <div><label class="text-xs">Cheque/Ref No (if any)</label><input id="salCheque" placeholder="optional" class="text-sm w-full"></div>
+     <div><label class="text-xs">Note</label><input id="salNote" placeholder="e.g. partial, advance" class="text-sm w-full"></div>
+    </div>
+    <div class="flex justify-end mt-2"><button id="salRecordBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-save mr-1"></i>Record Payment</button></div>
+   </div>
+
+   <!-- Payment history -->
+   <div class="text-sm font-semibold mb-1"><i class="fas fa-clock-rotate-left text-gray-600 mr-1"></i>Payment History</div>
+   <table class="w-full text-sm border">
+    <thead class="bg-gray-50"><tr><th class="p-2 text-left">Date</th><th class="p-2 text-left">For Month</th><th class="p-2 text-left">Mode</th><th class="p-2 text-left">Cheque/Ref</th><th class="p-2 text-left">Note</th><th class="p-2 text-right">Amount</th><th class="p-2"></th></tr></thead>
+    <tbody>${tp.length?tp.map(p=>`<tr class="border-t">
+      <td class="p-2 text-xs whitespace-nowrap">${fmtDate(p.date)}</td>
+      <td class="p-2 text-xs">${escapeHTML(p.forMonth||'-')}</td>
+      <td class="p-2 text-xs">${escapeHTML(p.mode||'-')}</td>
+      <td class="p-2 text-xs">${escapeHTML(p.chequeNo||'-')}</td>
+      <td class="p-2 text-xs">${escapeHTML(p.note||'-')}</td>
+      <td class="p-2 text-right font-semibold text-emerald-700">Rs.${(Number(p.amount)||0).toLocaleString('en-IN')}</td>
+      <td class="p-2 text-center whitespace-nowrap"><button class="salPrintBtn text-blue-500 hover:text-blue-700 mr-2" data-id="${p.id}" title="Print slip"><i class="fas fa-print"></i></button><button class="salDelBtn text-rose-400 hover:text-rose-600" data-id="${p.id}"><i class="fas fa-trash"></i></button></td>
+     </tr>`).join(''):'<tr><td colspan="7" class="text-center text-gray-400 py-4">No payments recorded yet</td></tr>'}</tbody>
+   </table>
+  </div>`;
+ }
+
+ // List view — all staff with paid + dues
+ return `<div class="bg-white rounded-xl border p-4 md:p-5">
+  <h2 class="text-lg font-bold mb-1"><i class="fas fa-money-check-dollar text-emerald-600 mr-1"></i>Staff Salary Payments</h2>
+  <p class="text-sm text-gray-600 mb-4">Record salary payments individually — cash, cheque, or online, on any date, partial or full. ${showDuesColumn?'Dues (what is owed) are shown for management.':''}</p>
+  <div class="overflow-auto">
+   <table class="w-full text-sm border">
+    <thead class="bg-gray-50"><tr><th class="p-2 text-left">Staff</th><th class="p-2 text-left">Monthly Salary</th><th class="p-2 text-right">Paid (session)</th>${showDuesColumn?'<th class="p-2 text-right">Dues</th>':''}<th class="p-2 text-center">Action</th></tr></thead>
+    <tbody>${teachers.map(t=>{
+      const paid = _salaryPaidToTeacher(t.id);
+      const due = _salaryDue(t);
+      return `<tr class="border-t hover:bg-gray-50">
+       <td class="p-2"><div class="flex items-center gap-2">${t.photo?`<img src="${t.photo}" class="w-8 h-8 rounded-full object-cover">`:`<div class="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-xs font-bold">${initials(t.name)}</div>`}<span class="font-medium">${escapeHTML(t.name)}</span></div></td>
+       <td class="p-2">Rs.${(Number(t.salary)||0).toLocaleString('en-IN')}</td>
+       <td class="p-2 text-right text-emerald-700 font-medium">Rs.${paid.toLocaleString('en-IN')}</td>
+       ${showDuesColumn?`<td class="p-2 text-right ${due>0?'text-rose-600 font-semibold':'text-gray-400'}">${due>0?'Rs.'+due.toLocaleString('en-IN'):'—'}</td>`:''}
+       <td class="p-2 text-center"><button class="salViewBtn bg-emerald-100 hover:bg-emerald-200 text-emerald-700 px-3 py-1 rounded text-xs font-medium" data-id="${t.id}">Manage</button></td>
+      </tr>`;
+    }).join('')}</tbody>
+   </table>
+  </div>
+ </div>`;
+}
+
+/* ---------- VEHICLE-WISE EXPENSES (fuel/service/other) ---------- */
+const VEHICLE_EXPENSE_TYPES = ['Fuel', 'Service', 'Repair', 'Insurance', 'Tyres', 'Permit/Tax', 'Other'];
+function renderAccVehicleExpenses(){
+ const vehicles = get('vehicles');
+ const expenses = get('expenses').filter(e => e.vehicleId && !e._deleted); // vehicle-tagged, not recycled
+ if (vehicles.length === 0) {
+  return `<div class="bg-white rounded-xl border p-6 text-center text-gray-500"><i class="fas fa-bus-slash text-3xl mb-2"></i><p>No vehicles added yet. Add vehicles in the Vehicles section (Owner/Admin) first, then record their expenses here.</p></div>`;
+ }
+ // Per-vehicle, per-type totals
+ const totalsByVehicle = {};
+ vehicles.forEach(v => { totalsByVehicle[v.id] = { total:0, byType:{} }; });
+ expenses.forEach(e => {
+  if (!totalsByVehicle[e.vehicleId]) return;
+  totalsByVehicle[e.vehicleId].total += Number(e.amount)||0;
+  const ty = e.vehicleExpenseType || 'Other';
+  totalsByVehicle[e.vehicleId].byType[ty] = (totalsByVehicle[e.vehicleId].byType[ty]||0) + (Number(e.amount)||0);
+ });
+ const grandTotal = expenses.reduce((a,e)=>a+(Number(e.amount)||0),0);
+
+ return `<div class="bg-white rounded-xl border p-4 md:p-5">
+  <h2 class="text-lg font-bold mb-1"><i class="fas fa-bus text-amber-600 mr-1"></i>Vehicle Expenses</h2>
+  <p class="text-sm text-gray-600 mb-4">Record expenses per vehicle, split by type (Fuel, Service, Repair, etc.). Total vehicle spend this session: <b>${fmtINR(grandTotal)}</b>.</p>
+
+  <!-- Record vehicle expense -->
+  <div class="bg-amber-50 border border-amber-100 rounded-lg p-3 mb-4">
+   <div class="text-sm font-semibold text-amber-900 mb-2"><i class="fas fa-plus-circle mr-1"></i>Record Vehicle Expense</div>
+   <div class="grid md:grid-cols-3 gap-2">
+    <div><label class="text-xs">Vehicle</label><select id="vehExpVehId" class="text-sm w-full">${vehicles.map(v=>`<option value="${v.id}">${escapeHTML(v.vehicleNo)}${v.route?' — '+escapeHTML(v.route):''}</option>`).join('')}</select></div>
+    <div><label class="text-xs">Type</label><select id="vehExpType" class="text-sm w-full">${VEHICLE_EXPENSE_TYPES.map(ty=>`<option>${ty}</option>`).join('')}</select></div>
+    <div><label class="text-xs">Amount (Rs.)</label><input type="number" id="vehExpAmount" class="text-sm w-full"></div>
+    <div><label class="text-xs">Date</label><input type="date" id="vehExpDate" value="${new Date().toISOString().slice(0,10)}" class="text-sm w-full"></div>
+    <div><label class="text-xs">Mode</label><select id="vehExpMode" class="text-sm w-full">${PAYMENT_MODES.map(m=>`<option>${m}</option>`).join('')}</select></div>
+    <div><label class="text-xs">Vendor / Note</label><input id="vehExpNote" placeholder="e.g. HP Petrol Pump" class="text-sm w-full"></div>
+    <div class="md:col-span-3"><label class="text-xs"><i class="fas fa-paperclip mr-1"></i>Attach Bill (optional)</label><input type="file" id="vehExpBillFile" accept="application/pdf,image/*" class="text-xs"><input type="hidden" id="vehExpBillData"><input type="hidden" id="vehExpBillName"><span id="vehExpBillPreview" class="text-xs text-gray-500 ml-2"></span></div>
+   </div>
+   <div class="flex justify-end mt-2"><button id="vehExpRecordBtn" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-save mr-1"></i>Record Expense</button></div>
+  </div>
+
+  <!-- Per-vehicle summary cards -->
+  <div class="grid md:grid-cols-2 gap-3 mb-4">
+   ${vehicles.map(v=>{
+     const tot = totalsByVehicle[v.id];
+     return `<div class="border rounded-lg p-3">
+      <div class="flex items-center justify-between mb-1">
+       <div class="font-semibold"><i class="fas fa-bus text-amber-600 mr-1"></i>${escapeHTML(v.vehicleNo)}</div>
+       <div class="font-bold text-amber-700">${fmtINR(tot.total)}</div>
+      </div>
+      <div class="text-xs text-gray-500 mb-2">${escapeHTML(v.driver||'')}${v.route?' · '+escapeHTML(v.route):''}</div>
+      ${Object.keys(tot.byType).length?`<div class="flex flex-wrap gap-1">${Object.entries(tot.byType).map(([ty,amt])=>`<span class="text-xs bg-gray-100 rounded px-2 py-0.5">${ty}: <b>${fmtINR(amt)}</b></span>`).join('')}</div>`:'<div class="text-xs text-gray-400">No expenses recorded</div>'}
+     </div>`;
+   }).join('')}
+  </div>
+
+  <!-- Recent vehicle expenses -->
+  <div class="text-sm font-semibold mb-1"><i class="fas fa-list mr-1"></i>Recent Vehicle Expenses</div>
+  <table class="w-full text-sm border">
+   <thead class="bg-gray-50"><tr><th class="p-2 text-left">Date</th><th class="p-2 text-left">Vehicle</th><th class="p-2 text-left">Type</th><th class="p-2 text-left">Vendor/Note</th><th class="p-2 text-left">Mode</th><th class="p-2 text-right">Amount</th><th class="p-2"></th></tr></thead>
+   <tbody>${expenses.sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,50).map(e=>{
+     const v = vehicles.find(x=>x.id===e.vehicleId);
+     return `<tr class="border-t">
+      <td class="p-2 text-xs whitespace-nowrap">${fmtDate(e.date)}</td>
+      <td class="p-2 text-xs">${escapeHTML(v?.vehicleNo||'-')}</td>
+      <td class="p-2 text-xs"><span class="pill pill-amber">${escapeHTML(e.vehicleExpenseType||'Other')}</span></td>
+      <td class="p-2 text-xs">${escapeHTML(e.vendor||e.description||'-')}${e.billData?` <a href="${e.billData}" download="${escapeHTML(e.billName||'bill')}" class="text-blue-600 ml-1"><i class="fas fa-paperclip"></i></a>`:''}</td>
+      <td class="p-2 text-xs">${escapeHTML(e.mode||'-')}</td>
+      <td class="p-2 text-right font-medium text-rose-700">${fmtINR(e.amount)}</td>
+      <td class="p-2 text-center"><button class="vehExpDelBtn text-rose-400 hover:text-rose-600" data-id="${e.id}"><i class="fas fa-trash"></i></button></td>
+     </tr>`;
+   }).join('')||'<tr><td colspan="7" class="text-center text-gray-400 py-4">No vehicle expenses yet</td></tr>'}</tbody>
+  </table>
+ </div>`;
+}
+
 function renderAccPayments(){
  const banks = get('bankAccounts');
  const fmtINR = n => 'Rs.' + (n||0).toLocaleString('en-IN');
- const expenses = get('expenses').slice().sort((a,b) => (b.date||'').localeCompare(a.date||''));
+ const expenses = get('expenses').filter(e=>!e._deleted).slice().sort((a,b) => (b.date||'').localeCompare(a.date||''));
 
  // Compute summary stats
  const today = new Date().toISOString().slice(0, 10);
@@ -7471,8 +8239,8 @@ function renderAccLedger(){
 }
 
 function _filterLedger(fromDate, toDate, type){
- const receipts = getFeeTransactions().map(r => ({ ...r, _kind: 'receipt' }));
- const expenses = get('expenses').map(e => ({ ...e, _kind: 'expense' }));
+ const receipts = getFeeTransactions().filter(t=>!t._deleted).map(r => ({ ...r, _kind: 'receipt' }));
+ const expenses = get('expenses').filter(e=>!e._deleted).map(e => ({ ...e, _kind: 'expense' }));
  let all = [];
  if (type === 'all' || type === 'receipt') all = all.concat(receipts);
  if (type === 'all' || type === 'expense') all = all.concat(expenses);
@@ -7605,6 +8373,63 @@ function _amountToWordsINR(num){
 }
 
 // Build the printable HTML for a receipt
+/* ---------- SALARY SLIP PRINT ---------- */
+function _printSalarySlip(paymentId){
+ const p = getSalaryPayments().find(x => x.id === parseInt(paymentId));
+ if (!p) { alert('Payment record not found'); return; }
+ const t = getTeachers().find(x => x.id === p.teacherId) || {};
+ const school = SCHOOL_INFO;
+ const inr = n => 'Rs.' + (Number(n)||0).toLocaleString('en-IN');
+ const w = window.open('', '_blank', 'width=800,height=900');
+ if (!w) { alert('Pop-up blocked. Please allow pop-ups for this site, then try again.'); return; }
+ const logoImg = school.logo ? `<img src="${school.logo}" class="logo-img" alt="">` : `<div class="logo-fb">${(school.shortName||'S').slice(0,2)}</div>`;
+ w.document.write(`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Salary Slip - ${escapeHTML(t.name||'')}</title>
+ <style>
+  @page { size: A4; margin: 1.5cm; }
+  * { box-sizing: border-box; margin:0; padding:0; }
+  body { font-family: 'Manrope', Arial, sans-serif; color:#2a1410; background:#f5f5f4; padding:1.5cm; font-size:11pt; }
+  .btns { position: fixed; top:10px; right:10px; display:flex; gap:8px; }
+  .btns button { padding:8px 16px; font-weight:600; border:none; border-radius:8px; cursor:pointer; }
+  .pr { background:#7a1e2e; color:#fff; } .cl { background:#e5e5e5; color:#333; }
+  .sheet { max-width:680px; margin:0 auto; background:#fff; padding:1.5cm; border:1px solid #ddd; }
+  .header { display:flex; gap:15px; align-items:center; border-bottom:3px solid #7a1e2e; padding-bottom:12px; margin-bottom:6px; }
+  .logo-img { width:70px; height:70px; border-radius:6px; object-fit:contain; border:1px solid #e5e5e5; padding:2px; flex-shrink:0; }
+  .logo-fb { width:64px; height:64px; background:#7a1e2e; color:#faf6ef; display:flex; align-items:center; justify-content:center; font-family:'Fraunces',Georgia,serif; font-size:30px; font-weight:700; border-radius:8px; flex-shrink:0; }
+  .sn { font-family:'Fraunces',Georgia,serif; font-size:18pt; font-weight:700; color:#7a1e2e; line-height:1.1; }
+  .sm { font-size:8pt; color:#57433d; margin-top:3px; }
+  .title { text-align:center; font-family:'Fraunces',Georgia,serif; font-size:15pt; font-weight:700; color:#c8860d; letter-spacing:3px; margin:16px 0; }
+  table { width:100%; border-collapse:collapse; margin:10px 0; }
+  td { padding:8px 10px; border:1px solid #e5e5e5; font-size:10pt; }
+  .lbl { background:#faf6ef; color:#57433d; font-weight:600; width:40%; }
+  .amt-box { background:#f0fdf4; border:2px solid #16a34a; border-radius:8px; padding:12px 16px; margin:14px 0; text-align:center; }
+  .amt-box .l { font-size:8pt; color:#15803d; letter-spacing:2px; text-transform:uppercase; font-weight:700; }
+  .amt-box .v { font-family:'Fraunces',Georgia,serif; font-size:22pt; font-weight:700; color:#166534; }
+  .sign { display:flex; justify-content:space-between; margin-top:40px; }
+  .sign div { border-top:1px solid #999; padding-top:6px; font-size:9pt; color:#57433d; width:40%; text-align:center; }
+  .foot { margin-top:20px; padding-top:10px; border-top:1px dashed #ccc; font-size:8pt; color:#999; text-align:center; }
+  @media print { body { background:#fff; padding:0; } .btns { display:none; } .sheet { box-shadow:none; border:none; } }
+ </style></head><body>
+  <div class="sheet">
+   <div class="header">${logoImg}<div><div class="sn">${escapeHTML(school.name)}</div><div class="sm">${escapeHTML(school.address||'')} · ${escapeHTML(school.phone||'')}</div></div></div>
+   <div class="title">SALARY PAYMENT SLIP</div>
+   <table>
+    <tr><td class="lbl">Employee Name</td><td>${escapeHTML(t.name||'-')}</td></tr>
+    <tr><td class="lbl">Designation / Subject</td><td>${escapeHTML(t.subject||'-')}</td></tr>
+    <tr><td class="lbl">Employee ID</td><td>${escapeHTML(t.employeeId||'-')}</td></tr>
+    <tr><td class="lbl">Payment For</td><td>${escapeHTML(p.forMonth||'-')} (Session ${currentSession()})</td></tr>
+    <tr><td class="lbl">Payment Date</td><td>${fmtDate(p.date)}</td></tr>
+    <tr><td class="lbl">Payment Mode</td><td>${escapeHTML(p.mode||'-')}${p.chequeNo?' (Ref: '+escapeHTML(p.chequeNo)+')':''}</td></tr>
+    ${p.note?`<tr><td class="lbl">Note</td><td>${escapeHTML(p.note)}</td></tr>`:''}
+   </table>
+   <div class="amt-box"><div class="l">Amount Paid</div><div class="v">${inr(p.amount)}</div></div>
+   <div class="sign"><div>Employee Signature</div><div>Authorised Signatory</div></div>
+   <div class="foot">This is a computer-generated salary slip from ${escapeHTML(school.name)}. Generated on ${new Date().toLocaleDateString('en-IN')}.</div>
+  </div>
+  <div class="btns"><button class="pr" onclick="window.print()">Print / Save PDF</button><button class="cl" onclick="window.close()">Close</button></div>
+ </body></html>`);
+ w.document.close();
+}
+
 function _generateReceiptHTML(txn){
  const students = getStudents();
  const banks = get('bankAccounts');
@@ -7997,6 +8822,53 @@ function _printHomework(hwId, studentId){
 function getCorrectionRequests(){ return DB.getAll('correctionRequests'); }
 function saveCorrectionRequests(d){ DB.setAll('correctionRequests', d); }
 function getAuditLog(){ return DB.getAll('accountingAuditLog'); }
+
+// ===== SOFT-DELETE / RECYCLE BIN =====
+// Instead of permanently deleting money records, mark them _deleted with who/when,
+// so they can be restored. Views filter out _deleted rows; the Recycle Bin shows them.
+function _softDeleteFromTable(table, id, kind){
+ const all = get(table);
+ const idx = all.findIndex(r => r.id === id);
+ if (idx === -1) return false;
+ const rec = all[idx];
+ rec._deleted = true;
+ rec._deletedAt = new Date().toISOString();
+ rec._deletedBy = currentUser?.name || '?';
+ rec._deletedKind = kind || table;
+ set(table, all);
+ _logAccountingChange('delete', kind || table, rec, null, 'Moved to recycle bin');
+ return true;
+}
+function _restoreFromTable(table, id){
+ const all = get(table);
+ const idx = all.findIndex(r => r.id === id);
+ if (idx === -1) return false;
+ const rec = all[idx];
+ delete rec._deleted; delete rec._deletedAt; delete rec._deletedBy;
+ set(table, all);
+ _logAccountingChange('restore', rec._deletedKind || table, null, rec, 'Restored from recycle bin');
+ return true;
+}
+function _purgeFromTable(table, id){
+ const all = get(table);
+ const rec = all.find(r => r.id === id);
+ set(table, all.filter(r => r.id !== id));
+ if (rec) _logAccountingChange('purge', rec._deletedKind || table, rec, null, 'Permanently deleted from recycle bin');
+ return true;
+}
+// Active (non-deleted) rows of a table.
+function _activeRows(table){ return get(table).filter(r => !r._deleted); }
+// All soft-deleted rows across the money tables, for the recycle bin.
+function _recycleBinItems(){
+ const items = [];
+ _deletedRowsOf('expenses', 'expense').forEach(r => items.push(r));
+ _deletedRowsOf('salaryPayments', 'salary').forEach(r => items.push(r));
+ _deletedRowsOf('feeTransactions', 'receipt').forEach(r => items.push(r));
+ return items.sort((a,b)=>(b._row._deletedAt||'').localeCompare(a._row._deletedAt||''));
+}
+function _deletedRowsOf(table, kind){
+ return get(table).filter(r => r._deleted).map(r => ({ table, kind, _row: r }));
+}
 function _logAccountingChange(action, kind, before, after, reason){
  const log = getAuditLog();
  log.push({
@@ -8429,8 +9301,136 @@ function attachAccountantEvents(){
 
  if (activeAccountantTab === 'receipts') _attachReceiptEvents();
  else if (activeAccountantTab === 'payments') _attachPaymentEvents();
+ else if (activeAccountantTab === 'salary') _attachSalaryEvents();
+ else if (activeAccountantTab === 'vehicles') _attachVehicleExpenseEvents();
  else if (activeAccountantTab === 'reminders') attachFeeRemindersEvents();
  else if (activeAccountantTab === 'ledger') _attachLedgerEvents();
+ else if (activeAccountantTab === 'audit') _attachAuditEvents();
+ else if (activeAccountantTab === 'recyclebin') _attachRecycleBinEvents();
+}
+
+function _attachRecycleBinEvents(){
+ document.querySelectorAll('.rbRestoreBtn').forEach(b => b.addEventListener('click', () => {
+  _restoreFromTable(b.dataset.table, parseInt(b.dataset.id));
+  showToast('Record restored');
+  renderApp();
+ }));
+ document.querySelectorAll('.rbPurgeBtn').forEach(b => b.addEventListener('click', () => {
+  if (!confirm('Permanently delete this record?\n\nThis CANNOT be undone.')) return;
+  _purgeFromTable(b.dataset.table, parseInt(b.dataset.id));
+  showToast('Permanently deleted');
+  renderApp();
+ }));
+ document.getElementById('rbPurgeAllBtn')?.addEventListener('click', () => {
+  if (!confirm('Permanently delete ALL records in the recycle bin?\n\nThis CANNOT be undone.')) return;
+  ['expenses','salaryPayments','feeTransactions'].forEach(table => {
+   const kept = get(table).filter(r => !r._deleted);
+   set(table, kept);
+  });
+  _logAccountingChange('purge', 'all', null, null, 'Emptied recycle bin');
+  showToast('Recycle bin emptied');
+  renderApp();
+ });
+}
+
+function _attachAuditEvents(){
+ document.getElementById('auditClearBtn')?.addEventListener('click', () => {
+  if (!confirm('Clear the entire money audit trail?\n\nThis removes the history of changes and cannot be undone.')) return;
+  DB.setAll('accountingAuditLog', []);
+  showToast('Audit trail cleared');
+  renderApp();
+ });
+}
+
+function _attachSalaryEvents(){
+ document.querySelectorAll('.salViewBtn').forEach(b => b.addEventListener('click', () => {
+  _salarySelectedTeacher = parseInt(b.dataset.id);
+  renderApp();
+ }));
+ document.getElementById('salBackBtn')?.addEventListener('click', () => {
+  _salarySelectedTeacher = null;
+  renderApp();
+ });
+ document.getElementById('salRecordBtn')?.addEventListener('click', () => {
+  const teacherId = parseInt(document.getElementById('salTeacherId').value);
+  const amount = parseInt(document.getElementById('salAmount').value) || 0;
+  if (amount <= 0) { alert('Enter a valid payment amount.'); return; }
+  const t = getTeachers().find(x => x.id === teacherId);
+  const payments = getSalaryPayments();
+  payments.push({
+   id: Date.now(),
+   teacherId,
+   teacherName: t?.name || '',
+   amount,
+   date: document.getElementById('salDate').value || new Date().toISOString().slice(0,10),
+   forMonth: document.getElementById('salMonth').value,
+   mode: document.getElementById('salMode').value,
+   chequeNo: document.getElementById('salCheque').value.trim(),
+   note: document.getElementById('salNote').value.trim(),
+   paidBy: currentUser?.name || ''
+  });
+  saveSalaryPayments(payments);
+  _logAccountingChange('create', 'salary', null, payments[payments.length-1], 'Salary payment recorded');
+  showToast('Salary payment recorded for ' + (t?.name||'staff'));
+  renderApp();
+ });
+ document.querySelectorAll('.salDelBtn').forEach(b => b.addEventListener('click', () => {
+  if (!confirm('Move this salary payment to the recycle bin?\n\nYou can restore it later from the Recycle Bin if this was a mistake.')) return;
+  _softDeleteFromTable('salaryPayments', parseInt(b.dataset.id), 'salary');
+  showToast('Moved to recycle bin');
+  renderApp();
+ }));
+ document.querySelectorAll('.salPrintBtn').forEach(b => b.addEventListener('click', () => {
+  _printSalarySlip(parseInt(b.dataset.id));
+ }));
+}
+
+function _attachVehicleExpenseEvents(){
+ // Bill upload
+ document.getElementById('vehExpBillFile')?.addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  if (f.size > 5*1024*1024) { alert('File too large (max 5MB).'); e.target.value=''; return; }
+  const reader = new FileReader();
+  reader.onload = ev => {
+   document.getElementById('vehExpBillData').value = ev.target.result;
+   document.getElementById('vehExpBillName').value = f.name;
+   document.getElementById('vehExpBillPreview').innerHTML = `<i class="fas fa-paperclip mr-1"></i>${escapeHTML(f.name)}`;
+  };
+  reader.readAsDataURL(f);
+ });
+ document.getElementById('vehExpRecordBtn')?.addEventListener('click', () => {
+  const vehicleId = parseInt(document.getElementById('vehExpVehId').value);
+  const amount = parseInt(document.getElementById('vehExpAmount').value) || 0;
+  if (amount <= 0) { alert('Enter a valid amount.'); return; }
+  const v = get('vehicles').find(x => x.id === vehicleId);
+  const expenses = get('expenses');
+  const ty = document.getElementById('vehExpType').value;
+  expenses.push({
+   id: Date.now(),
+   date: document.getElementById('vehExpDate').value || new Date().toISOString().slice(0,10),
+   category: 'Transport (Fuel/Service)',   // keeps it in the main expense category for ledger consistency
+   vehicleId,
+   vehicleExpenseType: ty,
+   vendor: document.getElementById('vehExpNote').value.trim(),
+   description: `${ty} — ${v?.vehicleNo||''}`,
+   amount,
+   mode: document.getElementById('vehExpMode').value,
+   billData: document.getElementById('vehExpBillData').value || undefined,
+   billName: document.getElementById('vehExpBillName').value || undefined,
+   recordedBy: currentUser?.name || ''
+  });
+  set('expenses', expenses);
+  _logAccountingChange('create', 'expense', null, expenses[expenses.length-1], 'Vehicle expense recorded');
+  showToast('Vehicle expense recorded');
+  renderApp();
+ });
+ document.querySelectorAll('.vehExpDelBtn').forEach(b => b.addEventListener('click', () => {
+  if (!confirm('Move this vehicle expense to the recycle bin?\n\nYou can restore it later if this was a mistake.')) return;
+  _softDeleteFromTable('expenses', parseInt(b.dataset.id), 'expense');
+  showToast('Moved to recycle bin');
+  renderApp();
+ }));
 }
 
 function _attachReceiptEvents(){
@@ -8992,6 +9992,35 @@ function attachOwnerEvents(){
   _apprSelectedTeacher = null;
   renderApp();
  });
+ // Financial summary navigation
+ document.getElementById('ownerOpenFinanceBtn')?.addEventListener('click', () => {
+  ownerView = 'finance';
+  renderApp();
+ });
+ // Attendance insights navigation
+ document.getElementById('ownerOpenAttendanceBtn')?.addEventListener('click', () => {
+  ownerView = 'attendance';
+  renderApp();
+ });
+ // Attendance insights controls
+ if (ownerView === 'attendance') { _attachAttendanceInsightEvents(); }
+ // Financial summary export
+ if (ownerView === 'finance') {
+  document.getElementById('finExportBtn')?.addEventListener('click', () => {
+   const f = computeFinancialSummary();
+   let h = '<table border="1"><tr><th>Month</th><th>Income (Fees)</th><th>Salary Paid</th><th>Other Expenses</th><th>Total Expense</th><th>Net</th></tr>';
+   SESSION_MONTHS.forEach(m => {
+    const b = f.byMonth[m]; const exp = b.salary + b.otherExpense;
+    h += `<tr><td>${m}</td><td>${b.income}</td><td>${b.salary}</td><td>${b.otherExpense}</td><td>${exp}</td><td>${b.income-exp}</td></tr>`;
+   });
+   h += `<tr><td><b>TOTAL</b></td><td>${f.totalIncome}</td><td>${f.totalSalary}</td><td>${f.totalOther}</td><td>${f.totalExpense}</td><td>${f.net}</td></tr>`;
+   h += '</table>';
+   h += '<br><table border="1"><tr><th>Expense Category</th><th>Amount</th></tr>';
+   Object.entries(f.byCategory).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]).forEach(([c,v])=>{ h += `<tr><td>${c}</td><td>${v}</td></tr>`; });
+   h += '</table>';
+   downloadExcel(h, 'MDBV_Financial_Summary_' + f.session + '_' + new Date().toISOString().slice(0,10));
+  });
+ }
  document.getElementById('ownerBackBtn')?.addEventListener('click', () => {
   ownerView = 'dashboard';
   renderApp();
@@ -9103,6 +10132,41 @@ function attachOwnerEvents(){
    appendLog('  3. URL or anon key is wrong — verify in Supabase → Settings → API');
    setBadge('Connection failed', 'bg-rose-100', 'text-rose-800');
   }
+ });
+
+ // ── Backup & Restore ──
+ document.getElementById('backupDownloadBtn')?.addEventListener('click', () => {
+  const count = downloadFullBackup();
+  const status = document.getElementById('backupStatus');
+  if (count && status) {
+   status.innerHTML = `<i class="fas fa-circle-check text-emerald-600 mr-1"></i>Backup downloaded — ${count} data tables saved. Keep this file safe.`;
+  }
+ });
+ document.getElementById('backupRestoreBtn')?.addEventListener('click', () => {
+  document.getElementById('backupRestoreFile')?.click();
+ });
+ document.getElementById('backupRestoreFile')?.addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+   let obj;
+   try { obj = JSON.parse(ev.target.result); }
+   catch { alert('Could not read that file — it is not valid JSON.'); e.target.value=''; return; }
+   if (!obj || !obj._backup) { alert('This does not look like an MDBV backup file.'); e.target.value=''; return; }
+   const when = obj._createdAt ? new Date(obj._createdAt).toLocaleString('en-IN') : 'unknown date';
+   const tables = obj._tableCount || (obj.data ? Object.keys(obj.data).length : 0);
+   if (!confirm(`Restore this backup?\n\nCreated: ${when}\nBy: ${obj._createdBy||'unknown'}\nContains: ${tables} data tables\n\nThis will OVERWRITE all current data in this browser with the backup's contents. This cannot be undone (except by restoring another backup).\n\nContinue?`)) { e.target.value=''; return; }
+   const result = restoreFromBackup(obj);
+   if (result.ok) {
+    alert(`Restore complete — ${result.restored} tables restored. The page will now reload.`);
+    location.reload();
+   } else {
+    alert('Restore failed: ' + result.error);
+   }
+   e.target.value='';
+  };
+  reader.readAsText(f);
  });
 
  document.getElementById('cloudPushBtn')?.addEventListener('click', async () => {
@@ -9275,6 +10339,7 @@ function attachActivePrincipalTabEvents(){
  else if(activePrincipalTab==='notices')attachNoticesTabEvents();
  else if(activePrincipalTab==='reportcards')attachReportCardsEvents();
  else if(activePrincipalTab==='appraisal')attachTeacherAppraisalEvents();
+ else if(activePrincipalTab==='attendance')_attachAttendanceInsightEvents();
  else if(activePrincipalTab==='calendar')attachGenericModuleEvents();
  else if(activePrincipalTab==='reports'){
   document.getElementById('principalReportBtn')?.addEventListener('click',()=>{
@@ -9931,6 +10996,7 @@ function attachTeachersTabEvents(){
     document.getElementById('tchEmpId').value = t.employeeId || t.udiseTeacherId || '';
     document.getElementById('tchTrain').value = t.trainingDate || '';
     document.getElementById('tchSalary').value = t.salary || '';
+    { const el = document.getElementById('tchSalaryStart'); if (el) el.value = t.salaryStartMonth || ''; }
     document.getElementById('tchPhone').value = t.phone || '';
     document.getElementById('tchBank').value = t.bankAccount || '';
     document.getElementById('tchEmail').value = t.email || '';
@@ -10004,6 +11070,7 @@ function attachTeachersTabEvents(){
    employeeId: document.getElementById('tchEmpId').value.trim(),
    trainingDate: document.getElementById('tchTrain').value,
    salary: parseInt(document.getElementById('tchSalary').value) || 0,
+   salaryStartMonth: (document.getElementById('tchSalaryStart') ? document.getElementById('tchSalaryStart').value : '') || undefined,
    phone: document.getElementById('tchPhone').value.trim(),
    bankAccount: document.getElementById('tchBank').value.trim(),
    email: document.getElementById('tchEmail').value.trim(),
