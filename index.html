@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1783618693 - public site: role-based Principal (name kept only in CBSE disclosure) -->
+<!-- BUILD: v-1783620080 - unified staff list (teaching + non-teaching), salary tab shows all -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -4214,14 +4214,23 @@ function renderComplianceTab(){
 function renderTeachersTab(){
  const ts=getTeachers();
  const auditLog = getTeacherAuditLog().sort((a,b) => (b.at||'').localeCompare(a.at||''));
+ const teaching = ts.filter(t => (t.staffType||'Teaching') === 'Teaching');
+ const nonTeaching = ts.filter(t => (t.staffType||'Teaching') === 'Non-Teaching');
+ const staffRow = t => `<tr><td>${t.photo?`<img src="${t.photo}" class="w-9 h-9 rounded-full object-cover" alt="">`:`<div class="w-9 h-9 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold">${initials(t.name)}</div>`}</td><td class="font-medium">${t.name}</td><td>${t.subject||'-'}</td><td class="text-xs">${(t.staffType||'Teaching')==='Teaching'?((Array.isArray(t.assignedClasses)&&t.assignedClasses.length)?t.assignedClasses.join(', '):'<span class="text-amber-600">none</span>'):'<span class="text-gray-300">—</span>'}</td><td>${t.qualification||'-'}</td><td>${t.employeeId || t.udiseTeacherId || '-'}</td><td>${t.trainingDate?fmtDate(t.trainingDate):'-'}</td><td>Rs.${(t.salary||0).toLocaleString('en-IN')}</td><td>${t.phone||'-'}</td><td class="whitespace-nowrap"><button class="editTeacherBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${t.id}" title="Edit"><i class="fas fa-edit"></i></button> <button class="delTeacherBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Delete"><i class="fas fa-trash"></i></button></td></tr>`;
  return `<div>
   <div class="flex justify-between items-center mb-4">
-   <h2 class="text-lg font-bold"><i class="fas fa-chalkboard-teacher text-purple-600 mr-1"></i>Teachers</h2>
-   <button id="addTeacherBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-plus mr-1"></i>Add Teacher</button>
+   <h2 class="text-lg font-bold"><i class="fas fa-users text-purple-600 mr-1"></i>Staff <span class="text-sm font-normal text-gray-500">(${ts.length} total · ${teaching.length} teaching, ${nonTeaching.length} non-teaching)</span></h2>
+   <button id="addTeacherBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-plus mr-1"></i>Add Staff</button>
   </div>
-  <div class="overflow-x-auto">
-   <table class="border text-sm"><thead><tr><th>Photo</th><th>Name</th><th>Subject</th><th>Classes</th><th>Qualification</th><th>Emp. ID</th><th>Joined</th><th>Salary</th><th>Phone</th><th>Actions</th></tr></thead>
-   <tbody>${ts.map(t=>`<tr><td>${t.photo?`<img src="${t.photo}" class="w-9 h-9 rounded-full object-cover" alt="">`:`<div class="w-9 h-9 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold">${initials(t.name)}</div>`}</td><td class="font-medium">${t.name}</td><td>${t.subject||'-'}</td><td class="text-xs">${(Array.isArray(t.assignedClasses)&&t.assignedClasses.length)?t.assignedClasses.join(', '):'<span class="text-amber-600">none</span>'}</td><td>${t.qualification||'-'}</td><td>${t.employeeId || t.udiseTeacherId || '-'}</td><td>${t.trainingDate?fmtDate(t.trainingDate):'-'}</td><td>Rs.${(t.salary||0).toLocaleString('en-IN')}</td><td>${t.phone||'-'}</td><td class="whitespace-nowrap"><button class="editTeacherBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${t.id}" title="Edit"><i class="fas fa-edit"></i></button> <button class="delTeacherBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Delete"><i class="fas fa-trash"></i></button></td></tr>`).join('')}</tbody></table>
+  <div class="overflow-x-auto mb-6">
+   <div class="text-sm font-semibold text-purple-700 mb-1"><i class="fas fa-chalkboard-teacher mr-1"></i>Teaching Staff</div>
+   <table class="border text-sm w-full"><thead><tr><th>Photo</th><th>Name</th><th>Subject</th><th>Classes</th><th>Qualification</th><th>Emp. ID</th><th>Joined</th><th>Salary</th><th>Phone</th><th>Actions</th></tr></thead>
+   <tbody>${teaching.length?teaching.map(staffRow).join(''):'<tr><td colspan="10" class="text-center text-gray-400 py-3">No teaching staff added yet</td></tr>'}</tbody></table>
+  </div>
+  <div class="overflow-x-auto mb-6">
+   <div class="text-sm font-semibold text-teal-700 mb-1"><i class="fas fa-user-tie mr-1"></i>Non-Teaching Staff <span class="font-normal text-gray-400">(principal, drivers, guards, office, support)</span></div>
+   <table class="border text-sm w-full"><thead><tr><th>Photo</th><th>Name</th><th>Designation</th><th>—</th><th>Qualification</th><th>Emp. ID</th><th>Joined</th><th>Salary</th><th>Phone</th><th>Actions</th></tr></thead>
+   <tbody>${nonTeaching.length?nonTeaching.map(staffRow).join(''):'<tr><td colspan="10" class="text-center text-gray-400 py-3">No non-teaching staff yet. Click "Add Staff" and choose "Non-Teaching Staff" to add drivers, guards, office staff, etc.</td></tr>'}</tbody></table>
   </div>
 
   <!-- Teacher Activity Audit Log (admin oversight) -->
@@ -4267,7 +4276,8 @@ function renderTeachersTab(){
    </div>
    <div class="grid grid-cols-2 gap-3">
     <div><label class="text-xs">Name *</label><input id="tchName"></div>
-    <div><label class="text-xs">Subject</label><input id="tchSubject"></div>
+    <div><label class="text-xs">Staff Type *</label><select id="tchStaffType"><option value="Teaching">Teaching Staff</option><option value="Non-Teaching">Non-Teaching Staff</option></select></div>
+    <div><label class="text-xs" id="tchSubjectLabel">Subject</label><input id="tchSubject" placeholder="e.g. Mathematics"></div>
     <div><label class="text-xs">Qualification</label><input id="tchQual"></div>
     <div><label class="text-xs">Employee ID</label><input id="tchEmpId" placeholder="e.g. MDB-T-001"></div>
     <div><label class="text-xs">Date of Joining</label><input type="date" id="tchTrain"></div>
@@ -4280,7 +4290,7 @@ function renderTeachersTab(){
     <div class="col-span-2"><label class="text-xs">Address</label><input id="tchAddress"></div>
     <div><label class="text-xs">Bank A/C (last 4)</label><input id="tchBank"></div>
    </div>
-   <div class="mt-3 border-t pt-3">
+   <div class="mt-3 border-t pt-3" id="tchClassesSection">
     <label class="text-xs font-semibold block mb-1"><i class="fas fa-chalkboard mr-1 text-purple-600"></i>Classes Assigned</label>
     <p class="text-xs text-gray-500 mb-2">Tick the classes this teacher handles. They will only see and mark attendance/marks for these classes.</p>
     <div class="flex flex-wrap gap-2" id="tchClassesBox">
@@ -7996,7 +8006,7 @@ function renderAccSalary(){
  const showDuesColumn = isOwnerLevel() || currentUser?.role === 'principal'; // management sees dues prominently
 
  if (teachers.length === 0) {
-  return `<div class="bg-white rounded-xl border p-6 text-center text-gray-500"><i class="fas fa-user-slash text-3xl mb-2"></i><p>No teachers added yet. Add teachers first (Admin → Teachers).</p></div>`;
+  return `<div class="bg-white rounded-xl border p-6 text-center text-gray-500"><i class="fas fa-user-slash text-3xl mb-2"></i><p>No staff added yet. Add staff first (Admin → Staff) — teaching and non-teaching (drivers, guards, office) all appear here.</p></div>`;
  }
 
  // Detail view: one teacher's full payment history + record form
@@ -8011,10 +8021,27 @@ function renderAccSalary(){
    <button id="salBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-3"><i class="fas fa-arrow-left mr-1"></i>Back to all staff</button>
    <div class="flex items-center gap-3 mb-4">
     ${t.photo?`<img src="${t.photo}" class="w-14 h-14 rounded-full object-cover border-2 border-emerald-200">`:`<div class="w-14 h-14 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-lg font-bold">${initials(t.name)}</div>`}
-    <div>
+    <div class="flex-1">
      <div class="text-lg font-bold">${escapeHTML(t.name)}</div>
-     <div class="text-xs text-gray-500">${t.subject||'-'} · Monthly salary: Rs.${(Number(t.salary)||0).toLocaleString('en-IN')}${t.salaryStartMonth?` · Salary from ${escapeHTML(t.salaryStartMonth)}`:(t.trainingDate?` · Joined ${fmtDate(t.trainingDate)}`:'')}</div>
+     <div class="text-xs text-gray-500">${escapeHTML(t.subject||'Teacher')}${t.salaryStartMonth?` · Salary from ${escapeHTML(t.salaryStartMonth)}`:(t.trainingDate?` · Joined ${fmtDate(t.trainingDate)}`:'')}</div>
     </div>
+   </div>
+
+   <!-- Editable monthly salary -->
+   <div class="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-4 flex flex-wrap items-end gap-2">
+    <div>
+     <label class="text-xs font-medium block mb-0.5">Monthly Salary (Rs.)</label>
+     <input type="number" id="salSetMonthly" value="${Number(t.salary)||''}" placeholder="e.g. 20000" class="text-sm" style="width:150px">
+    </div>
+    <div>
+     <label class="text-xs font-medium block mb-0.5">Salary starts from</label>
+     <select id="salSetStartMonth" class="text-sm">
+      <option value="">April (session start)</option>
+      ${SESSION_MONTHS.map(m=>`<option value="${m}" ${t.salaryStartMonth===m?'selected':''}>${m}</option>`).join('')}
+     </select>
+    </div>
+    <button id="salSetMonthlyBtn" class="bg-gray-700 hover:bg-gray-800 text-white px-3 py-2 rounded-lg text-xs font-medium"><i class="fas fa-save mr-1"></i>Save Salary</button>
+    <span class="text-xs text-gray-400">This also updates the teacher's record.</span>
    </div>
 
    <div class="grid grid-cols-2 md:grid-cols-3 gap-2 mb-4">
@@ -8038,8 +8065,35 @@ function renderAccSalary(){
     <div class="flex justify-end mt-2"><button id="salRecordBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-save mr-1"></i>Record Payment</button></div>
    </div>
 
-   <!-- Payment history -->
-   <div class="text-sm font-semibold mb-1"><i class="fas fa-clock-rotate-left text-gray-600 mr-1"></i>Payment History</div>
+   <!-- Month-wise summary (part-payments grouped by month) -->
+   ${(() => {
+     if (!tp.length) return '';
+     const monthly = Number(t.salary) || 0;
+     // Group this teacher's payments by the month they're for, preserving session order.
+     const byMonth = {};
+     tp.forEach(p => { const m = p.forMonth || 'Unspecified'; (byMonth[m] = byMonth[m] || []).push(p); });
+     const orderedMonths = SESSION_MONTHS.filter(m => byMonth[m]).concat(byMonth['Unspecified'] ? ['Unspecified'] : []);
+     return `<div class="text-sm font-semibold mb-1"><i class="fas fa-calendar-check text-emerald-600 mr-1"></i>Month-wise Summary</div>
+      <div class="overflow-auto mb-4"><table class="w-full text-sm border">
+       <thead class="bg-emerald-50"><tr><th class="p-2 text-left">Month</th><th class="p-2 text-center">Part-payments</th><th class="p-2 text-right">Paid for month</th>${monthly>0?'<th class="p-2 text-right">Of monthly</th><th class="p-2 text-left">Status</th>':''}</tr></thead>
+       <tbody>${orderedMonths.map(m => {
+         const pays = byMonth[m];
+         const monthPaid = pays.reduce((a,p)=>a+(Number(p.amount)||0),0);
+         let statusCell = '';
+         if (monthly > 0) {
+          const pct = Math.round((monthPaid/monthly)*100);
+          const remaining = monthly - monthPaid;
+          const color = monthPaid >= monthly ? 'green' : monthPaid > 0 ? 'amber' : 'gray';
+          const label = monthPaid >= monthly ? 'Fully paid' : (remaining>0 ? ('Rs.'+remaining.toLocaleString('en-IN')+' left') : 'Overpaid');
+          statusCell = `<td class="p-2 text-right text-xs text-gray-500">Rs.${monthly.toLocaleString('en-IN')}</td><td class="p-2"><span class="pill pill-${color==='green'?'green':color==='amber'?'amber':'gray'}">${label}</span></td>`;
+         }
+         return `<tr class="border-t"><td class="p-2 font-medium">${escapeHTML(m)}</td><td class="p-2 text-center text-xs text-gray-500">${pays.length}${pays.length>1?' parts':''}</td><td class="p-2 text-right font-semibold text-emerald-700">Rs.${monthPaid.toLocaleString('en-IN')}</td>${statusCell}</tr>`;
+       }).join('')}</tbody>
+      </table></div>`;
+   })()}
+
+   <!-- Payment history (all individual entries) -->
+   <div class="text-sm font-semibold mb-1"><i class="fas fa-clock-rotate-left text-gray-600 mr-1"></i>All Payments</div>
    <table class="w-full text-sm border">
     <thead class="bg-gray-50"><tr><th class="p-2 text-left">Date</th><th class="p-2 text-left">For Month</th><th class="p-2 text-left">Mode</th><th class="p-2 text-left">Cheque/Ref</th><th class="p-2 text-left">Note</th><th class="p-2 text-right">Amount</th><th class="p-2"></th></tr></thead>
     <tbody>${tp.length?tp.map(p=>`<tr class="border-t">
@@ -8069,13 +8123,14 @@ function renderAccSalary(){
   </div>` : ''}
   <div class="overflow-auto">
    <table class="w-full text-sm border">
-    <thead class="bg-gray-50"><tr><th class="p-2 text-left">Staff</th><th class="p-2 text-left">Monthly Salary</th><th class="p-2 text-right">Paid (session)</th>${showDuesColumn?'<th class="p-2 text-right">Dues</th>':''}<th class="p-2 text-center">Action</th></tr></thead>
+    <thead class="bg-gray-50"><tr><th class="p-2 text-left">Name</th><th class="p-2 text-left">Job / Role</th><th class="p-2 text-right">Monthly Salary</th><th class="p-2 text-right">Paid (session)</th>${showDuesColumn?'<th class="p-2 text-right">Dues</th>':''}<th class="p-2 text-center">Action</th></tr></thead>
     <tbody>${teachers.map(t=>{
       const paid = _salaryPaidToTeacher(t.id);
       const due = _salaryDue(t);
       return `<tr class="border-t hover:bg-gray-50">
        <td class="p-2"><div class="flex items-center gap-2">${t.photo?`<img src="${t.photo}" class="w-8 h-8 rounded-full object-cover">`:`<div class="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-xs font-bold">${initials(t.name)}</div>`}<span class="font-medium">${escapeHTML(t.name)}</span></div></td>
-       <td class="p-2">Rs.${(Number(t.salary)||0).toLocaleString('en-IN')}</td>
+       <td class="p-2 text-xs text-gray-600">${escapeHTML(t.subject||'Teacher')}</td>
+       <td class="p-2 text-right">${(Number(t.salary)||0)>0?'Rs.'+(Number(t.salary)||0).toLocaleString('en-IN'):'<span class="text-amber-500 text-xs">not set</span>'}</td>
        <td class="p-2 text-right text-emerald-700 font-medium">Rs.${paid.toLocaleString('en-IN')}</td>
        ${showDuesColumn?`<td class="p-2 text-right ${due>0?'text-rose-600 font-semibold':'text-gray-400'}">${due>0?'Rs.'+due.toLocaleString('en-IN'):'—'}</td>`:''}
        <td class="p-2 text-center"><button class="salViewBtn bg-emerald-100 hover:bg-emerald-200 text-emerald-700 px-3 py-1 rounded text-xs font-medium" data-id="${t.id}">Manage</button></td>
@@ -8084,14 +8139,16 @@ function renderAccSalary(){
    </table>
   </div>
   ${(() => {
-    // Salary payments not linked to a teacher (principal, drivers, or typed-in names) — grouped by name.
-    const nonTeacher = _activeSalaryPayments().filter(p => !p.teacherId);
+    // Legacy: payments typed in by name that don't match any staff record (from before the
+    // unified staff list). Properly-added staff appear in the main list above.
+    const staffNames = new Set(getTeachers().map(t => (t.name||'').toLowerCase()));
+    const nonTeacher = _activeSalaryPayments().filter(p => !p.teacherId && !staffNames.has((p.teacherName||'').toLowerCase()));
     if (nonTeacher.length === 0) return '';
     const byName = {};
     nonTeacher.forEach(p => { const n = p.teacherName || 'Unknown'; (byName[n] = byName[n] || []).push(p); });
     return `<div class="mt-6">
-     <h3 class="text-sm font-bold mb-1"><i class="fas fa-users text-gray-600 mr-1"></i>Other Staff Payments <span class="font-normal text-gray-400">(principal, drivers, and others paid via the Payments tab)</span></h3>
-     <p class="text-xs text-gray-400 mb-2">Click <b>Fix</b> to correct a name, assign the payment to a staff member, or edit the amount. Combined entries can be renamed to a single person.</p>
+     <h3 class="text-sm font-bold mb-1"><i class="fas fa-user-clock text-amber-600 mr-1"></i>Unmatched Payments <span class="font-normal text-gray-400">(typed-in names not linked to a staff member)</span></h3>
+     <p class="text-xs text-gray-400 mb-2">These were recorded by typing a name. Click <b>Fix</b> to assign each to a staff member (add them under Admin → Staff first if needed), or correct the name.</p>
      <div class="overflow-auto"><table class="w-full text-sm border">
       <thead class="bg-gray-50"><tr><th class="p-2 text-left">Name</th><th class="p-2 text-left">Role</th><th class="p-2 text-right">Total Paid</th><th class="p-2 text-center">Payments</th></tr></thead>
       <tbody>${Object.entries(byName).map(([name, pays]) => {
@@ -9587,6 +9644,20 @@ function _attachSalaryEvents(){
  }));
  document.getElementById('salBackBtn')?.addEventListener('click', () => {
   _salarySelectedTeacher = null;
+  renderApp();
+ });
+ // Set/edit the teacher's monthly salary directly from the Salary tab (also updates their record).
+ document.getElementById('salSetMonthlyBtn')?.addEventListener('click', () => {
+  const tid = _salarySelectedTeacher;
+  const teachers = getTeachers();
+  const i = teachers.findIndex(x => x.id === tid);
+  if (i < 0) { alert('Staff member not found.'); return; }
+  const val = parseInt(document.getElementById('salSetMonthly').value) || 0;
+  const startM = document.getElementById('salSetStartMonth').value || '';
+  teachers[i].salary = val;
+  teachers[i].salaryStartMonth = startM || undefined;
+  saveTeachers(teachers);
+  showToast('Monthly salary updated for ' + teachers[i].name);
   renderApp();
  });
  document.getElementById('salRecordBtn')?.addEventListener('click', () => {
@@ -11358,12 +11429,26 @@ function attachTeachersTabEvents(){
   });
  });
 
+ // Toggle the form for teaching vs non-teaching staff (label + classes section).
+ const _applyStaffTypeUI = () => {
+  const typeSel = document.getElementById('tchStaffType');
+  const isNonTeaching = typeSel && typeSel.value === 'Non-Teaching';
+  const subjLabel = document.getElementById('tchSubjectLabel');
+  const subjInput = document.getElementById('tchSubject');
+  const classesSec = document.getElementById('tchClassesSection');
+  if (subjLabel) subjLabel.textContent = isNonTeaching ? 'Designation / Job' : 'Subject';
+  if (subjInput) subjInput.placeholder = isNonTeaching ? 'e.g. Bus Driver, Security Guard, Office Clerk' : 'e.g. Mathematics';
+  if (classesSec) classesSec.style.display = isNonTeaching ? 'none' : '';
+ };
+ document.getElementById('tchStaffType')?.addEventListener('change', _applyStaffTypeUI);
+
  // Helper to open modal in either Add or Edit mode
  const openTeacherModal = (existingId) => {
   // Clear all fields
   ['tchId','tchName','tchSubject','tchQual','tchEmpId','tchTrain','tchSalary','tchPhone','tchBank','tchEmail','tchDob','tchAddress','tchPhoto']
    .forEach(f => { const el = document.getElementById(f); if (el) el.value = ''; });
   document.getElementById('tchBlood').value = '';
+  { const st = document.getElementById('tchStaffType'); if (st) st.value = 'Teaching'; }
   const prev = document.getElementById('tchPhotoPreview');
   if (prev) { prev.innerHTML = '?'; prev.textContent = '?'; }
   // Reset class checkboxes
@@ -11372,8 +11457,9 @@ function attachTeachersTabEvents(){
   if (existingId) {
    const t = getTeachers().find(x => x.id === parseInt(existingId));
    if (t) {
-    document.getElementById('teacherModalTitle').innerText = 'Edit Teacher';
+    document.getElementById('teacherModalTitle').innerText = 'Edit Staff';
     document.getElementById('tchId').value = t.id;
+    { const st = document.getElementById('tchStaffType'); if (st) st.value = t.staffType || 'Teaching'; }
     document.getElementById('tchName').value = t.name || '';
     document.getElementById('tchSubject').value = t.subject || '';
     document.getElementById('tchQual').value = t.qualification || '';
@@ -11400,10 +11486,11 @@ function attachTeachersTabEvents(){
     }
    }
   } else {
-   document.getElementById('teacherModalTitle').innerText = 'Add Teacher';
+   document.getElementById('teacherModalTitle').innerText = 'Add Staff';
    _tchQualDocs = [];
    _renderTchQualDocs();
   }
+  _applyStaffTypeUI();
   document.getElementById('teacherModal').classList.remove('hidden');
  };
 
@@ -11449,6 +11536,7 @@ function attachTeachersTabEvents(){
   const id = document.getElementById('tchId').value;
   const data = {
    name,
+   staffType: (document.getElementById('tchStaffType') ? document.getElementById('tchStaffType').value : 'Teaching') || 'Teaching',
    subject: document.getElementById('tchSubject').value.trim(),
    qualification: document.getElementById('tchQual').value.trim(),
    employeeId: document.getElementById('tchEmpId').value.trim(),
@@ -11463,7 +11551,8 @@ function attachTeachersTabEvents(){
    bloodGroup: document.getElementById('tchBlood').value,
    photo: document.getElementById('tchPhoto').value || '',
    qualificationDocs: _tchQualDocs.slice(),
-   assignedClasses: Array.from(document.querySelectorAll('.tchClassChk')).filter(c => c.checked).map(c => c.value)
+   // Non-teaching staff don't handle classes.
+   assignedClasses: ((document.getElementById('tchStaffType')||{}).value === 'Non-Teaching') ? [] : Array.from(document.querySelectorAll('.tchClassChk')).filter(c => c.checked).map(c => c.value)
   };
   const teachers = getTeachers();
   if (id) {
@@ -11630,7 +11719,14 @@ function attachDataManagementEvents(){
     document.getElementById('dmStuAadhaar').value = s.aadhaar || '';
     document.getElementById('dmStuPen').value = s.pen || '';
     document.getElementById('dmStuAdmDate').value = s.admissionDate || '';
-    document.getElementById('dmStuAnnual').value = s.annualFees || '';
+    // Annual fee: use the student's stored value, else fall back to their class fee plan so the
+    // field is never mysteriously blank when a class fee structure exists.
+    let annualForField = s.annualFees;
+    if (!annualForField) {
+      const plan = (typeof getFeeStructureForClass === 'function') ? getFeeStructureForClass(s.class) : null;
+      if (plan && typeof planTotal === 'function') { const t = planTotal(plan); if (t > 0) annualForField = t; }
+    }
+    document.getElementById('dmStuAnnual').value = annualForField || '';
     document.getElementById('dmStuDecided').value = s.decidedFees || '';
     document.getElementById('dmStuTransport').value = s.transportMonthly || '';
     document.getElementById('dmStuFeeBal').value = s.feeBalance || 0;
