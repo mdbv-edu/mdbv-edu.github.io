@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1783617557 - salary: import old entries + live new-staff sync -->
+<!-- BUILD: v-1783618693 - public site: role-based Principal (name kept only in CBSE disclosure) -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -937,8 +937,8 @@ function renderHome() {
               <i class="fas fa-feather text-burgundy text-xl"></i>
             </div>
             <div>
-              <div class="font-semibold text-ink">${SCHOOL_INFO.principal.name}</div>
-              <div class="text-sm text-ink-soft">Principal · M.A. (English), B.Ed</div>
+              <div class="font-semibold text-ink">The Principal's Office</div>
+              <div class="text-sm text-ink-soft">Murti Devi Balika Vidyapeeth</div>
             </div>
           </div>
         </div>
@@ -1101,7 +1101,7 @@ function renderAbout() {
         <h2 class="font-display text-5xl text-ink mb-12">The people behind the school</h2>
         <div class="grid md:grid-cols-3 gap-8">
           ${leadershipCard(SCHOOL_INFO.founder.name, SCHOOL_INFO.founder.title, SCHOOL_INFO.founder.bio, SCHOOL_INFO.founder.icon)}
-          ${leadershipCard(SCHOOL_INFO.principal.name, 'Principal', SCHOOL_INFO.principal.bio, SCHOOL_INFO.principal.icon)}
+          ${leadershipCard("The Principal's Office", 'Academic Leadership', 'The Principal leads the school\'s academic vision, faculty, and day-to-day educational excellence, ensuring every student receives a nurturing, values-driven CBSE education.', SCHOOL_INFO.principal.icon)}
           ${leadershipCard('Management Committee', 'Governance', 'A committee of educators, parents and community leaders that oversees school policy, infrastructure, and long-term strategy.', 'fa-users-gear')}
         </div>
       </div>
@@ -7182,12 +7182,30 @@ function getFeeStructures(){ return DB.getAll('feeStructures'); }
 function saveFeeStructures(d){ DB.setAll('feeStructures', d); }
 
 // Get the active fee plan for a given class (current session)
+// Normalize a class label so "1", " 1 ", "I", "Class 1", "class-1" all match.
+function _normalizeClass(c){
+ if (c === undefined || c === null) return '';
+ let s = String(c).trim().toLowerCase();
+ s = s.replace(/^class\s*/,'').replace(/[-_.]/g,' ').replace(/\s+/g,' ').trim();
+ // Roman numerals I–XII → numbers (common in Indian schools)
+ const roman = {i:'1',ii:'2',iii:'3',iv:'4',v:'5',vi:'6',vii:'7',viii:'8',ix:'9',x:'10',xi:'11',xii:'12'};
+ if (roman[s]) s = roman[s];
+ // Common abbreviations
+ const abbr = {'pre nursery':'pre nursery','prenursery':'pre nursery','pre-nursery':'pre nursery','pre nur':'pre nursery','pn':'pre nursery',
+               'nursery':'nursery','nur':'nursery','lkg':'lkg','ukg':'ukg','kg':'lkg','1st':'1','2nd':'2','3rd':'3','4th':'4','5th':'5','6th':'6','7th':'7','8th':'8','9th':'9','10th':'10','11th':'11','12th':'12'};
+ if (abbr[s]) s = abbr[s];
+ return s;
+}
 function getFeeStructureForClass(cls, session){
  const all = getFeeStructures();
  const sess = session || currentSession();
- // Match by class + session, fall back to any plan for that class
+ const target = _normalizeClass(cls);
+ // 1) exact class + session, 2) exact class any session,
+ // 3) NORMALIZED class + session, 4) NORMALIZED class any session
  return all.find(p => p.class === cls && p.session === sess)
   || all.find(p => p.class === cls)
+  || all.find(p => _normalizeClass(p.class) === target && p.session === sess)
+  || all.find(p => _normalizeClass(p.class) === target)
   || null;
 }
 
@@ -7241,8 +7259,36 @@ function renderFeeStructureTab(){
 
   <div class="bg-amber-50 border-l-4 border-amber-400 p-3 rounded mb-4 text-sm text-amber-900">
    <i class="fas fa-info-circle mr-1"></i>
-   <b>How it works:</b> Set a fee plan for each class. When you add a new student, their Annual Fees and Fee Balance auto-fill from their class plan. Per-student concessions still work — just edit the student and change their "Decided Fees".
+   <b>How it works:</b> Set a fee plan for each class. Every student in that class automatically shows the plan's total as their <b>Annual (class) fee</b>. The <b>Composite Fee</b> (what each family actually pays) stays blank until you set it per student after talking to the parent.
   </div>
+
+  ${(() => {
+    // Diagnostic: how many students currently match a fee plan (by class), and which don't.
+    const studs = getStudents().filter(s => !s.archived);
+    if (studs.length === 0) return '';
+    const matched = [], unmatched = {};
+    studs.forEach(s => {
+     const plan = getFeeStructureForClass(s.class);
+     if (plan && planTotal(plan) > 0) matched.push(s);
+     else { const c = s.class || '(no class)'; unmatched[c] = (unmatched[c]||0)+1; }
+    });
+    const unmatchedClasses = Object.entries(unmatched);
+    const filledCount = studs.filter(s => (Number(s.annualFees)||0) > 0).length;
+    return `<div class="bg-white border rounded-lg p-3 mb-4 text-sm">
+     <div class="flex flex-wrap items-center justify-between gap-2">
+      <div>
+       <span class="font-semibold"><i class="fas fa-user-check text-emerald-600 mr-1"></i>Fee matching:</span>
+       <span class="text-emerald-700">${matched.length} of ${studs.length} students match a class fee plan.</span>
+       ${filledCount < matched.length ? `<span class="text-amber-700 ml-2">${matched.length - filledCount} still need their Annual fee filled in — click "Apply to All Students".</span>` : (filledCount>0?`<span class="text-gray-500 ml-2">${filledCount} have their annual fee filled.</span>`:'')}
+      </div>
+     </div>
+     ${unmatchedClasses.length > 0 ? `<div class="mt-2 pt-2 border-t text-amber-800">
+      <i class="fas fa-triangle-exclamation mr-1"></i><b>${unmatchedClasses.reduce((a,[,n])=>a+n,0)} student(s) have a class with no matching fee plan:</b>
+      ${unmatchedClasses.map(([c,n])=>`<span class="inline-block bg-amber-100 rounded px-2 py-0.5 text-xs mr-1 mt-1">"${escapeHTML(c)}" — ${n} student${n>1?'s':''}</span>`).join('')}
+      <div class="text-xs text-gray-500 mt-1">Set a fee plan for these classes below, or check the class spelling on those students matches a plan.</div>
+     </div>` : `<div class="mt-1 text-xs text-emerald-600"><i class="fas fa-check mr-1"></i>Every student's class has a matching fee plan.</div>`}
+    </div>`;
+  })()}
 
   <!-- Grid: one card per class -->
   <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
@@ -8044,15 +8090,57 @@ function renderAccSalary(){
     const byName = {};
     nonTeacher.forEach(p => { const n = p.teacherName || 'Unknown'; (byName[n] = byName[n] || []).push(p); });
     return `<div class="mt-6">
-     <h3 class="text-sm font-bold mb-2"><i class="fas fa-users text-gray-600 mr-1"></i>Other Staff Payments <span class="font-normal text-gray-400">(principal, drivers, and others paid via the Payments tab)</span></h3>
+     <h3 class="text-sm font-bold mb-1"><i class="fas fa-users text-gray-600 mr-1"></i>Other Staff Payments <span class="font-normal text-gray-400">(principal, drivers, and others paid via the Payments tab)</span></h3>
+     <p class="text-xs text-gray-400 mb-2">Click <b>Fix</b> to correct a name, assign the payment to a staff member, or edit the amount. Combined entries can be renamed to a single person.</p>
      <div class="overflow-auto"><table class="w-full text-sm border">
-      <thead class="bg-gray-50"><tr><th class="p-2 text-left">Name</th><th class="p-2 text-left">Role</th><th class="p-2 text-right">Total Paid (session)</th><th class="p-2 text-center">Payments</th></tr></thead>
+      <thead class="bg-gray-50"><tr><th class="p-2 text-left">Name</th><th class="p-2 text-left">Role</th><th class="p-2 text-right">Total Paid</th><th class="p-2 text-center">Payments</th></tr></thead>
       <tbody>${Object.entries(byName).map(([name, pays]) => {
         const total = pays.reduce((a,p)=>a+(Number(p.amount)||0),0);
-        return `<tr class="border-t"><td class="p-2 font-medium">${escapeHTML(name)}</td><td class="p-2 text-xs text-gray-600">${escapeHTML(pays[0].staffRole||'Staff')}</td><td class="p-2 text-right text-emerald-700 font-medium">Rs.${total.toLocaleString('en-IN')}</td><td class="p-2 text-center text-xs text-gray-500">${pays.length} payment${pays.length>1?'s':''}</td></tr>`;
+        const rows = pays.map(p => `<tr class="border-t bg-gray-50/50 text-xs">
+           <td class="p-2 pl-6 text-gray-500">${fmtDate(p.date)} · ${escapeHTML(p.forMonth||'-')} · ${escapeHTML(p.mode||'')}</td>
+           <td class="p-2 text-gray-400">${escapeHTML(p.note||'')}</td>
+           <td class="p-2 text-right text-emerald-700">Rs.${(Number(p.amount)||0).toLocaleString('en-IN')}</td>
+           <td class="p-2 text-center whitespace-nowrap">
+            <button class="salFixEditBtn text-blue-600 hover:text-blue-800 mr-1" data-id="${p.id}" title="Fix / edit this payment"><i class="fas fa-wrench"></i></button>
+            <button class="salFixDelBtn text-rose-400 hover:text-rose-600" data-id="${p.id}" title="Delete this payment"><i class="fas fa-trash"></i></button>
+           </td>
+          </tr>`).join('');
+        return `<tr class="border-t"><td class="p-2 font-medium">${escapeHTML(name)}</td><td class="p-2 text-xs text-gray-600">${escapeHTML(pays[0].staffRole||'Staff')}</td><td class="p-2 text-right text-emerald-700 font-medium">Rs.${total.toLocaleString('en-IN')}</td><td class="p-2 text-center text-xs text-gray-500">${pays.length}</td></tr>${rows}`;
       }).join('')}</tbody>
      </table></div>
-    </div>`;
+    </div>
+
+    <!-- Fix payment modal -->
+    <div id="salFixModal" class="hidden modal"><div class="modal-content" style="max-width:520px">
+     <h3 class="text-lg font-bold mb-3"><i class="fas fa-wrench text-blue-600 mr-1"></i>Fix Salary Payment</h3>
+     <input type="hidden" id="salFixId">
+     <div class="space-y-3">
+      <div>
+       <label class="text-xs font-medium block mb-1">Assign to a staff member (recommended)</label>
+       <select id="salFixTeacher" class="text-sm w-full">
+        <option value="">— Keep as typed name —</option>
+        ${getTeachers().map(t=>`<option value="${t.id}">${escapeHTML(t.name)}${t.subject?' · '+escapeHTML(t.subject):''}</option>`).join('')}
+       </select>
+       <p class="text-xs text-gray-400 mt-1">Assigning links this payment to a teacher so it counts toward their salary & dues.</p>
+      </div>
+      <div>
+       <label class="text-xs font-medium block mb-1">Or correct the name</label>
+       <input id="salFixName" class="text-sm w-full" placeholder="Staff name">
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+       <div><label class="text-xs font-medium block mb-1">Amount (Rs.)</label><input type="number" id="salFixAmount" class="text-sm w-full"></div>
+       <div><label class="text-xs font-medium block mb-1">For Month</label><select id="salFixMonth" class="text-sm w-full">${SESSION_MONTHS.map(m=>`<option>${m}</option>`).join('')}</select></div>
+      </div>
+      <div>
+       <label class="text-xs font-medium block mb-1">Note</label>
+       <input id="salFixNote" class="text-sm w-full" placeholder="optional">
+      </div>
+     </div>
+     <div class="flex justify-end gap-2 mt-4">
+      <button class="closeModal bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded-lg text-sm font-medium">Cancel</button>
+      <button id="salFixSaveBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-save mr-1"></i>Save Correction</button>
+     </div>
+    </div></div>`;
   })()}
  </div>`;
 }
@@ -9568,6 +9656,57 @@ function _attachSalaryEvents(){
   saveSalaryPayments(payments);
   set('expenses', expenses);
   showToast(`Imported ${imported} salary payment(s) into the Salary tab`);
+  renderApp();
+ });
+
+ // ── Fix / edit individual "Other Staff" payments ──
+ // Toggle: show/hide the individual payment rows under a name (they're always rendered; here we
+ // simply scroll the fix modal into use via the per-payment edit buttons). The detail rows are
+ // always visible, so the toggle just highlights; edit/delete are the real actions.
+ document.querySelectorAll('.salFixEditBtn').forEach(b => b.addEventListener('click', () => {
+  const p = getSalaryPayments().find(x => x.id === parseInt(b.dataset.id));
+  if (!p) return;
+  document.getElementById('salFixId').value = p.id;
+  const teacherSel = document.getElementById('salFixTeacher');
+  if (teacherSel) teacherSel.value = p.teacherId || '';
+  document.getElementById('salFixName').value = p.teacherName || '';
+  document.getElementById('salFixAmount').value = p.amount || 0;
+  const monthSel = document.getElementById('salFixMonth');
+  if (monthSel && p.forMonth) monthSel.value = p.forMonth;
+  document.getElementById('salFixNote').value = p.note || '';
+  document.getElementById('salFixModal').classList.remove('hidden');
+ }));
+ document.querySelectorAll('.salFixDelBtn').forEach(b => b.addEventListener('click', () => {
+  if (!confirm('Delete this salary payment?\n\nIt will move to the Recycle Bin and can be restored.')) return;
+  _softDeleteFromTable('salaryPayments', parseInt(b.dataset.id), 'salary');
+  showToast('Moved to recycle bin');
+  renderApp();
+ }));
+ document.getElementById('salFixSaveBtn')?.addEventListener('click', () => {
+  const id = parseInt(document.getElementById('salFixId').value);
+  const payments = getSalaryPayments();
+  const p = payments.find(x => x.id === id);
+  if (!p) return;
+  const teacherId = document.getElementById('salFixTeacher').value;
+  const typedName = document.getElementById('salFixName').value.trim();
+  if (teacherId) {
+   // Assign to a teacher → it moves into that teacher's record
+   const t = getTeachers().find(x => x.id === parseInt(teacherId));
+   p.teacherId = parseInt(teacherId);
+   p.teacherName = t ? t.name : typedName;
+   p.staffRole = t && t.subject ? ('Teacher · ' + t.subject) : 'Teacher';
+  } else {
+   // Keep as an "other staff" name, but corrected
+   p.teacherId = undefined;
+   p.teacherName = typedName || p.teacherName;
+  }
+  p.amount = parseInt(document.getElementById('salFixAmount').value) || p.amount;
+  p.forMonth = document.getElementById('salFixMonth').value;
+  p.note = document.getElementById('salFixNote').value.trim();
+  saveSalaryPayments(payments);
+  if (typeof _logAccountingChange === 'function') _logAccountingChange('edit', 'salary', null, p, 'Corrected salary payment');
+  document.getElementById('salFixModal').classList.add('hidden');
+  showToast('Payment corrected');
   renderApp();
  });
 }
