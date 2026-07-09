@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1783615501 - homework: auto-compress large images (2MB limit) -->
+<!-- BUILD: v-1783617557 - salary: import old entries + live new-staff sync -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -2398,6 +2398,33 @@ function getFeeTransactions(){ return DB.getAll('feeTransactions'); }
 function getHomeworks(){ return DB.getAll('homeworks'); }
 function getComplaints(){ return DB.getAll('complaints'); }
 function getTeachers(){ return DB.getAll('teachers'); }
+// Gather every staff member across the school for the salary payee dropdown:
+// teachers (with their id), plus principal/accountant/admin user accounts, plus bus drivers.
+// Returns [{name, role, teacherId?}] deduplicated by name.
+function _allStaffForSalary(){
+ const out = [];
+ const seen = new Set();
+ const add = (name, role, teacherId) => {
+  const n = (name||'').trim();
+  if (!n) return;
+  const key = n.toLowerCase();
+  if (seen.has(key)) return;
+  seen.add(key);
+  out.push({ name: n, role: role||'Staff', teacherId: teacherId });
+ };
+ // Teachers table (these have an id we can link salary to)
+ getTeachers().forEach(t => add(t.name, t.subject ? ('Teacher · ' + t.subject) : 'Teacher', t.id));
+ // Staff user accounts (principal, accountant, admin, etc.) that aren't students/parents
+ (typeof getUsers === 'function' ? getUsers() : DB.getAll('users')).forEach(u => {
+  const r = (u.role||'').toLowerCase();
+  if (['student','parent'].includes(r)) return;
+  const roleLabel = r.replace('_',' ').replace(/\b\w/g, c=>c.toUpperCase());
+  add(u.name, roleLabel || 'Staff');
+ });
+ // Bus drivers from vehicles
+ (get('vehicles')||[]).forEach(v => add(v.driver, 'Bus Driver'));
+ return out.sort((a,b)=>a.name.localeCompare(b.name));
+}
 function getSchoolInfra(){ return DB.getObject('schoolInfra'); }
 function getExamMarks(){ return DB.getAll('examMarks'); }
 function getAttendanceRecords(){ return DB.getObject('attendanceRecords'); }
@@ -2572,7 +2599,10 @@ function computeFinancialSummary(){
   if (!_dateInCurrentSession(p.date)) return;
   const m = _monthKeyFromDate(p.date); if (m) byMonth[m].salary += Number(p.amount)||0;
  });
- expenses.forEach(e => {
+ // Expenses: EXCLUDE any that are linked to a salary payment (salaryPaymentId) — those are
+ // already counted via salaryPayments above, so counting the expense too would double-count.
+ const nonSalaryExpenses = expenses.filter(e => !e.salaryPaymentId && e.category !== 'Salary');
+ nonSalaryExpenses.forEach(e => {
   if (!_dateInCurrentSession(e.date)) return;
   const m = _monthKeyFromDate(e.date); if (m) byMonth[m].otherExpense += Number(e.amount)||0;
  });
@@ -2586,9 +2616,9 @@ function computeFinancialSummary(){
  });
  const totalExpense = totalSalary + totalOther;
 
- // Expense breakdown by category (general expenses only) + salary as its own head
+ // Expense breakdown by category (salary shown as its own head from salaryPayments; other categories from expenses)
  const byCategory = { 'Salary': totalSalary };
- expenses.forEach(e => {
+ nonSalaryExpenses.forEach(e => {
   if (!_dateInCurrentSession(e.date)) return;
   const cat = e.category || 'Other';
   byCategory[cat] = (byCategory[cat]||0) + (Number(e.amount)||0);
@@ -4045,13 +4075,15 @@ function renderStudentProfile(id){
   const paidByHead = {};
   fees.forEach(f => { const h = f.feeHead || 'Tuition Fee'; paidByHead[h] = (paidByHead[h]||0) + (Number(f.amount)||0); });
   const totalPaid = fees.reduce((a,f)=>a+(Number(f.amount)||0),0);
+  const hasComposite = (Number(s.decidedFees)||0) > 0;
   body=`<div>
    <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
-    <div class="bg-indigo-50 rounded-lg p-3"><div class="text-xs text-gray-500">Composite Fee</div><div class="font-bold text-indigo-700">Rs.${(s.decidedFees||0).toLocaleString('en-IN')}</div></div>
+    <div class="bg-gray-50 rounded-lg p-3"><div class="text-xs text-gray-500">Annual Fee (class)</div><div class="font-bold text-gray-700">Rs.${(planTotalAmt||s.annualFees||0).toLocaleString('en-IN')}</div><div class="text-[10px] text-gray-400">standard for Class ${s.class}</div></div>
+    <div class="bg-indigo-50 rounded-lg p-3"><div class="text-xs text-gray-500">Composite Fee</div>${hasComposite?`<div class="font-bold text-indigo-700">Rs.${(s.decidedFees||0).toLocaleString('en-IN')}</div><div class="text-[10px] text-gray-400">agreed with family</div>`:`<div class="font-bold text-amber-600 text-sm mt-1">Not set yet</div><div class="text-[10px] text-amber-500">set after talking to parent</div>`}</div>
     <div class="bg-emerald-50 rounded-lg p-3"><div class="text-xs text-gray-500">Total Paid</div><div class="font-bold text-emerald-700">Rs.${totalPaid.toLocaleString('en-IN')}</div></div>
-    <div class="bg-${s.feeBalance>0?'rose':'green'}-50 rounded-lg p-3"><div class="text-xs text-gray-500">Balance Due</div><div class="font-bold text-${s.feeBalance>0?'rose':'green'}-700">Rs.${(s.feeBalance||0).toLocaleString('en-IN')}</div></div>
-    <div class="bg-gray-50 rounded-lg p-3"><div class="text-xs text-gray-500">Annual Fee (class)</div><div class="font-bold text-gray-700">Rs.${(planTotalAmt||s.annualFees||0).toLocaleString('en-IN')}</div></div>
+    <div class="bg-${hasComposite&&s.feeBalance>0?'rose':'green'}-50 rounded-lg p-3"><div class="text-xs text-gray-500">Balance Due</div>${hasComposite?`<div class="font-bold text-${s.feeBalance>0?'rose':'green'}-700">Rs.${(s.feeBalance||0).toLocaleString('en-IN')}</div>`:`<div class="font-bold text-gray-400 text-sm mt-1">—</div><div class="text-[10px] text-gray-400">once composite is set</div>`}</div>
    </div>
+   ${!hasComposite?`<div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-sm text-amber-900"><i class="fas fa-circle-info mr-1"></i>The <b>Annual Fee</b> below is the standard fee for Class ${s.class}. After discussing with the parent, set this student's <b>Composite Fee</b> (the amount the family will actually pay) by editing the student. The balance and receipts will then track against it.</div>`:''}
 
    ${planItems.length>0?`<div class="mb-4">
     <div class="text-sm font-semibold mb-1"><i class="fas fa-file-invoice-dollar text-indigo-600 mr-1"></i>Fee Structure — Class ${s.class}</div>
@@ -4636,8 +4668,20 @@ function attachFeeStructureEvents(){
    plans.push({ id: Date.now(), class: cls, session, items, transport, createdAt: new Date().toISOString().slice(0,10), lastUpdated: new Date().toISOString().slice(0,10) });
   }
   saveFeeStructures(plans);
-  document.getElementById('feeStructModal').classList.add('hidden');
-  showToast(`Fee plan for Class ${cls} saved`);
+  // Automatically fill each student's Annual (class reference) fee for this class.
+  // Composite Fee is left untouched — the office sets it per student after talking to parents.
+  const total = items.reduce((s,x)=>s+(parseInt(x.amount)||0),0) + (parseInt(transport)||0);
+  if (total > 0) {
+   const studs = getStudents();
+   let synced = 0;
+   studs.forEach(s => { if (s.class === cls && s.annualFees !== total) { s.annualFees = total; synced++; } });
+   if (synced > 0) { saveStudents(studs); }
+   document.getElementById('feeStructModal').classList.add('hidden');
+   showToast(`Fee plan for Class ${cls} saved${synced>0?` · Annual fee filled for ${synced} student(s)`:''}`);
+  } else {
+   document.getElementById('feeStructModal').classList.add('hidden');
+   showToast(`Fee plan for Class ${cls} saved`);
+  }
   refresh();
  });
 
@@ -4653,15 +4697,16 @@ function attachFeeStructureEvents(){
     const changed = s.annualFees !== total;
     if (changed) {
      updated++;
-     return { ...s, annualFees: total, decidedFees: s.decidedFees || total, feeBalance: s.feeBalance !== undefined ? s.feeBalance : total };
+     // Only sync the ANNUAL (class reference) fee. Composite Fee stays as the office set it.
+     return { ...s, annualFees: total };
     }
    }
    return s;
   });
   if (updated === 0) { showToast('All students already match the current plans'); return; }
-  if (!confirm(`Update fee amounts for ${updated} student(s) based on their class fee plans?\n\nThis will update annualFees for matching students. Individual decidedFees (concessions) already set will be preserved.\n\nContinue?`)) return;
+  if (!confirm(`Update the Annual (class) fee for ${updated} student(s) from their class fee plans?\n\nThis fills in the class reference fee. The Composite Fee (what each family actually pays) is NOT changed — you set that per student after talking to the parent.\n\nContinue?`)) return;
   saveStudents(updatedStudents);
-  showToast(`Updated annual fees for ${updated} students`);
+  showToast(`Updated annual (class) fees for ${updated} students`);
   refresh();
  });
 }
@@ -7161,15 +7206,17 @@ function planTotal(plan){
  return (plan.items || []).reduce((s, x) => s + (parseInt(x.amount) || 0), 0) + (parseInt(plan.transport) || 0);
 }
 
-// Auto-fill student fee fields from the class fee plan (call when student is added/class changed)
+// Auto-fill a student's ANNUAL fee (reference) from the class fee plan.
+// The Composite Fee (decidedFees) is deliberately left BLANK — the accountant sets it
+// per student after discussing with the parent. Balance is not assumed until then.
 function applyFeeStructureToStudent(student){
  const plan = getFeeStructureForClass(student.class);
  if (!plan) return student;
  const total = planTotal(plan);
  if (total > 0) {
-  student.annualFees = total;
-  if (!student.decidedFees) student.decidedFees = total; // don't override concessions
-  if (!student.feeBalance && student.feeBalance !== 0) student.feeBalance = total;
+  student.annualFees = total;               // class reference fee — always kept in sync
+  // decidedFees (Composite Fee) intentionally NOT set here — office decides per student.
+  // feeBalance is only meaningful once a composite fee exists; leave as-is.
  }
  return student;
 }
@@ -7963,9 +8010,17 @@ function renderAccSalary(){
  }
 
  // List view — all staff with paid + dues
+ // Detect old salary-category expenses recorded before cross-linking existed (no salaryPaymentId).
+ const orphanSalaryExpenses = get('expenses').filter(e => !e._deleted && e.category === 'Salary' && !e.salaryPaymentId);
  return `<div class="bg-white rounded-xl border p-4 md:p-5">
   <h2 class="text-lg font-bold mb-1"><i class="fas fa-money-check-dollar text-emerald-600 mr-1"></i>Staff Salary Payments</h2>
   <p class="text-sm text-gray-600 mb-4">Record salary payments individually — cash, cheque, or online, on any date, partial or full. ${showDuesColumn?'Dues (what is owed) are shown for management.':''}</p>
+  ${orphanSalaryExpenses.length > 0 ? `<div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-sm">
+   <div class="flex flex-wrap items-center justify-between gap-2">
+    <span class="text-amber-900"><i class="fas fa-circle-info mr-1"></i><b>${orphanSalaryExpenses.length} older salary payment(s)</b> were recorded in the Payments tab before salary syncing existed. Import them here so they show in this tab.</span>
+    <button id="salImportOldBtn" class="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium flex-shrink-0"><i class="fas fa-file-import mr-1"></i>Import ${orphanSalaryExpenses.length} into Salary</button>
+   </div>
+  </div>` : ''}
   <div class="overflow-auto">
    <table class="w-full text-sm border">
     <thead class="bg-gray-50"><tr><th class="p-2 text-left">Staff</th><th class="p-2 text-left">Monthly Salary</th><th class="p-2 text-right">Paid (session)</th>${showDuesColumn?'<th class="p-2 text-right">Dues</th>':''}<th class="p-2 text-center">Action</th></tr></thead>
@@ -7982,10 +8037,25 @@ function renderAccSalary(){
     }).join('')}</tbody>
    </table>
   </div>
+  ${(() => {
+    // Salary payments not linked to a teacher (principal, drivers, or typed-in names) — grouped by name.
+    const nonTeacher = _activeSalaryPayments().filter(p => !p.teacherId);
+    if (nonTeacher.length === 0) return '';
+    const byName = {};
+    nonTeacher.forEach(p => { const n = p.teacherName || 'Unknown'; (byName[n] = byName[n] || []).push(p); });
+    return `<div class="mt-6">
+     <h3 class="text-sm font-bold mb-2"><i class="fas fa-users text-gray-600 mr-1"></i>Other Staff Payments <span class="font-normal text-gray-400">(principal, drivers, and others paid via the Payments tab)</span></h3>
+     <div class="overflow-auto"><table class="w-full text-sm border">
+      <thead class="bg-gray-50"><tr><th class="p-2 text-left">Name</th><th class="p-2 text-left">Role</th><th class="p-2 text-right">Total Paid (session)</th><th class="p-2 text-center">Payments</th></tr></thead>
+      <tbody>${Object.entries(byName).map(([name, pays]) => {
+        const total = pays.reduce((a,p)=>a+(Number(p.amount)||0),0);
+        return `<tr class="border-t"><td class="p-2 font-medium">${escapeHTML(name)}</td><td class="p-2 text-xs text-gray-600">${escapeHTML(pays[0].staffRole||'Staff')}</td><td class="p-2 text-right text-emerald-700 font-medium">Rs.${total.toLocaleString('en-IN')}</td><td class="p-2 text-center text-xs text-gray-500">${pays.length} payment${pays.length>1?'s':''}</td></tr>`;
+      }).join('')}</tbody>
+     </table></div>
+    </div>`;
+  })()}
  </div>`;
 }
-
-/* ---------- VEHICLE-WISE EXPENSES (fuel/service/other) ---------- */
 const VEHICLE_EXPENSE_TYPES = ['Fuel', 'Service', 'Repair', 'Insurance', 'Tyres', 'Permit/Tax', 'Other'];
 function renderAccVehicleExpenses(){
  const vehicles = get('vehicles');
@@ -8094,6 +8164,15 @@ function renderAccPayments(){
     <div>
      <label class="text-xs font-medium">Vendor / Recipient</label>
      <input id="expVendor" placeholder="who was paid">
+    </div>
+    <div id="expSalaryStaffRow" style="display:none">
+     <label class="text-xs font-medium">Staff Name <span class="text-gray-400">(pick or type)</span></label>
+     <input id="expSalaryStaff" list="expStaffList" placeholder="Start typing a name…" autocomplete="off">
+     <datalist id="expStaffList">${_allStaffForSalary().map(s=>`<option value="${escapeHTML(s.name)}">${escapeHTML(s.role)}</option>`).join('')}</datalist>
+    </div>
+    <div id="expSalaryMonthRow" style="display:none">
+     <label class="text-xs font-medium">Salary For Month</label>
+     <select id="expSalaryMonth">${SESSION_MONTHS.map(m=>`<option ${m===new Date().toLocaleDateString('en-IN',{month:'long'})?'selected':''}>${m}</option>`).join('')}</select>
     </div>
     <div>
      <label class="text-xs font-medium">Amount (Rs.) *</label>
@@ -9454,6 +9533,43 @@ function _attachSalaryEvents(){
  document.querySelectorAll('.salPrintBtn').forEach(b => b.addEventListener('click', () => {
   _printSalarySlip(parseInt(b.dataset.id));
  }));
+ // One-time import: pull old salary-category expenses (no salaryPaymentId) into the Salary tab.
+ document.getElementById('salImportOldBtn')?.addEventListener('click', () => {
+  const expenses = get('expenses');
+  const orphans = expenses.filter(e => !e._deleted && e.category === 'Salary' && !e.salaryPaymentId);
+  if (orphans.length === 0) { showToast('Nothing to import'); return; }
+  if (!confirm(`Import ${orphans.length} older salary payment(s) into the Salary tab?\n\nEach will be matched to a staff member by name where possible. This does not change any amounts — it just makes them visible here.`)) return;
+  const staffList = _allStaffForSalary();
+  const payments = getSalaryPayments();
+  let imported = 0;
+  orphans.forEach(e => {
+   const payeeName = (e.salaryStaffName || e.vendor || '').trim();
+   const match = payeeName ? staffList.find(s => s.name.toLowerCase() === payeeName.toLowerCase()) : null;
+   const salRec = {
+    id: Date.now() + Math.floor(Math.random()*100000),
+    teacherId: match && match.teacherId ? match.teacherId : undefined,
+    teacherName: payeeName || 'Unspecified staff',
+    staffRole: match ? match.role : 'Staff',
+    amount: Number(e.amount) || 0,
+    date: e.date,
+    forMonth: e.salaryMonth || _monthKeyFromDate(e.date) || '',
+    mode: e.mode || 'Cash',
+    chequeNo: e.chequeNo || '',
+    note: (e.description && e.description !== 'Salary') ? e.description : 'Imported from Payments',
+    paidBy: currentUser?.name || '',
+    expenseId: e.id
+   };
+   payments.push(salRec);
+   // Link the expense back so it isn't double-counted and won't be re-imported.
+   const ei = expenses.findIndex(x => x.id === e.id);
+   if (ei > -1) expenses[ei].salaryPaymentId = salRec.id;
+   imported++;
+  });
+  saveSalaryPayments(payments);
+  set('expenses', expenses);
+  showToast(`Imported ${imported} salary payment(s) into the Salary tab`);
+  renderApp();
+ });
 }
 
 function _attachVehicleExpenseEvents(){
@@ -9637,6 +9753,22 @@ function _attachPaymentEvents(){
  modeSel?.addEventListener('change', updateExpModeUI);
  updateExpModeUI();
 
+ // Show staff-name + for-month fields ONLY when the Salary category is chosen.
+ const catSel = document.getElementById('expCategory');
+ const salStaffRow = document.getElementById('expSalaryStaffRow');
+ const salMonthRow = document.getElementById('expSalaryMonthRow');
+ const vendorInput = document.getElementById('expVendor');
+ const updateSalaryUI = () => {
+  const isSalary = catSel && catSel.value === 'Salary';
+  if (salStaffRow) salStaffRow.style.display = isSalary ? '' : 'none';
+  if (salMonthRow) salMonthRow.style.display = isSalary ? '' : 'none';
+  // For salary, the staff name replaces the generic vendor field — hide vendor to avoid confusion.
+  const vendorWrap = vendorInput ? vendorInput.closest('div') : null;
+  if (vendorWrap) vendorWrap.style.display = isSalary ? 'none' : '';
+ };
+ catSel?.addEventListener('change', updateSalaryUI);
+ updateSalaryUI();
+
  // Save expense
  document.getElementById('expBillFile')?.addEventListener('change', e => {
   const f = e.target.files[0];
@@ -9657,19 +9789,33 @@ function _attachPaymentEvents(){
   if (!amt || amt <= 0) { alert('Enter valid amount'); return; }
   const mode = document.getElementById('expMode').value;
   const date = document.getElementById('expDate').value || new Date().toISOString().slice(0,10);
-  const vendor = document.getElementById('expVendor').value.trim();
+  let vendor = document.getElementById('expVendor').value.trim();
   const description = document.getElementById('expDescription').value.trim();
   const chequeNo = document.getElementById('expChequeNo')?.value.trim();
   // Only capture bank account for non-cash modes
   const bankAccId = (mode !== 'Cash') ? (parseInt(document.getElementById('expBankAcc')?.value) || null) : null;
 
+  // Salary-specific: staff name (from the picker) + which month it's for.
+  const isSalary = cat === 'Salary';
+  let salaryStaffName = '', salaryMonth = '';
+  if (isSalary) {
+   salaryStaffName = (document.getElementById('expSalaryStaff')?.value || '').trim();
+   salaryMonth = document.getElementById('expSalaryMonth')?.value || '';
+   if (!salaryStaffName) { alert('Please pick or type the staff member being paid.'); return; }
+   vendor = salaryStaffName; // the staff member is the recipient
+  }
+
   const expense = {
    id: Date.now(), date, category: cat, vendor: vendor || undefined,
-   description: description || cat, amount: amt, mode,
+   description: description || (isSalary ? ('Salary — ' + salaryStaffName + (salaryMonth?' ('+salaryMonth+')':'')) : cat),
+   amount: amt, mode,
    chequeNo: chequeNo || undefined,
    bankAccountId: bankAccId || undefined,
    billData: document.getElementById('expBillData')?.value || undefined,
-   billName: document.getElementById('expBillName')?.value || undefined
+   billName: document.getElementById('expBillName')?.value || undefined,
+   // Link fields so this expense and the salary record stay connected
+   salaryStaffName: isSalary ? salaryStaffName : undefined,
+   salaryMonth: isSalary ? salaryMonth : undefined
   };
 
   // If non-cash, debit the bank account
@@ -9691,7 +9837,35 @@ function _attachPaymentEvents(){
   const all = get('expenses');
   all.push(expense);
   set('expenses', all);
-  showToast('Payment recorded: Rs.' + amt);
+
+  // If this was a Salary payment, ALSO create a matching salary payment record so it
+  // appears in the Salary tab automatically. Link both by expenseId / salaryPaymentId.
+  if (isSalary) {
+   const staff = _allStaffForSalary().find(s => s.name.toLowerCase() === salaryStaffName.toLowerCase());
+   const payments = getSalaryPayments();
+   const salRec = {
+    id: Date.now() + 2,
+    teacherId: staff && staff.teacherId ? staff.teacherId : undefined, // links to teacher if matched
+    teacherName: salaryStaffName,
+    staffRole: staff ? staff.role : 'Staff',
+    amount: amt,
+    date,
+    forMonth: salaryMonth,
+    mode,
+    chequeNo: chequeNo || '',
+    note: description || '',
+    paidBy: currentUser?.name || '',
+    expenseId: expense.id   // back-link to the expense entry
+   };
+   payments.push(salRec);
+   saveSalaryPayments(payments);
+   expense.salaryPaymentId = salRec.id; // forward-link
+   set('expenses', all);
+   if (typeof _logAccountingChange === 'function') _logAccountingChange('create', 'salary', null, salRec, 'Salary paid via Payments tab');
+   showToast('Salary of Rs.' + amt + ' recorded for ' + salaryStaffName);
+  } else {
+   showToast('Payment recorded: Rs.' + amt);
+  }
   renderApp();
  });
 
@@ -11447,6 +11621,12 @@ function attachDataManagementEvents(){
   if (canSeeConfidentialNumbers()) {
     data.registrationNo = document.getElementById('dmStuRegNo').value.trim();
     data.pen = document.getElementById('dmStuPen').value.trim();
+  }
+  // Auto-fill the Annual (class reference) fee from the class fee structure if not typed in.
+  // The Composite Fee is left as entered (blank until the office decides it per student).
+  if (!data.annualFees) {
+   const plan = (typeof getFeeStructureForClass === 'function') ? getFeeStructureForClass(data.class) : null;
+   if (plan && typeof planTotal === 'function') { data.annualFees = planTotal(plan) || 0; }
   }
   const all = getStudents();
   let createdMsg = '';
