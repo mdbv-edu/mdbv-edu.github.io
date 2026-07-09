@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1783621620 - ledger: search + head-wise sort + transport fuel/service split + owner access -->
+<!-- BUILD: v-1783621902 - homework oversight for owner + admin (view teacher uploads) -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -2508,6 +2508,89 @@ function _nextDueInstallment(s){
  return inst[0] || null;
 }
 function saveHomeworks(d){ DB.setAll('homeworks', d); }
+
+// ===== HOMEWORK OVERSIGHT (admin / owner) =====
+// Lets management see ALL homework posted by every teacher, across all classes,
+// with the attachment viewable/downloadable. Read-only oversight.
+let _hwOverClass = '';
+let _hwOverTeacher = '';
+let _hwOverSearch = '';
+function renderHomeworkOversight(){
+ let hws = getHomeworks().slice().sort((a,b) => (b.date||b.dueDate||'').localeCompare(a.date||a.dueDate||''));
+ // Distinct classes & teachers present, for filters
+ const classes = Array.from(new Set(hws.map(h => String(h.className)))).filter(Boolean).sort();
+ const teachers = Array.from(new Set(hws.map(h => h.teacher).filter(Boolean))).sort();
+ // Apply filters
+ if (_hwOverClass) hws = hws.filter(h => String(h.className) === _hwOverClass);
+ if (_hwOverTeacher) hws = hws.filter(h => h.teacher === _hwOverTeacher);
+ const q = (_hwOverSearch||'').trim().toLowerCase();
+ if (q) hws = hws.filter(h => [h.subject, h.description, h.teacher, String(h.className), h.attachmentName].join(' ').toLowerCase().includes(q));
+
+ const total = getHomeworks().length;
+ const withFiles = getHomeworks().filter(h => h.attachmentData).length;
+
+ return `<div>
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+   <div class="bg-amber-50 border-2 border-amber-200 rounded-xl p-4"><div class="text-xs text-amber-700 font-semibold uppercase">Total Homework</div><div class="text-2xl font-bold text-amber-900 mt-1">${total}</div></div>
+   <div class="bg-blue-50 border-2 border-blue-200 rounded-xl p-4"><div class="text-xs text-blue-700 font-semibold uppercase">With Attachment</div><div class="text-2xl font-bold text-blue-900 mt-1">${withFiles}</div></div>
+   <div class="bg-purple-50 border-2 border-purple-200 rounded-xl p-4"><div class="text-xs text-purple-700 font-semibold uppercase">Teachers Posting</div><div class="text-2xl font-bold text-purple-900 mt-1">${teachers.length}</div></div>
+   <div class="bg-emerald-50 border-2 border-emerald-200 rounded-xl p-4"><div class="text-xs text-emerald-700 font-semibold uppercase">Classes Covered</div><div class="text-2xl font-bold text-emerald-900 mt-1">${classes.length}</div></div>
+  </div>
+
+  <div class="bg-white border rounded-lg p-4 mb-4">
+   <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+    <div>
+     <label class="text-xs font-medium">Search</label>
+     <input id="hwOverSearch" value="${escapeHTML(_hwOverSearch)}" placeholder="subject, teacher, text…" class="w-full border rounded px-2 py-1.5 text-sm" autocomplete="off">
+    </div>
+    <div>
+     <label class="text-xs font-medium">Class</label>
+     <select id="hwOverClass" class="text-sm w-full"><option value="">All classes</option>${classes.map(c=>`<option value="${escapeHTML(c)}" ${c===_hwOverClass?'selected':''}>Class ${escapeHTML(c)}</option>`).join('')}</select>
+    </div>
+    <div>
+     <label class="text-xs font-medium">Teacher</label>
+     <select id="hwOverTeacher" class="text-sm w-full"><option value="">All teachers</option>${teachers.map(t=>`<option value="${escapeHTML(t)}" ${t===_hwOverTeacher?'selected':''}>${escapeHTML(t)}</option>`).join('')}</select>
+    </div>
+   </div>
+  </div>
+
+  ${hws.length === 0 ? '<div class="bg-white border rounded-lg p-8 text-center text-gray-400"><i class="fas fa-book-open text-3xl mb-2"></i><p>No homework matches these filters.</p></div>' : `
+  <div class="space-y-2">
+   ${hws.map(h => {
+     const isImage = h.attachmentData && (h.attachmentType||'').startsWith('image/');
+     const isPdf = h.attachmentData && (h.attachmentType||'').includes('pdf');
+     return `<div class="bg-white border rounded-lg p-3">
+      <div class="flex flex-wrap items-start justify-between gap-2 mb-1">
+       <div>
+        <div class="font-semibold">Class ${escapeHTML(String(h.className))} · ${escapeHTML(h.subject || 'General')}</div>
+        <div class="text-xs text-gray-500"><i class="fas fa-user mr-1"></i>${escapeHTML(h.teacher || 'Unknown')} · Posted ${fmtDate(h.date || h.dueDate)} · Due ${fmtDate(h.dueDate)}</div>
+       </div>
+       ${h.attachmentData ? `<div class="flex gap-1">
+        ${isImage ? `<button class="hwOverViewBtn bg-indigo-500 hover:bg-indigo-600 text-white px-2 py-1 rounded text-xs" data-id="${h.id}"><i class="fas fa-eye mr-1"></i>View Image</button>` : ''}
+        <a href="${h.attachmentData}" download="${escapeHTML(h.attachmentName||'attachment')}" class="bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs"><i class="fas fa-download mr-1"></i>${isPdf?'PDF':'Download'}</a>
+       </div>` : '<span class="text-xs text-gray-400 self-center">No attachment</span>'}
+      </div>
+      <div class="text-sm text-gray-700 mt-1">${escapeHTML(h.description || '').replace(/\n/g,'<br>')}</div>
+      ${isImage ? `<div class="hwOverImgWrap mt-2 hidden" data-id="${h.id}"><img src="${h.attachmentData}" class="max-w-full md:max-w-md rounded border" alt="${escapeHTML(h.attachmentName||'')}"></div>` : ''}
+     </div>`;
+   }).join('')}
+  </div>`}
+ </div>`;
+}
+function _attachHomeworkOversightEvents(){
+ const rerender = () => {
+  if (isOwnerLevel() && ownerView === 'homework') { renderApp(); }
+  else { refreshAdminTabContent(); }
+ };
+ document.getElementById('hwOverSearch')?.addEventListener('input', e => { _hwOverSearch = e.target.value; rerender(); });
+ document.getElementById('hwOverClass')?.addEventListener('change', e => { _hwOverClass = e.target.value; rerender(); });
+ document.getElementById('hwOverTeacher')?.addEventListener('change', e => { _hwOverTeacher = e.target.value; rerender(); });
+ // Toggle inline image preview
+ document.querySelectorAll('.hwOverViewBtn').forEach(b => b.addEventListener('click', () => {
+  const wrap = document.querySelector('.hwOverImgWrap[data-id="'+b.dataset.id+'"]');
+  if (wrap) wrap.classList.toggle('hidden');
+ }));
+}
 function saveComplaints(d){ DB.setAll('complaints', d); }
 function saveTeachers(d){ DB.setAll('teachers', d); }
 function saveExamMarks(d){ DB.setAll('examMarks', d); }
@@ -3091,6 +3174,20 @@ function renderOwnerDashboard(){
   </div>`;
  }
 
+ if (ownerView === 'homework') {
+  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+    <div>
+     <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
+     <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-crown text-amber-500 mr-2"></i>${currentUser.role==='managing_director'?'Managing Director':currentUser.role==='trustee'?'Trustee':'Owner'} · Homework</h1>
+     <p class="text-gray-600 text-xs">${currentUser.name} · what teachers have posted</p>
+    </div>
+    <button id="logoutBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
+   </div>
+   ${renderHomeworkOversight()}
+  </div>`;
+ }
+
  if (ownerView === 'ledger') {
   return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
@@ -3334,6 +3431,17 @@ function renderOwnerDashboard(){
      <i class="fas fa-arrow-right-to-bracket mr-1"></i>Open Ledger
     </button>
    </div>
+   <div class="bg-gradient-to-r from-amber-50 to-yellow-50 border-2 border-amber-200 rounded-xl p-5">
+    <h2 class="font-semibold mb-1"><i class="fas fa-book-open text-amber-600 mr-2"></i>Homework</h2>
+    <p class="text-sm text-gray-700">See what every teacher has posted — with attachments. Filter by class or teacher.</p>
+    ${(() => { const hw=getHomeworks(); const wf=hw.filter(h=>h.attachmentData).length; return `<div class="flex flex-wrap gap-2 mt-2 text-xs">
+     <span class="text-gray-700"><i class="fas fa-list mr-1"></i>${hw.length} posted</span>
+     <span class="text-gray-700"><i class="fas fa-paperclip mr-1"></i>${wf} with files</span>
+    </div>`; })()}
+    <button id="ownerOpenHomeworkBtn" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
+     <i class="fas fa-arrow-right-to-bracket mr-1"></i>Review Homework
+    </button>
+   </div>
    <div class="bg-gradient-to-r from-purple-50 to-fuchsia-50 border-2 border-purple-200 rounded-xl p-5">
     <h2 class="font-semibold mb-1"><i class="fas fa-file-lines text-purple-600 mr-2"></i>Report Cards</h2>
     <p class="text-sm text-gray-700">Generate and print term report cards for any class.</p>
@@ -3467,6 +3575,7 @@ function renderAdminPanel(){
   {id:'users',label:'Users',icon:'user-shield'},
   {id:'students',label:'Students',icon:'user-graduate'},
   {id:'teachers',label:'Staff',icon:'users'},
+  {id:'homework',label:'Homework',icon:'book-open'},
   {id:'datamanagement',label:'Data',icon:'database'},
   {id:'compliance',label:'Compliance',icon:'shield-halved'},
   {id:'notices',label:'Notice Board',icon:'thumbtack'},
@@ -3514,6 +3623,7 @@ function renderAdminTabContent(){
   case 'users':return renderUsersTab();
   case 'students':return renderStudentsTab();
   case 'teachers':return renderTeachersTab();
+  case 'homework':return renderHomeworkOversight();
   case 'datamanagement':return renderDataManagement();
   case 'compliance':return renderComplianceTab();
   case 'notices':return renderNoticesTab();
@@ -10602,6 +10712,12 @@ function attachOwnerEvents(){
   ownerView = 'ledger';
   renderApp();
  });
+ // Homework oversight navigation
+ document.getElementById('ownerOpenHomeworkBtn')?.addEventListener('click', () => {
+  ownerView = 'homework';
+  _hwOverClass=''; _hwOverTeacher=''; _hwOverSearch='';
+  renderApp();
+ });
  // Report cards navigation
  document.getElementById('ownerOpenReportCardsBtn')?.addEventListener('click', () => {
   ownerView = 'reportcards';
@@ -10687,6 +10803,11 @@ function attachOwnerEvents(){
  // When on the Ledger view, attach the ledger handlers (search, sort, filters, actions)
  if (ownerView === 'ledger') {
   _attachLedgerEvents();
+  return;
+ }
+ // When on the Homework view, attach homework oversight handlers (filters, image preview)
+ if (ownerView === 'homework') {
+  _attachHomeworkOversightEvents();
   return;
  }
  // When on the Report Cards view, attach report card handlers
@@ -10883,6 +11004,7 @@ function attachActiveAdminTabEvents(){
  document.getElementById('openChatFromDash')?.addEventListener('click',()=>{chatPanelOpen=true;renderChatOnly()});
  if(activeAdminTab==='students')attachStudentsTabEvents();
  else if(activeAdminTab==='teachers')attachTeachersTabEvents();
+ else if(activeAdminTab==='homework')_attachHomeworkOversightEvents();
  else if(activeAdminTab==='compliance')attachComplianceEvents();
  else if(activeAdminTab==='notices')attachNoticesTabEvents();
  else if(activeAdminTab==='feestructure')attachFeeStructureEvents();
