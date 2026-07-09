@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1783587200 - Batch D: attendance insights + salary slip print -->
+<!-- BUILD: v-1783615501 - homework: auto-compress large images (2MB limit) -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -2756,6 +2756,49 @@ function _renderInstSummaryOnly(){
  const composite = parseInt(document.getElementById('dmStuDecided')?.value)||0;
  const mismatch = composite && total !== composite;
  summary.innerHTML = `Total of installments: <b>Rs.${total.toLocaleString('en-IN')}</b> · Paid: <b class="text-emerald-700">Rs.${paid.toLocaleString('en-IN')}</b> · Balance: <b class="text-rose-700">Rs.${(total-paid).toLocaleString('en-IN')}</b>${mismatch?` <span class="text-amber-700">⚠ doesn't match composite fee (Rs.${composite.toLocaleString('en-IN')})</span>`:''}`;
+}
+
+// Compress an IMAGE down to fit a target size while keeping it readable (for homework worksheets).
+// Tries progressively smaller dimensions/quality until under targetBytes. Images only.
+function compressImageToTarget(file, targetBytes, callback){
+ if (!file) { callback(null); return; }
+ if (!file.type.startsWith('image/')) { callback(null, 'not-image'); return; }
+ const reader = new FileReader();
+ reader.onload = e => {
+  const img = new Image();
+  img.onload = () => {
+   // Start reasonably large so worksheets stay legible, then step down if needed.
+   const attempts = [
+     {dim: 2000, q: 0.8}, {dim: 1800, q: 0.75}, {dim: 1600, q: 0.7},
+     {dim: 1400, q: 0.65}, {dim: 1200, q: 0.6}, {dim: 1000, q: 0.55}, {dim: 900, q: 0.5}
+   ];
+   let result = null;
+   for (const a of attempts){
+    let { width, height } = img;
+    const maxDim = a.dim;
+    if (width > height && width > maxDim) { height = Math.round(height * maxDim / width); width = maxDim; }
+    else if (height >= width && height > maxDim) { width = Math.round(width * maxDim / height); height = maxDim; }
+    const canvas = document.createElement('canvas');
+    canvas.width = width; canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(0,0,width,height); // flatten transparency (PNG worksheets)
+    ctx.drawImage(img, 0, 0, width, height);
+    let dataUrl;
+    try { dataUrl = canvas.toDataURL('image/jpeg', a.q); }
+    catch (err) { callback(null, 'error'); return; }
+    // Estimate bytes from base64 length
+    const bytes = Math.round((dataUrl.length - (dataUrl.indexOf(',')+1)) * 0.75);
+    result = dataUrl;
+    if (bytes <= targetBytes) { callback(dataUrl, 'ok'); return; }
+   }
+   // Even the smallest attempt is over target — return the smallest we made (better than nothing)
+   callback(result, 'still-large');
+  };
+  img.onerror = () => { callback(null, 'error'); };
+  img.src = e.target.result;
+ };
+ reader.onerror = () => { callback(null, 'error'); };
+ reader.readAsDataURL(file);
 }
 
 function compressImageFile(file, callback, maxDim = 400, quality = 0.7){
@@ -5722,8 +5765,10 @@ function renderTchHomework(){
      <input type="date" id="hwDue" value="${new Date(Date.now()+86400000*3).toISOString().slice(0,10)}">
     </div>
     <div>
-     <label class="text-xs font-medium">Attach File <span class="text-gray-500">(PDF/Image, max 1 MB)</span></label>
+     <label class="text-xs font-medium">Attach File <span class="text-gray-500">(PDF or Image, up to 2 MB)</span></label>
      <input type="file" id="hwFile" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx">
+     <div id="hwFileStatus" class="text-xs mt-1"></div>
+     <div class="text-xs text-gray-400 mt-0.5"><i class="fas fa-wand-magic-sparkles mr-1"></i>Large photos are compressed automatically. For big PDFs, attach a photo of the page instead.</div>
     </div>
     <div class="md:col-span-2">
      <label class="text-xs font-medium">Description / Instructions *</label>
@@ -6205,18 +6250,44 @@ function _attachHomeworkEvents(){
  let attachmentData = null, attachmentName = null, attachmentType = null;
  document.getElementById('hwFile')?.addEventListener('change', e => {
   const f = e.target.files[0];
-  if (!f) { attachmentData = null; attachmentName = null; return; }
-  if (f.size > 1024*1024) {
-   alert('File too large (' + Math.round(f.size/1024) + ' KB). Max 1 MB.');
+  const LIMIT = 2 * 1024 * 1024; // 2 MB storage limit
+  const statusEl = document.getElementById('hwFileStatus');
+  const setStatus = (msg, color) => { if (statusEl) statusEl.innerHTML = color ? `<span class="text-${color}-600">${msg}</span>` : msg; };
+  if (!f) { attachmentData = null; attachmentName = null; setStatus(''); return; }
+
+  // Images: if over the limit, auto-compress to fit while keeping them readable.
+  if (f.type.startsWith('image/')) {
+   if (f.size <= LIMIT) {
+    const reader = new FileReader();
+    reader.onload = () => { attachmentData = reader.result; attachmentName = f.name; attachmentType = f.type; setStatus(`<i class="fas fa-check mr-1"></i>Attached (${Math.round(f.size/1024)} KB)`, 'emerald'); };
+    reader.readAsDataURL(f);
+    return;
+   }
+   setStatus('<i class="fas fa-spinner fa-spin mr-1"></i>Compressing image…', 'blue');
+   compressImageToTarget(f, LIMIT, (dataUrl, outcome) => {
+    if (!dataUrl) { alert('Could not process this image. Please try a different file.'); e.target.value=''; attachmentData=null; setStatus(''); return; }
+    const bytes = Math.round((dataUrl.length - (dataUrl.indexOf(',')+1)) * 0.75);
+    attachmentData = dataUrl;
+    attachmentName = f.name.replace(/\.(png|jpg|jpeg|webp|gif|bmp)$/i, '') + '.jpg';
+    attachmentType = 'image/jpeg';
+    if (outcome === 'still-large') {
+     setStatus(`<i class="fas fa-triangle-exclamation mr-1"></i>Compressed to ${Math.round(bytes/1024)} KB (still large, but attached). A clearer scan may upload better.`, 'amber');
+    } else {
+     setStatus(`<i class="fas fa-wand-magic-sparkles mr-1"></i>Compressed from ${Math.round(f.size/1024)} KB to ${Math.round(bytes/1024)} KB and attached.`, 'emerald');
+    }
+   });
+   return;
+  }
+
+  // Non-images (PDF, Word): can't be compressed in the browser. Enforce the limit with guidance.
+  if (f.size > LIMIT) {
+   alert('This file is ' + (f.size/1024/1024).toFixed(1) + ' MB, over the 2 MB limit.\n\nTips to reduce it:\n\u2022 If it is a scanned worksheet, take a PHOTO (JPG) instead \u2014 the app will auto-compress images.\n\u2022 For a PDF, use a free "compress PDF" tool online, or scan at a lower quality.\n\u2022 Split a large PDF into smaller parts.');
    e.target.value = '';
+   attachmentData = null; setStatus('');
    return;
   }
   const reader = new FileReader();
-  reader.onload = () => {
-   attachmentData = reader.result;
-   attachmentName = f.name;
-   attachmentType = f.type;
-  };
+  reader.onload = () => { attachmentData = reader.result; attachmentName = f.name; attachmentType = f.type; setStatus(`<i class="fas fa-check mr-1"></i>Attached (${Math.round(f.size/1024)} KB)`, 'emerald'); };
   reader.readAsDataURL(f);
  });
 
