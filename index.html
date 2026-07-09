@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1783620615 - rename Teachers tab to Staff for discoverability -->
+<!-- BUILD: v-1783621620 - ledger: search + head-wise sort + transport fuel/service split + owner access -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -635,6 +635,35 @@ const OWNER_LEVEL_ROLES = ['owner', 'managing_director', 'trustee'];
 function isOwnerLevel(role){ return OWNER_LEVEL_ROLES.includes(role || (currentUser && currentUser.role)); }
 // True only for the actual Owner — used to gate destructive actions.
 function isFullOwner(){ return currentUser && currentUser.role === 'owner'; }
+
+// ===== COMBINED-ROLE-AWARE PERMISSIONS =====
+// A user's role can be a combo like "admin_teacher" or "accountant_teacher". These helpers
+// decompose the role so a permission check passes if ANY of the user's roles qualifies.
+// This fixes admin/accountant-only features not working for combined-role users.
+function userRoles(role){
+ const r = role || (currentUser && currentUser.role) || '';
+ return String(r).split('_').filter(Boolean); // "admin_teacher" -> ['admin','teacher']
+}
+function hasRole(target, role){
+ return userRoles(role).includes(target);
+}
+// Does the user have admin-level access? (admin, or any owner-level role which supersedes admin)
+function isAdminLevel(role){
+ const rs = userRoles(role);
+ return rs.includes('admin') || rs.some(x => OWNER_LEVEL_ROLES.includes(x));
+}
+// Does the user have accountant access? (accountant, admin, or owner-level all manage money)
+function isAccountantLevel(role){
+ const rs = userRoles(role);
+ return rs.includes('accountant') || rs.includes('admin') || rs.some(x => OWNER_LEVEL_ROLES.includes(x));
+}
+// Does the user have teacher access?
+function isTeacherRole(role){ return userRoles(role).includes('teacher'); }
+// Does the user have principal access?
+function isPrincipalLevel(role){
+ const rs = userRoles(role);
+ return rs.includes('principal') || rs.some(x => OWNER_LEVEL_ROLES.includes(x));
+}
 
 // CONFIDENTIAL STUDENT NUMBERS (Batch 2):
 // - Admission No  → public (printed on ID card, shown to student)
@@ -3062,6 +3091,34 @@ function renderOwnerDashboard(){
   </div>`;
  }
 
+ if (ownerView === 'ledger') {
+  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+    <div>
+     <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
+     <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-crown text-amber-500 mr-2"></i>${currentUser.role==='managing_director'?'Managing Director':currentUser.role==='trustee'?'Trustee':'Owner'} · Ledger</h1>
+     <p class="text-gray-600 text-xs">${currentUser.name} · all money in and out</p>
+    </div>
+    <button id="logoutBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
+   </div>
+   ${renderAccLedger()}
+  </div>`;
+ }
+
+ if (ownerView === 'teachers') {
+  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+    <div>
+     <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
+     <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-crown text-amber-500 mr-2"></i>${currentUser.role==='managing_director'?'Managing Director':currentUser.role==='trustee'?'Trustee':'Owner'} · Staff</h1>
+     <p class="text-gray-600 text-xs">${currentUser.name}</p>
+    </div>
+    <button id="logoutBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
+   </div>
+   ${renderTeachersTab()}
+  </div>`;
+ }
+
  if (ownerView === 'attendance') {
   return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
@@ -3253,6 +3310,28 @@ function renderOwnerDashboard(){
     </div>
     <button id="ownerOpenStudentsBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
      <i class="fas fa-arrow-right-to-bracket mr-1"></i>View Students
+    </button>
+   </div>
+   <div class="bg-gradient-to-r from-purple-50 to-violet-50 border-2 border-purple-200 rounded-xl p-5">
+    <h2 class="font-semibold mb-1"><i class="fas fa-users text-purple-600 mr-2"></i>Staff</h2>
+    <p class="text-sm text-gray-700">Add and edit staff — teaching and non-teaching (drivers, guards, office). Set salaries and details.</p>
+    ${(() => { const ts=getTeachers(); const nt=ts.filter(t=>(t.staffType||'Teaching')==='Non-Teaching').length; return `<div class="flex flex-wrap gap-2 mt-2 text-xs">
+     <span class="text-gray-700"><i class="fas fa-chalkboard-teacher mr-1"></i>${ts.length-nt} teaching</span>
+     <span class="text-gray-700"><i class="fas fa-user-tie mr-1"></i>${nt} non-teaching</span>
+    </div>`; })()}
+    <button id="ownerOpenStaffBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
+     <i class="fas fa-arrow-right-to-bracket mr-1"></i>Manage Staff
+    </button>
+   </div>
+   <div class="bg-gradient-to-r from-slate-50 to-gray-100 border-2 border-slate-300 rounded-xl p-5">
+    <h2 class="font-semibold mb-1"><i class="fas fa-book text-slate-700 mr-2"></i>Ledger</h2>
+    <p class="text-sm text-gray-700">Every rupee in and out — search, sort by head, filter by date. Receipts and payments together.</p>
+    <div class="flex flex-wrap gap-2 mt-2 text-xs">
+     <span class="text-gray-700"><i class="fas fa-magnifying-glass mr-1"></i>Searchable</span>
+     <span class="text-gray-700"><i class="fas fa-arrow-down-a-z mr-1"></i>Head-wise sorting</span>
+    </div>
+    <button id="ownerOpenLedgerBtn" class="bg-slate-700 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
+     <i class="fas fa-arrow-right-to-bracket mr-1"></i>Open Ledger
     </button>
    </div>
    <div class="bg-gradient-to-r from-purple-50 to-fuchsia-50 border-2 border-purple-200 rounded-xl p-5">
@@ -4154,7 +4233,7 @@ function renderStudentProfile(id){
 function renderComplianceTab(){
  const items=getCompliance();
  const cats=[...new Set(items.map(i=>i.category))];
- const canEdit=['owner','admin','principal'].includes(currentUser.role);
+ const canEdit=isAdminLevel()||isPrincipalLevel();
  return `<div>
   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
    <h2 class="text-lg font-bold"><i class="fas fa-shield-halved text-emerald-600 mr-1"></i>Compliance Control Centre</h2>
@@ -8002,8 +8081,8 @@ let _salarySelectedTeacher = null;
 function renderAccSalary(){
  const teachers = getTeachers();
  const payments = _activeSalaryPayments();
- const canSeeDues = isOwnerLevel() || currentUser?.role === 'principal' || currentUser?.role === 'accountant';
- const showDuesColumn = isOwnerLevel() || currentUser?.role === 'principal'; // management sees dues prominently
+ const canSeeDues = isOwnerLevel() || isPrincipalLevel() || isAccountantLevel();
+ const showDuesColumn = isOwnerLevel() || isPrincipalLevel(); // management sees dues prominently
 
  if (teachers.length === 0) {
   return `<div class="bg-white rounded-xl border p-6 text-center text-gray-500"><i class="fas fa-user-slash text-3xl mb-2"></i><p>No staff added yet. Add staff first (Admin → Staff) — teaching and non-teaching (drivers, guards, office) all appear here.</p></div>`;
@@ -8474,13 +8553,35 @@ function renderAccLedger(){
  return `<div>
   <div class="bg-white border rounded-lg p-4 mb-4">
    <h3 class="font-semibold mb-3"><i class="fas fa-filter text-gray-600 mr-1"></i>Filter Transactions</h3>
-   <div class="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3">
+   <!-- Search bar (prominent) -->
+   <div class="mb-3">
+    <div class="relative">
+     <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+     <input id="ledSearch" placeholder="Search by name, head, reference, amount, note…" class="w-full pl-9 pr-3 py-2 border rounded-lg text-sm" autocomplete="off">
+    </div>
+   </div>
+   <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2 mb-3">
     <div>
      <label class="text-xs font-medium">Type</label>
      <select id="ledType">
       <option value="all">All</option>
       <option value="receipt">Receipts only</option>
       <option value="expense">Payments only</option>
+     </select>
+    </div>
+    <div>
+     <label class="text-xs font-medium">Head / Category</label>
+     <select id="ledHead"><option value="all">All heads</option>${_allLedgerHeads().map(h=>`<option value="${escapeHTML(h)}">${escapeHTML(h)}</option>`).join('')}</select>
+    </div>
+    <div>
+     <label class="text-xs font-medium">Sort by</label>
+     <select id="ledSort">
+      <option value="date_desc">Date (newest)</option>
+      <option value="date_asc">Date (oldest)</option>
+      <option value="head">Head (A–Z)</option>
+      <option value="amount_desc">Amount (high–low)</option>
+      <option value="amount_asc">Amount (low–high)</option>
+      <option value="party">Party (A–Z)</option>
      </select>
     </div>
     <div>
@@ -8510,7 +8611,7 @@ function renderAccLedger(){
   </div>
 
   <div id="ledSummary" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3"></div>
-  ${currentUser?.role === 'accountant' ? (() => {
+  ${isAccountantLevel() && !isOwnerLevel() ? (() => {
     const myReqs = getCorrectionRequests().filter(r => r.requestedById === currentUser.id).slice(-10).reverse();
     if (myReqs.length === 0) return '';
     return `<div class="bg-white border rounded-lg p-4 mb-3">
@@ -8549,13 +8650,64 @@ function _filterLedger(fromDate, toDate, type){
  return all;
 }
 
+// The "head" of a transaction — a clean category label used for display, filtering and sorting.
+// Transport expenses are split by type so "Transport · Fuel" and "Transport · Service" are separate.
+function _ledgerHead(r){
+ if (r._kind === 'receipt') return r.feeHead || 'Tuition';
+ // Transport/vehicle expenses carry the real type in vehicleExpenseType.
+ if (r.vehicleId || (r.category||'').startsWith('Transport')) {
+  const ty = r.vehicleExpenseType || 'Other';
+  return 'Transport · ' + ty;
+ }
+ return r.category || 'Other';
+}
+// All distinct heads present in the current data (for the head filter dropdown).
+function _allLedgerHeads(){
+ const receipts = getFeeTransactions().filter(t=>!t._deleted).map(r => ({ ...r, _kind: 'receipt' }));
+ const expenses = get('expenses').filter(e=>!e._deleted).map(e => ({ ...e, _kind: 'expense' }));
+ const heads = new Set();
+ receipts.concat(expenses).forEach(r => heads.add(_ledgerHead(r)));
+ return Array.from(heads).sort();
+}
+
 function _renderLedgerResults(){
  const fromDate = document.getElementById('ledFrom').value;
  const toDate = document.getElementById('ledTo').value;
  const type = document.getElementById('ledType').value;
- const rows = _filterLedger(fromDate, toDate, type);
+ let rows = _filterLedger(fromDate, toDate, type);
  const students = getStudents();
  const fmtINR = n => 'Rs.' + (n||0).toLocaleString('en-IN');
+
+ // Head/category filter (transport fuel/service are distinct heads)
+ const headFilter = (document.getElementById('ledHead')||{}).value || 'all';
+ if (headFilter !== 'all') rows = rows.filter(r => _ledgerHead(r) === headFilter);
+
+ // Search across name/party, head, reference, note, amount
+ const q = ((document.getElementById('ledSearch')||{}).value || '').trim().toLowerCase();
+ if (q) {
+  rows = rows.filter(r => {
+   const s = r._kind === 'receipt' ? students.find(x => x.id === r.studentId) : null;
+   const party = r._kind === 'receipt' ? (s?.name || r.payerName || '') : (r.vendor || '');
+   const ref = r._kind === 'receipt' ? (r.receiptNo || '') : (r.description || '');
+   const hay = [party, _ledgerHead(r), ref, r.chequeNo || '', r.mode || '', String(r.amount||''), r.note || ''].join(' ').toLowerCase();
+   return hay.includes(q);
+  });
+ }
+
+ // Sorting
+ const sort = (document.getElementById('ledSort')||{}).value || 'date_desc';
+ const partyOf = r => r._kind === 'receipt' ? ((students.find(x=>x.id===r.studentId)||{}).name || r.payerName || '') : (r.vendor || '');
+ rows.sort((a,b) => {
+  switch (sort) {
+   case 'date_asc':   return (a.date||'').localeCompare(b.date||'') || (a.id||0)-(b.id||0);
+   case 'head':       return _ledgerHead(a).localeCompare(_ledgerHead(b)) || (b.date||'').localeCompare(a.date||'');
+   case 'amount_desc':return (b.amount||0)-(a.amount||0);
+   case 'amount_asc': return (a.amount||0)-(b.amount||0);
+   case 'party':      return partyOf(a).localeCompare(partyOf(b)) || (b.date||'').localeCompare(a.date||'');
+   case 'date_desc':
+   default:           return (b.date||'').localeCompare(a.date||'') || (b.id||0)-(a.id||0);
+  }
+ });
 
  const totalIn  = rows.filter(r => r._kind === 'receipt').reduce((s,r) => s + (r.amount||0), 0);
  const totalOut = rows.filter(r => r._kind === 'expense').reduce((s,r) => s + (r.amount||0), 0);
@@ -8612,7 +8764,7 @@ function _renderLedgerResults(){
        <td class="text-xs">${fmtDate(r.date)}</td>
        <td><span class="pill pill-green">Receipt</span></td>
        <td>${s?.name || r.payerName || '-'}${s ? ' <span class="text-xs text-gray-500">(Class '+s.class+')</span>' : ''}</td>
-       <td class="text-xs">${r.feeHead || 'Tuition'}</td>
+       <td class="text-xs">${escapeHTML(_ledgerHead(r))}</td>
        <td class="text-xs">${r.mode}</td>
        <td class="text-xs font-mono">${r.receiptNo || ''}${r.chequeNo ? ' Chq:'+r.chequeNo : ''}</td>
        <td class="text-right font-semibold text-emerald-700">+${fmtINR(r.amount)}</td>
@@ -8623,7 +8775,7 @@ function _renderLedgerResults(){
        <td class="text-xs">${fmtDate(r.date)}</td>
        <td><span class="pill pill-red">Payment</span></td>
        <td>${r.vendor || '-'}</td>
-       <td class="text-xs">${r.category}</td>
+       <td class="text-xs">${escapeHTML(_ledgerHead(r))}</td>
        <td class="text-xs">${r.mode||'-'}</td>
        <td class="text-xs">${r.description||''}${r.chequeNo ? ' Chq:'+r.chequeNo : ''}</td>
        <td class="text-right font-semibold text-rose-700">-${fmtINR(r.amount)}</td>
@@ -10161,6 +10313,10 @@ function _attachLedgerEvents(){
  document.getElementById('ledFrom')?.addEventListener('change', refresh);
  document.getElementById('ledTo')?.addEventListener('change', refresh);
  document.getElementById('ledType')?.addEventListener('change', refresh);
+ document.getElementById('ledHead')?.addEventListener('change', refresh);
+ document.getElementById('ledSort')?.addEventListener('change', refresh);
+ // Live search as you type
+ document.getElementById('ledSearch')?.addEventListener('input', refresh);
 
  // Quick range presets
  document.getElementById('ledQuick')?.addEventListener('change', e => {
@@ -10436,6 +10592,16 @@ function attachOwnerEvents(){
   studentFilter = { search: '', class: 'all', section: 'all', category: 'all' };
   renderApp();
  });
+ // Staff navigation
+ document.getElementById('ownerOpenStaffBtn')?.addEventListener('click', () => {
+  ownerView = 'teachers';
+  renderApp();
+ });
+ // Ledger navigation
+ document.getElementById('ownerOpenLedgerBtn')?.addEventListener('click', () => {
+  ownerView = 'ledger';
+  renderApp();
+ });
  // Report cards navigation
  document.getElementById('ownerOpenReportCardsBtn')?.addEventListener('click', () => {
   ownerView = 'reportcards';
@@ -10511,6 +10677,16 @@ function attachOwnerEvents(){
  // When on the Students view, attach the students-tab handlers (profiles, ID cards, report cards)
  if (ownerView === 'students') {
   attachStudentsTabEvents();
+  return;
+ }
+ // When on the Staff view, attach the staff-tab handlers (add/edit/delete staff)
+ if (ownerView === 'teachers') {
+  attachTeachersTabEvents();
+  return;
+ }
+ // When on the Ledger view, attach the ledger handlers (search, sort, filters, actions)
+ if (ownerView === 'ledger') {
+  _attachLedgerEvents();
   return;
  }
  // When on the Report Cards view, attach report card handlers
@@ -11407,7 +11583,10 @@ function attachProfileTabEvents(){
 
 /* ---------- TEACHERS TAB EVENTS ---------- */
 function attachTeachersTabEvents(){
- const refresh=()=>{activeAdminTab==='teachers'?refreshAdminTabContent():refreshPrincipalTabContent()};
+ const refresh=()=>{
+  if (isOwnerLevel() && ownerView === 'teachers') { renderApp(); return; }
+  activeAdminTab==='teachers'?refreshAdminTabContent():refreshPrincipalTabContent();
+ };
 
  // Teacher Activity Audit Log — clear button (admin/owner only)
  document.getElementById('tchAuditClearBtn')?.addEventListener('click', () => {
@@ -12631,8 +12810,8 @@ function renderUsersTab(){
  // Owner → anyone. Admin → everyone EXCEPT owner/principal accounts (protected senior roles).
  const PROTECTED_ROLES = ['owner', 'managing_director', 'trustee', 'principal'];
  const canActOn = (targetUser) => {
-  if (myRole === 'owner') return true;            // owner has full authority
-  if (myRole === 'admin') return !PROTECTED_ROLES.includes(targetUser.role);
+  if (isFullOwner() || isOwnerLevel()) return true;   // owner-level has full authority
+  if (isAdminLevel()) return !PROTECTED_ROLES.includes(targetUser.role);
   return false;
  };
  return `<div>
@@ -12776,8 +12955,8 @@ function attachUsersTabEvents(){
  const PROTECTED_ROLES = ['owner', 'managing_director', 'trustee', 'principal'];
  const canActOn = (targetUser) => {
   if (!targetUser) return false;
-  if (myRole === 'owner') return true;
-  if (myRole === 'admin') return !PROTECTED_ROLES.includes(targetUser.role);
+  if (isFullOwner() || isOwnerLevel()) return true;
+  if (isAdminLevel()) return !PROTECTED_ROLES.includes(targetUser.role);
   return false;
  };
  const openUserModal = (existingId) => {
@@ -12815,8 +12994,9 @@ function attachUsersTabEvents(){
   }
   // Show/hide linked-id rows based on role
   const roleSel = document.getElementById('userModalRole');
-  // Admin cannot create/assign protected roles — disable those options
-  if (myRole === 'admin') {
+  // Admin cannot create/assign protected roles — disable those options.
+  // (Owner-level users are exempt; combo admins like admin_teacher still count as admin.)
+  if (isAdminLevel() && !isOwnerLevel()) {
    Array.from(roleSel.options).forEach(opt => {
     opt.disabled = PROTECTED_ROLES.includes(opt.value);
    });
@@ -12853,8 +13033,9 @@ function attachUsersTabEvents(){
   if (password && password.length < 4) { alert('Password must be at least 4 characters'); return; }
   const users = getUsers();
 
-  // Permission guard: admin cannot create/edit into protected roles, nor edit a protected target
-  if (myRole === 'admin') {
+  // Permission guard: admin cannot create/edit into protected roles, nor edit a protected target.
+  // (Owner-level is exempt; combo admins like admin_teacher are still bound by the admin rule.)
+  if (isAdminLevel() && !isOwnerLevel()) {
    if (PROTECTED_ROLES.includes(role)) {
     alert('Only the Owner can assign Owner or Principal roles.');
     return;
