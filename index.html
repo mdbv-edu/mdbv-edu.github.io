@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1783765944 - on-screen diary editor now structured (chapter/topic/page/Q.No + action tick-boxes) -->
+<!-- BUILD: v-1783768748 - Hindi option on login screen (shares parent language pref) -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -533,31 +533,37 @@
 <div id="loginModal" class="modal-overlay" style="display:none;">
   <div class="modal-box relative grain">
     <button onclick="closeLoginModal()" class="absolute top-4 right-4 text-ink-soft hover:text-burgundy text-xl"><i class="fas fa-times"></i></button>
+    <div class="flex justify-center mb-3">
+      <div class="inline-flex items-center gap-1 bg-cream border border-line rounded-lg p-0.5 text-xs">
+        <button id="loginLangEn" onclick="setLoginLang('en')" class="px-3 py-1 rounded font-semibold">English</button>
+        <button id="loginLangHi" onclick="setLoginLang('hi')" class="px-3 py-1 rounded font-semibold">हिंदी</button>
+      </div>
+    </div>
     <div class="text-center mb-7">
       <div class="inline-block mb-4">
         <div class="w-16 h-16 bg-burgundy text-cream mx-auto flex items-center justify-center" style="clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);">
           <i class="fas fa-user-shield text-2xl"></i>
         </div>
       </div>
-      <h2 class="font-display text-2xl text-ink">Portal Login</h2>
-      <p class="text-sm text-ink-soft mt-1">Staff, parents and administrators</p>
+      <h2 class="font-display text-2xl text-ink" id="loginTitle">Portal Login</h2>
+      <p class="text-sm text-ink-soft mt-1" id="loginSubtitle">Staff, parents and administrators</p>
     </div>
     <div class="space-y-5">
       <div>
-        <label class="text-xs font-semibold uppercase tracking-wider text-ink-soft">Username</label>
+        <label class="text-xs font-semibold uppercase tracking-wider text-ink-soft" id="loginUserLabel">Username</label>
         <input type="text" id="loginUsername" class="form-input mt-1" placeholder="Enter your username">
       </div>
       <div>
-        <label class="text-xs font-semibold uppercase tracking-wider text-ink-soft">Password</label>
+        <label class="text-xs font-semibold uppercase tracking-wider text-ink-soft" id="loginPassLabel">Password</label>
         <input type="password" id="loginPassword" class="form-input mt-1" placeholder="Enter your password">
       </div>
-      <div id="loginError" class="text-sm text-burgundy hidden"><i class="fas fa-exclamation-circle mr-1"></i> Invalid credentials. Please try again.</div>
+      <div id="loginError" class="text-sm text-burgundy hidden"><i class="fas fa-exclamation-circle mr-1"></i> <span id="loginErrorText">Invalid credentials. Please try again.</span></div>
       <button id="loginSubmitBtn" class="btn-primary w-full justify-center mt-2">
-        <i class="fas fa-arrow-right-to-bracket"></i> Sign In
+        <i class="fas fa-arrow-right-to-bracket"></i> <span id="loginSubmitText">Sign In</span>
       </button>
     </div>
     <div class="mt-6 pt-5 border-t border-line">
-      <div class="text-xs text-ink-soft text-center">
+      <div class="text-xs text-ink-soft text-center" id="loginFooterNote">
         <i class="fas fa-lock text-burgundy mr-1"></i>
         Authorised access only. Contact the school office for credentials.
       </div>
@@ -764,8 +770,48 @@ function openLoginModal() {
     return;
   }
   document.getElementById('loginModal').style.display = 'flex';
+  _applyLoginLang();
   setTimeout(() => document.getElementById('loginUsername')?.focus(), 50);
 }
+
+// ---- Login screen language (English / Hindi). Shares the parent-portal preference,
+// so a parent who picks Hindi here also gets a Hindi portal after logging in. ----
+var LOGIN_I18N = {
+  title:      ['Portal Login', 'पोर्टल लॉगिन'],
+  subtitle:   ['Staff, parents and administrators', 'शिक्षक, अभिभावक व प्रशासन'],
+  userLabel:  ['Username', 'उपयोगकर्ता नाम'],
+  userPh:     ['Enter your username', 'अपना उपयोगकर्ता नाम भरें'],
+  passLabel:  ['Password', 'पासवर्ड'],
+  passPh:     ['Enter your password', 'अपना पासवर्ड भरें'],
+  error:      ['Invalid credentials. Please try again.', 'गलत जानकारी। कृपया पुनः प्रयास करें।'],
+  submit:     ['Sign In', 'लॉग इन करें'],
+  footer:     ['Authorised access only. Contact the school office for credentials.', 'केवल अधिकृत पहुँच। लॉगिन जानकारी हेतु विद्यालय कार्यालय से संपर्क करें।']
+};
+function _loginLang(){ try { return DB.getScalar('_parentLang') === 'hi' ? 'hi' : 'en'; } catch(e){ return 'en'; } }
+function _applyLoginLang(){
+  const i = _loginLang() === 'hi' ? 1 : 0;
+  const set = (id, val, attr) => { const el = document.getElementById(id); if (el){ if(attr) el.setAttribute(attr, val); else el.textContent = val; } };
+  set('loginTitle', LOGIN_I18N.title[i]);
+  set('loginSubtitle', LOGIN_I18N.subtitle[i]);
+  set('loginUserLabel', LOGIN_I18N.userLabel[i]);
+  set('loginUsername', LOGIN_I18N.userPh[i], 'placeholder');
+  set('loginPassLabel', LOGIN_I18N.passLabel[i]);
+  set('loginPassword', LOGIN_I18N.passPh[i], 'placeholder');
+  set('loginErrorText', LOGIN_I18N.error[i]);
+  set('loginSubmitText', LOGIN_I18N.submit[i]);
+  set('loginFooterNote', '');
+  const fn = document.getElementById('loginFooterNote');
+  if (fn) fn.innerHTML = '<i class="fas fa-lock text-burgundy mr-1"></i> ' + LOGIN_I18N.footer[i];
+  // Highlight the active language button
+  const en = document.getElementById('loginLangEn'), hi = document.getElementById('loginLangHi');
+  if (en && hi){
+    const active = 'bg-burgundy text-cream', idle = 'text-ink-soft';
+    en.className = 'px-3 py-1 rounded font-semibold ' + (i===0 ? active : idle);
+    hi.className = 'px-3 py-1 rounded font-semibold ' + (i===1 ? active : idle);
+  }
+}
+function setLoginLang(l){ try { DB.setScalar('_parentLang', l === 'hi' ? 'hi' : 'en'); } catch(e){} _applyLoginLang(); }
+
 function closeLoginModal() {
   document.getElementById('loginModal').style.display = 'none';
   document.getElementById('loginError').classList.add('hidden');
@@ -2438,7 +2484,7 @@ function renderHomeworkSummary(className, opts){
     const hw = (d.rows||[]).filter(r=>r.homework && r.homework.trim());
     if (!hw.length) return '';
     return `<div class="border rounded-lg overflow-hidden">
-     <div class="bg-amber-100 px-3 py-1.5 text-sm font-semibold text-amber-900"><i class="fas fa-pen mr-1"></i>Homework · ${fmtDate(d.date)}${(() => { const dt=new Date(d.date); return isNaN(dt)?'':' ('+dt.toLocaleDateString('en-IN',{weekday:'short'})+')'; })()}</div>
+     <div class="bg-amber-100 px-3 py-1.5 text-sm font-semibold text-amber-900"><i class="fas fa-pen mr-1"></i>${_pv('Homework','गृहकार्य')} · ${fmtDate(d.date)}${(() => { const dt=new Date(d.date); return isNaN(dt)?'':' ('+dt.toLocaleDateString('en-IN',{weekday:'short'})+')'; })()}</div>
      <ul class="divide-y">${hw.map(r=>`<li class="px-3 py-2 text-sm"><span class="font-medium text-gray-700">${escapeHTML(r.subject||'—')}:</span> <span class="text-gray-900">${escapeHTML(r.homework)}</span></li>`).join('')}</ul>
     </div>`;
   }).join('')}
@@ -2460,11 +2506,11 @@ function renderDiaryView(className, opts){
     return `<div class="bg-white border rounded-lg overflow-hidden">
      <div class="bg-burgundy text-white px-4 py-2 flex flex-wrap justify-between items-center gap-2" style="background:#7a1e2e">
       <div class="font-semibold"><i class="fas fa-calendar-day mr-1"></i>${fmtDate(d.date)}${(() => { const dt=new Date(d.date); return isNaN(dt)?'':' · '+dt.toLocaleDateString('en-IN',{weekday:'long'}); })()}</div>
-      <div class="text-xs opacity-80">Class ${escapeHTML(String(d.className))}</div>
+      <div class="text-xs opacity-80">${_pv('Class','कक्षा')} ${escapeHTML(String(d.className))}</div>
      </div>
      <div class="overflow-x-auto">
       <table class="w-full text-sm">
-       <thead class="bg-amber-50"><tr><th class="p-2 text-left w-12">Period</th><th class="p-2 text-left w-32">Subject</th><th class="p-2 text-left">Classwork</th><th class="p-2 text-left">Homework</th></tr></thead>
+       <thead class="bg-amber-50"><tr><th class="p-2 text-left w-12">${_pv('Period','कालांश')}</th><th class="p-2 text-left w-32">${_pv('Subject','विषय')}</th><th class="p-2 text-left">${_pv('Classwork','कक्षा कार्य')}</th><th class="p-2 text-left">${_pv('Homework','गृहकार्य')}</th></tr></thead>
        <tbody>${filled.map(r=>`<tr class="border-t">
         <td class="p-2 text-center font-semibold text-gray-400">${escapeHTML(r.period||'')}</td>
         <td class="p-2 font-medium">${escapeHTML(r.subject||'')}</td>
@@ -2479,6 +2525,12 @@ function renderDiaryView(className, opts){
 }
 
 function getHomeworks(){ return DB.getAll('homeworks'); }
+
+// _pv(en, hi): translate ONLY when the current viewer is a parent (shared views like the diary
+// are shown to students/staff in English but to parents in their chosen language).
+function _pv(en, hi){
+ return (currentUser && currentUser.role === 'parent' && typeof parentLang === 'function' && parentLang() === 'hi') ? (hi || en) : en;
+}
 
 // ===== DAILY DIARY (structured Period/Subject/Classwork/Homework per class per day) =====
 // Stored in the 'dailyDiary' table. One record per class per date:
@@ -7300,6 +7352,14 @@ function _attachClassEvents(){
 
 let activeParentTab = 'dashboard';
 
+// ===== PARENT PORTAL LANGUAGE (English / Hindi) =====
+// Only the parent portal is bilingual. Preference is stored per-device.
+function parentLang(){ return DB.getScalar('_parentLang') === 'hi' ? 'hi' : 'en'; }
+function setParentLang(l){ DB.setScalar('_parentLang', l === 'hi' ? 'hi' : 'en'); }
+// pt(englishText, hindiText) → returns the string for the current parent language.
+function pt(en, hi){ return parentLang() === 'hi' ? (hi || en) : en; }
+
+
 // Find children associated with the parent. Tries multiple matching strategies
 // so that auto-generated parent logins (where parentId may not be cleanly linked) still work.
 function _findChildrenForParent(){
@@ -7330,35 +7390,39 @@ function _findChildrenForParent(){
 
 function renderParentPanel(){
  const students = _findChildrenForParent();
+ const langToggle = `<div class="flex items-center gap-1 bg-gray-100 rounded-lg p-0.5 text-xs">
+   <button id="parLangEn" class="px-2 py-1 rounded ${parentLang()==='en'?'bg-indigo-600 text-white':'text-gray-600'}">English</button>
+   <button id="parLangHi" class="px-2 py-1 rounded ${parentLang()==='hi'?'bg-indigo-600 text-white':'text-gray-600'}">हिंदी</button>
+  </div>`;
  if (students.length === 0) {
   return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
-   <div class="flex justify-between items-center mb-4">
-    <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-person text-indigo-600 mr-2"></i>Parent Dashboard</h1>
-    <button id="logoutParentBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
+   <div class="flex justify-between items-center mb-4 gap-2 flex-wrap">
+    <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-person text-indigo-600 mr-2"></i>${pt('Parent Dashboard','अभिभावक डैशबोर्ड')}</h1>
+    <div class="flex items-center gap-2">${langToggle}<button id="logoutParentBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>${pt('Logout','लॉग आउट')}</button></div>
    </div>
    <div class="bg-amber-50 border-l-4 border-amber-500 p-4 rounded">
-    <div class="font-semibold text-amber-900">Your account isn't linked to a student record yet.</div>
-    <div class="text-sm text-amber-800 mt-1">Please contact the school office (${SCHOOL_INFO.phone}) and ask the admin to link your account "${currentUser.username || currentUser.name}" to your daughter's record.</div>
+    <div class="font-semibold text-amber-900">${pt("Your account isn't linked to a student record yet.",'आपका खाता अभी किसी छात्रा के रिकॉर्ड से नहीं जुड़ा है।')}</div>
+    <div class="text-sm text-amber-800 mt-1">${pt('Please contact the school office','कृपया विद्यालय कार्यालय से संपर्क करें')} (${SCHOOL_INFO.phone}) ${pt('and ask the admin to link your account','और व्यवस्थापक से अपना खाता जोड़ने को कहें')} "${currentUser.username || currentUser.name}".</div>
    </div>
   </div>`;
  }
 
  const tabs = [
-  {id:'dashboard',  label:'Dashboard',     icon:'gauge-high'},
-  {id:'fees',       label:'Fees & Receipts', icon:'rupee-sign'},
-  {id:'academics',  label:'Academics',     icon:'book'},
-  {id:'messages',   label:'Messages',      icon:'envelope'},
-  {id:'ptm',        label:'PTM',           icon:'people-arrows'},
-  {id:'complaint',  label:'Complaint',     icon:'comment-dots'}
+  {id:'dashboard',  label:pt('Dashboard','मुख्य पृष्ठ'),        icon:'gauge-high'},
+  {id:'fees',       label:pt('Fees & Receipts','फीस व रसीदें'),  icon:'rupee-sign'},
+  {id:'academics',  label:pt('Academics','शिक्षा'),             icon:'book'},
+  {id:'messages',   label:pt('Messages','संदेश'),               icon:'envelope'},
+  {id:'ptm',        label:pt('PTM','अभिभावक बैठक'),             icon:'people-arrows'},
+  {id:'complaint',  label:pt('Complaint','शिकायत'),             icon:'comment-dots'}
  ];
 
  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
-  <div class="flex justify-between items-center mb-4">
+  <div class="flex justify-between items-center mb-4 gap-2 flex-wrap">
    <div>
-    <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-person text-indigo-600 mr-2"></i>Parent Dashboard</h1>
-    <div class="text-xs text-gray-600">Welcome, ${currentUser.name}${students.length === 1 ? ` · Parent of ${students[0].name}` : ` · Parent of ${students.length} children`}</div>
+    <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-person text-indigo-600 mr-2"></i>${pt('Parent Dashboard','अभिभावक डैशबोर्ड')}</h1>
+    <div class="text-xs text-gray-600">${pt('Welcome','नमस्ते')}, ${currentUser.name}${students.length === 1 ? ` · ${pt('Parent of','अभिभावक')} ${students[0].name}` : ` · ${pt('Parent of','अभिभावक')} ${students.length} ${pt('children','बच्चे')}`}</div>
    </div>
-   <button id="logoutParentBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
+   <div class="flex items-center gap-2">${langToggle}<button id="logoutParentBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>${pt('Logout','लॉग आउट')}</button></div>
   </div>
   <div class="tab-scroll gap-1 border-b pb-2 mb-4">
    ${tabs.map(t => `<button class="par-tab px-3 py-2 rounded-t-lg text-sm font-medium whitespace-nowrap ${activeParentTab===t.id?'bg-indigo-600 text-white':'bg-gray-100 hover:bg-gray-200 text-gray-700'}" data-tab="${t.id}"><i class="fas fa-${t.icon} mr-1"></i>${t.label}</button>`).join('')}
@@ -7402,33 +7466,33 @@ function renderParDashboard(students){
      <div class="flex flex-wrap items-center justify-between gap-2">
       <div>
        <div class="text-xl font-bold">${s.name}</div>
-       <div class="text-sm opacity-90">Class ${s.class}${s.section ? '-'+s.section : ''} · Roll ${s.rollNo || '-'} · Adm.No ${s.admissionNo || '-'}</div>
+       <div class="text-sm opacity-90">${pt('Class','कक्षा')} ${s.class}${s.section ? '-'+s.section : ''} · ${pt('Roll','अनु.')} ${s.rollNo || '-'} · ${pt('Adm.No','प्रवेश सं.')} ${s.admissionNo || '-'}</div>
       </div>
       <div class="text-right">
-       <div class="text-xs opacity-90">Father</div>
+       <div class="text-xs opacity-90">${pt('Father','पिता')}</div>
        <div class="font-semibold">${s.fatherName || '-'}</div>
       </div>
      </div>
     </div>
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 p-4">
      <div class="bg-${pctAtt>=75?'emerald':pctAtt>=50?'amber':'rose'}-50 border border-${pctAtt>=75?'emerald':pctAtt>=50?'amber':'rose'}-200 p-3 rounded">
-      <div class="text-xs text-gray-700 font-semibold uppercase">Attendance</div>
+      <div class="text-xs text-gray-700 font-semibold uppercase">${pt('Attendance','उपस्थिति')}</div>
       <div class="text-2xl font-bold">${pctAtt}%</div>
-      <div class="text-xs text-gray-600">${pr}/${tot} days</div>
+      <div class="text-xs text-gray-600">${pr}/${tot} ${pt('days','दिन')}</div>
      </div>
      <div class="bg-indigo-50 border border-indigo-200 p-3 rounded">
-      <div class="text-xs text-indigo-700 font-semibold uppercase">Avg Score</div>
+      <div class="text-xs text-indigo-700 font-semibold uppercase">${pt('Avg Score','औसत अंक')}</div>
       <div class="text-2xl font-bold text-indigo-900">${avgPct}%</div>
-      <div class="text-xs text-indigo-700">${myMarks.length} exams</div>
+      <div class="text-xs text-indigo-700">${myMarks.length} ${pt('exams','परीक्षाएं')}</div>
      </div>
      <div class="bg-${(s.feeBalance||0)>0?'rose':'emerald'}-50 border border-${(s.feeBalance||0)>0?'rose':'emerald'}-200 p-3 rounded">
-      <div class="text-xs text-gray-700 font-semibold uppercase">Fee Due</div>
-      <div class="text-2xl font-bold">${(s.feeBalance||0)>0 ? fmtINR(s.feeBalance) : 'Cleared'}</div>
+      <div class="text-xs text-gray-700 font-semibold uppercase">${pt('Fee Due','बकाया फीस')}</div>
+      <div class="text-2xl font-bold">${(s.feeBalance||0)>0 ? fmtINR(s.feeBalance) : pt('Cleared','चुकता')}</div>
      </div>
      <div class="bg-amber-50 border border-amber-200 p-3 rounded">
-      <div class="text-xs text-amber-700 font-semibold uppercase">Pending HW</div>
+      <div class="text-xs text-amber-700 font-semibold uppercase">${pt('Pending HW','शेष गृहकार्य')}</div>
       <div class="text-2xl font-bold text-amber-900">${pendingHws.length}</div>
-      <div class="text-xs text-amber-700">${hws.length - pendingHws.length} submitted</div>
+      <div class="text-xs text-amber-700">${hws.length - pendingHws.length} ${pt('submitted','जमा')}</div>
      </div>
     </div>
    </div>`;
@@ -7446,31 +7510,31 @@ function renderParFees(students){
    const decided = s.decidedFees || s.annualFees || 0;
    const balance = s.feeBalance || 0;
    return `<div class="bg-white rounded-xl shadow-sm border p-4">
-    <div class="font-semibold mb-3"><i class="fas fa-rupee-sign text-emerald-600 mr-1"></i>Fee Statement — ${s.name} <span class="text-sm text-gray-500 font-normal">(Class ${s.class}${s.section?'-'+s.section:''})</span></div>
+    <div class="font-semibold mb-3"><i class="fas fa-rupee-sign text-emerald-600 mr-1"></i>${pt('Fee Statement','फीस विवरण')} — ${s.name} <span class="text-sm text-gray-500 font-normal">(${pt('Class','कक्षा')} ${s.class}${s.section?'-'+s.section:''})</span></div>
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
      <div class="bg-blue-50 border border-blue-200 p-3 rounded">
-      <div class="text-xs text-blue-700 font-semibold uppercase">Annual Fee</div>
+      <div class="text-xs text-blue-700 font-semibold uppercase">${pt('Annual Fee','वार्षिक फीस')}</div>
       <div class="text-xl font-bold text-blue-900">${fmtINR(decided)}</div>
-      ${s.decidedFees && s.annualFees && s.decidedFees < s.annualFees ? `<div class="text-xs text-blue-700">Original ${fmtINR(s.annualFees)}<br>Concession ${fmtINR(s.annualFees - s.decidedFees)}</div>` : ''}
+      ${s.decidedFees && s.annualFees && s.decidedFees < s.annualFees ? `<div class="text-xs text-blue-700">${pt('Original','मूल')} ${fmtINR(s.annualFees)}<br>${pt('Concession','छूट')} ${fmtINR(s.annualFees - s.decidedFees)}</div>` : ''}
      </div>
      <div class="bg-emerald-50 border border-emerald-200 p-3 rounded">
-      <div class="text-xs text-emerald-700 font-semibold uppercase">Paid So Far</div>
+      <div class="text-xs text-emerald-700 font-semibold uppercase">${pt('Paid So Far','अब तक जमा')}</div>
       <div class="text-xl font-bold text-emerald-900">${fmtINR(totalPaid)}</div>
-      <div class="text-xs text-emerald-700">${txns.length} transaction${txns.length===1?'':'s'}</div>
+      <div class="text-xs text-emerald-700">${txns.length} ${pt('transaction'+(txns.length===1?'':'s'),'लेन-देन')}</div>
      </div>
      <div class="bg-${balance>0?'rose':'emerald'}-50 border border-${balance>0?'rose':'emerald'}-200 p-3 rounded">
-      <div class="text-xs text-${balance>0?'rose':'emerald'}-700 font-semibold uppercase">Balance Due</div>
-      <div class="text-xl font-bold text-${balance>0?'rose':'emerald'}-900">${balance > 0 ? fmtINR(balance) : 'Cleared ✓'}</div>
+      <div class="text-xs text-${balance>0?'rose':'emerald'}-700 font-semibold uppercase">${pt('Balance Due','शेष राशि')}</div>
+      <div class="text-xl font-bold text-${balance>0?'rose':'emerald'}-900">${balance > 0 ? fmtINR(balance) : pt('Cleared ✓','चुकता ✓')}</div>
      </div>
      <div class="bg-amber-50 border border-amber-200 p-3 rounded">
-      <div class="text-xs text-amber-700 font-semibold uppercase">Transport (monthly)</div>
+      <div class="text-xs text-amber-700 font-semibold uppercase">${pt('Transport (monthly)','परिवहन (मासिक)')}</div>
       <div class="text-xl font-bold text-amber-900">${s.transportMonthly ? fmtINR(s.transportMonthly) : '-'}</div>
      </div>
     </div>
-    ${txns.length === 0 ? '<div class="text-sm text-gray-500 py-3 text-center">No payments recorded yet</div>' : `
-     <h4 class="font-semibold text-sm mb-2">Payment History</h4>
+    ${txns.length === 0 ? `<div class="text-sm text-gray-500 py-3 text-center">${pt('No payments recorded yet','अभी तक कोई भुगतान दर्ज नहीं')}</div>` : `
+     <h4 class="font-semibold text-sm mb-2">${pt('Payment History','भुगतान इतिहास')}</h4>
      <div class="overflow-x-auto"><table class="text-sm w-full border">
-      <thead class="bg-gray-100"><tr><th class="text-left p-2">Date</th><th class="text-left p-2">Receipt</th><th class="text-left p-2">Towards</th><th class="text-left p-2">Mode</th><th class="text-right p-2">Amount</th><th class="p-2">Action</th></tr></thead>
+      <thead class="bg-gray-100"><tr><th class="text-left p-2">${pt('Date','दिनांक')}</th><th class="text-left p-2">${pt('Receipt','रसीद')}</th><th class="text-left p-2">${pt('Towards','मद')}</th><th class="text-left p-2">${pt('Mode','माध्यम')}</th><th class="text-right p-2">${pt('Amount','राशि')}</th><th class="p-2">${pt('Action','कार्य')}</th></tr></thead>
       <tbody>${txns.map(t => `<tr class="border-t hover:bg-emerald-50">
         <td class="p-2 text-xs">${fmtDate(t.date)}</td>
         <td class="p-2 font-mono text-xs">${t.receiptNo || '-'}</td>
@@ -7504,29 +7568,29 @@ function renderParAcademics(students){
    const subsByHw = {};
    subs.filter(sub => sub.studentId === s.id).forEach(sub => { subsByHw[sub.homeworkId] = sub; });
    return `<div class="bg-white rounded-xl shadow-sm border p-4">
-    <h3 class="font-semibold mb-3"><i class="fas fa-book text-indigo-600 mr-1"></i>${s.name} <span class="text-sm text-gray-500 font-normal">— Class ${s.class}</span></h3>
+    <h3 class="font-semibold mb-3"><i class="fas fa-book text-indigo-600 mr-1"></i>${s.name} <span class="text-sm text-gray-500 font-normal">— ${pt('Class','कक्षा')} ${s.class}</span></h3>
 
     <details class="mb-3 border rounded" open>
-     <summary class="cursor-pointer px-3 py-2 bg-gray-50 font-medium text-sm">Attendance · ${pctAtt}% (${pr}P / ${ab}A / ${lt}L of ${tot})</summary>
+     <summary class="cursor-pointer px-3 py-2 bg-gray-50 font-medium text-sm">${pt('Attendance','उपस्थिति')} · ${pctAtt}% (${pr}P / ${ab}A / ${lt}L, ${pt('of','कुल')} ${tot})</summary>
      <div class="p-3">
-      ${recentDates.length === 0 ? '<div class="text-sm text-gray-500">No records</div>' : `
+      ${recentDates.length === 0 ? `<div class="text-sm text-gray-500">${pt('No records','कोई रिकॉर्ड नहीं')}</div>` : `
        <div class="flex gap-1 flex-wrap">${recentDates.map(([d,v]) => {
         const cls = v==='P'?'bg-emerald-100 text-emerald-800':v==='L'?'bg-amber-100 text-amber-800':'bg-rose-100 text-rose-800';
         return `<div class="px-2 py-1 rounded text-xs ${cls}"><div>${d.slice(5)}</div><div class="font-bold text-center">${v}</div></div>`;
        }).join('')}</div>
-       <div class="mt-2 text-xs text-gray-600"><b>Legend:</b> <span class="text-emerald-600 font-bold">P</span> Present · <span class="text-rose-600 font-bold">A</span> Absent · <span class="text-amber-600 font-bold">L</span> Late</div>`}
+       <div class="mt-2 text-xs text-gray-600"><b>${pt('Legend','संकेत')}:</b> <span class="text-emerald-600 font-bold">P</span> ${pt('Present','उपस्थित')} · <span class="text-rose-600 font-bold">A</span> ${pt('Absent','अनुपस्थित')} · <span class="text-amber-600 font-bold">L</span> ${pt('Late','देर से')}</div>`}
      </div>
     </details>
 
     <details class="mb-3 border rounded" ${myMarks.length ? 'open' : ''}>
      <summary class="cursor-pointer px-3 py-2 bg-gray-50 font-medium text-sm flex justify-between items-center">
-      <span>Marks (${myMarks.length})</span>
-      ${myMarks.length ? `<button class="parRcBtn bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1 rounded text-xs font-medium" data-id="${s.id}" onclick="event.stopPropagation();"><i class="fas fa-file-lines mr-1"></i>Report Card</button>` : ''}
+      <span>${pt('Marks','अंक')} (${myMarks.length})</span>
+      ${myMarks.length ? `<button class="parRcBtn bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1 rounded text-xs font-medium" data-id="${s.id}" onclick="event.stopPropagation();"><i class="fas fa-file-lines mr-1"></i>${pt('Report Card','रिपोर्ट कार्ड')}</button>` : ''}
      </summary>
      <div class="p-3">
-      ${myMarks.length === 0 ? '<div class="text-sm text-gray-500">No marks recorded yet</div>' : `
+      ${myMarks.length === 0 ? `<div class="text-sm text-gray-500">${pt('No marks recorded yet','अभी तक कोई अंक दर्ज नहीं')}</div>` : `
        <table class="text-sm w-full border">
-        <thead class="bg-gray-100"><tr><th class="text-left p-2">Exam</th><th class="text-left p-2">Subject</th><th class="text-left p-2">Score</th><th class="text-left p-2">%</th><th class="text-left p-2">Grade</th></tr></thead>
+        <thead class="bg-gray-100"><tr><th class="text-left p-2">${pt('Exam','परीक्षा')}</th><th class="text-left p-2">${pt('Subject','विषय')}</th><th class="text-left p-2">${pt('Score','अंक')}</th><th class="text-left p-2">%</th><th class="text-left p-2">${pt('Grade','ग्रेड')}</th></tr></thead>
         <tbody>${myMarks.map(m => {
           const pct = (m.marks/m.maxMarks*100);
           const grade = pct >= 90 ? 'A+' : pct >= 80 ? 'A' : pct >= 70 ? 'B+' : pct >= 60 ? 'B' : pct >= 50 ? 'C' : pct >= 33 ? 'D' : 'F';
@@ -7537,28 +7601,28 @@ function renderParAcademics(students){
     </details>
 
     <details class="border rounded" open>
-     <summary class="cursor-pointer px-3 py-2 bg-amber-50 font-medium text-sm"><i class="fas fa-table-list text-amber-600 mr-1"></i>Daily Diary — Class ${s.class}</summary>
+     <summary class="cursor-pointer px-3 py-2 bg-amber-50 font-medium text-sm"><i class="fas fa-table-list text-amber-600 mr-1"></i>${pt('Daily Diary','दैनिक डायरी')} — ${pt('Class','कक्षा')} ${s.class}</summary>
      <div class="p-3">
-      ${(() => { const summ = renderHomeworkSummary(s.class, { limit: 2 }); return summ ? `<div class="mb-3"><div class="text-xs font-semibold text-amber-700 mb-1">TODAY'S HOMEWORK AT A GLANCE</div>${summ}</div><div class="text-xs font-semibold text-gray-500 mb-1 mt-3">FULL DIARY</div>` : ''; })()}
+      ${(() => { const summ = renderHomeworkSummary(s.class, { limit: 2 }); return summ ? `<div class="mb-3"><div class="text-xs font-semibold text-amber-700 mb-1">${pt("TODAY'S HOMEWORK AT A GLANCE",'आज का गृहकार्य — एक नज़र में')}</div>${summ}</div><div class="text-xs font-semibold text-gray-500 mb-1 mt-3">${pt('FULL DIARY','पूरी डायरी')}</div>` : ''; })()}
       ${renderDiaryView(s.class, { limit: 5 })}
      </div>
     </details>
 
     <details class="border rounded">
-     <summary class="cursor-pointer px-3 py-2 bg-gray-50 font-medium text-sm">Homework (${myHws.length})</summary>
+     <summary class="cursor-pointer px-3 py-2 bg-gray-50 font-medium text-sm">${pt('Homework','गृहकार्य')} (${myHws.length})</summary>
      <div class="p-3 space-y-2">
-      ${myHws.length === 0 ? '<div class="text-sm text-gray-500">No homework assigned</div>' : myHws.map(h => {
+      ${myHws.length === 0 ? `<div class="text-sm text-gray-500">${pt('No homework assigned','कोई गृहकार्य नहीं')}</div>` : myHws.map(h => {
         const sub = subsByHw[h.id];
         return `<div class="border rounded p-2 ${sub ? 'bg-emerald-50' : ''}">
          <div class="flex flex-wrap items-center gap-2 mb-1 text-sm">
           <b>${h.subject}</b>
-          ${sub ? '<span class="pill pill-green">Submitted</span>' : '<span class="pill pill-amber">Pending</span>'}
-          <span class="text-xs text-gray-500">Due ${fmtDate(h.dueDate)}</span>
+          ${sub ? `<span class="pill pill-green">${pt('Submitted','जमा')}</span>` : `<span class="pill pill-amber">${pt('Pending','शेष')}</span>`}
+          <span class="text-xs text-gray-500">${pt('Due','जमा करने की तिथि')} ${fmtDate(h.dueDate)}</span>
          </div>
          <div class="text-sm text-gray-700">${(h.description||'').replace(/</g,'&lt;')}</div>
-         <div class="text-xs text-gray-500 mt-1">By ${h.teacher || '?'}</div>
+         <div class="text-xs text-gray-500 mt-1">${pt('By','द्वारा')} ${h.teacher || '?'}</div>
          <div class="mt-2 flex flex-wrap gap-2">
-          <button class="parPrintHwBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-hw="${h.id}" data-stu="${s.id}"><i class="fas fa-file-pdf mr-1"></i>Download Assignment</button>
+          <button class="parPrintHwBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-hw="${h.id}" data-stu="${s.id}"><i class="fas fa-file-pdf mr-1"></i>${pt('Download Assignment','कार्य डाउनलोड करें')}</button>
           ${h.attachmentData ? `<a href="${h.attachmentData}" download="${h.attachmentName}" class="bg-cyan-600 hover:bg-cyan-700 text-white px-2 py-1 rounded text-xs"><i class="fas fa-paperclip mr-1"></i>${h.attachmentName}</a>` : ''}
          </div>
         </div>`;
@@ -7577,11 +7641,11 @@ function renderParMessages(students){
   .sort((a,b) => (b.sentAt||'').localeCompare(a.sentAt||''));
  return `<div>
   <div class="bg-blue-50 border-l-4 border-blue-500 p-3 rounded mb-4 text-sm text-blue-900">
-   <i class="fas fa-info-circle mr-1"></i>Complete log of all messages broadcast to your phone via WhatsApp/SMS by the school. Use this if you missed a notice or want to reference an earlier announcement.
+   <i class="fas fa-info-circle mr-1"></i>${pt('Complete log of all messages the school sent to your phone via WhatsApp/SMS. Use this if you missed a notice.','विद्यालय द्वारा आपके फ़ोन पर WhatsApp/SMS से भेजे गए सभी संदेशों का पूरा विवरण। कोई सूचना छूट जाने पर इसे देखें।')}
   </div>
   <div class="bg-white border rounded-lg p-4">
-   <h3 class="font-semibold mb-3"><i class="fas fa-envelope text-indigo-600 mr-1"></i>Messages received <span class="text-xs text-gray-500">(${log.length} total)</span></h3>
-   ${log.length === 0 ? '<div class="text-sm text-gray-500 py-3 text-center">No messages yet</div>' : `
+   <h3 class="font-semibold mb-3"><i class="fas fa-envelope text-indigo-600 mr-1"></i>${pt('Messages received','प्राप्त संदेश')} <span class="text-xs text-gray-500">(${log.length} ${pt('total','कुल')})</span></h3>
+   ${log.length === 0 ? `<div class="text-sm text-gray-500 py-3 text-center">${pt('No messages yet','अभी तक कोई संदेश नहीं')}</div>` : `
     <div class="space-y-2">${log.map(m => {
      const child = students.find(s => s.id === m.studentId);
      return `<div class="border rounded p-3">
@@ -7589,7 +7653,7 @@ function renderParMessages(students){
        <span class="pill pill-${m.channel === 'whatsapp' ? 'green' : 'blue'}"><i class="fab fa-${m.channel === 'whatsapp' ? 'whatsapp' : 'sms'} mr-1"></i>${m.channel === 'whatsapp' ? 'WhatsApp' : 'SMS'}</span>
        ${child && students.length > 1 ? `<span class="pill pill-gray">${child.name}</span>` : ''}
        <span class="text-xs text-gray-500">${new Date(m.sentAt).toLocaleString('en-IN')}</span>
-       <span class="text-xs text-gray-600">from ${m.sentBy} (${m.sentByRole})</span>
+       <span class="text-xs text-gray-600">${pt('from','द्वारा')} ${m.sentBy} (${m.sentByRole})</span>
       </div>
       <div class="text-sm whitespace-pre-wrap">${(m.message||'').replace(/</g,'&lt;')}</div>
      </div>`;
@@ -7605,25 +7669,25 @@ function renderParPTM(students){
  const today = new Date().toISOString().slice(0,10);
  return `<div>
   <div class="bg-blue-50 border-l-4 border-blue-500 p-3 rounded mb-4 text-sm text-blue-900">
-   <i class="fas fa-people-arrows mr-1"></i>Parent-Teacher Meetings scheduled for your child's class. Your attendance is recorded by the class teacher after the meeting.
+   <i class="fas fa-people-arrows mr-1"></i>${pt("Parent-Teacher Meetings scheduled for your child's class. Your attendance is recorded by the class teacher after the meeting.",'आपके बच्चे की कक्षा के लिए निर्धारित अभिभावक-शिक्षक बैठकें। बैठक के बाद कक्षा अध्यापिका द्वारा आपकी उपस्थिति दर्ज की जाती है।')}
   </div>
-  ${myEvents.length === 0 ? '<div class="bg-white border rounded-lg p-6 text-center text-gray-500"><i class="fas fa-calendar-xmark text-3xl mb-2"></i><div>No PTM scheduled yet</div><div class="text-xs mt-1">When the school schedules a PTM, it will appear here.</div></div>' : `
+  ${myEvents.length === 0 ? `<div class="bg-white border rounded-lg p-6 text-center text-gray-500"><i class="fas fa-calendar-xmark text-3xl mb-2"></i><div>${pt('No PTM scheduled yet','अभी कोई बैठक निर्धारित नहीं')}</div><div class="text-xs mt-1">${pt('When the school schedules a PTM, it will appear here.','जब विद्यालय बैठक निर्धारित करेगा, वह यहाँ दिखेगी।')}</div></div>` : `
    <div class="space-y-2">${myEvents.map(e => {
      const isPast = e.date < today;
      const isToday = e.date === today;
      return `<div class="bg-white border-l-4 ${isPast ? 'border-gray-400' : isToday ? 'border-emerald-500' : 'border-indigo-500'} rounded-lg p-4">
       <div class="flex flex-wrap items-start justify-between gap-2">
        <div>
-        <div class="font-semibold">${e.title || 'Parent-Teacher Meeting'}</div>
-        <div class="text-sm text-gray-700">${fmtDate(e.date)}${e.time ? ' at ' + e.time : ''}</div>
+        <div class="font-semibold">${e.title || pt('Parent-Teacher Meeting','अभिभावक-शिक्षक बैठक')}</div>
+        <div class="text-sm text-gray-700">${fmtDate(e.date)}${e.time ? ' ' + pt('at','समय') + ' ' + e.time : ''}</div>
         ${e.description ? `<div class="text-sm text-gray-700 mt-1">${e.description}</div>` : ''}
-        ${e.classes && e.classes.length ? `<div class="text-xs text-gray-500 mt-1">For: Class ${e.classes.join(', ')}</div>` : ''}
+        ${e.classes && e.classes.length ? `<div class="text-xs text-gray-500 mt-1">${pt('For','के लिए')}: ${pt('Class','कक्षा')} ${e.classes.join(', ')}</div>` : ''}
        </div>
-       <span class="pill ${isPast ? 'pill-gray' : isToday ? 'pill-green' : 'pill-blue'}">${isPast ? 'Past' : isToday ? 'Today' : 'Upcoming'}</span>
+       <span class="pill ${isPast ? 'pill-gray' : isToday ? 'pill-green' : 'pill-blue'}">${isPast ? pt('Past','बीत गई') : isToday ? pt('Today','आज') : pt('Upcoming','आगामी')}</span>
       </div>
       ${students.map(s => {
         const att = (e.attendance||[]).find(a => a.studentId === s.id);
-        return att ? `<div class="mt-2 pt-2 border-t text-xs">${s.name}: ${att.attended === 'yes' ? '<span class="pill pill-green">Attended</span>' : att.attended === 'no' ? '<span class="pill pill-red">Did not attend</span>' : '<span class="pill pill-amber">Pending</span>'}${att.notes ? ' · ' + att.notes : ''}</div>` : '';
+        return att ? `<div class="mt-2 pt-2 border-t text-xs">${s.name}: ${att.attended === 'yes' ? `<span class="pill pill-green">${pt('Attended','उपस्थित रहे')}</span>` : att.attended === 'no' ? `<span class="pill pill-red">${pt('Did not attend','उपस्थित नहीं')}</span>` : `<span class="pill pill-amber">${pt('Pending','शेष')}</span>`}${att.notes ? ' · ' + att.notes : ''}</div>` : '';
       }).join('')}
      </div>`;
     }).join('')}</div>`}
@@ -7632,10 +7696,10 @@ function renderParPTM(students){
 
 function renderParComplaint(){
  return `<div class="bg-white border rounded-lg p-4 max-w-2xl">
-  <h3 class="font-semibold mb-2"><i class="fas fa-comment-dots text-red-600 mr-1"></i>Submit Anonymous Complaint</h3>
-  <p class="text-sm text-gray-600 mb-3">Your complaint will not include your name or details — it goes directly to the principal/admin for review.</p>
-  <textarea id="complaintTextParent" placeholder="Report any issue confidentially..." rows="4"></textarea>
-  <button id="submitComplaintParent" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm mt-3"><i class="fas fa-paper-plane mr-1"></i>Submit</button>
+  <h3 class="font-semibold mb-2"><i class="fas fa-comment-dots text-red-600 mr-1"></i>${pt('Submit Anonymous Complaint','गुमनाम शिकायत भेजें')}</h3>
+  <p class="text-sm text-gray-600 mb-3">${pt('Your complaint will not include your name or details — it goes directly to the principal/admin for review.','आपकी शिकायत में आपका नाम या विवरण नहीं होगा — यह सीधे प्रधानाचार्या/व्यवस्थापक के पास समीक्षा हेतु जाती है।')}</p>
+  <textarea id="complaintTextParent" placeholder="${pt('Report any issue confidentially...','किसी भी समस्या को गोपनीय रूप से बताएं...')}" rows="4"></textarea>
+  <button id="submitComplaintParent" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm mt-3"><i class="fas fa-paper-plane mr-1"></i>${pt('Submit','भेजें')}</button>
  </div>`;
 }
 
@@ -12844,6 +12908,9 @@ function attachGenericModuleEvents(){
 /* ---------- TEACHER / PARENT / STUDENT / ACCOUNTANT EVENTS ---------- */
 function attachParentEvents(){
  document.getElementById('logoutParentBtn')?.addEventListener('click',()=>{currentUser=null;chatPanelOpen=false;activeChatWith=null;activeParentTab='dashboard';renderApp()});
+ // Language toggle (parent portal only)
+ document.getElementById('parLangEn')?.addEventListener('click',()=>{ setParentLang('en'); renderApp(); });
+ document.getElementById('parLangHi')?.addEventListener('click',()=>{ setParentLang('hi'); renderApp(); });
 
  // Tab navigation
  document.querySelectorAll('.par-tab').forEach(b => b.addEventListener('click', () => {
