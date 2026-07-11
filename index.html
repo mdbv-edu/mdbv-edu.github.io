@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1783764522 - diary: day-of-week, adjustable periods, copy-previous, homework glance, printable blank+filled -->
+<!-- BUILD: v-1783765944 - on-screen diary editor now structured (chapter/topic/page/Q.No + action tick-boxes) -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -2508,17 +2508,63 @@ function _diaryFor(className, date){
  return { className: String(className), date, rows: _blankDiaryRows(), _new: true };
 }
 function _blankDiaryRows(){
- return diaryPeriodLabels().map(p => ({ period: p, subject: '', classwork: '', homework: '' }));
+ return diaryPeriodLabels().map(p => ({
+  period: p, subject: '',
+  // Structured Class Work
+  cwChapter:'', cwChapterName:'', cwTopic:'', cwDone:'',
+  // Structured Home Work
+  hwActions:[], hwChapter:'', hwPage:'', hwExercise:'', hwSubmitBy:'',
+  // Composed readable strings (kept for display/print/back-compat)
+  classwork: '', homework: ''
+ }));
+}
+// Compose a readable Class Work string from the structured fields.
+function _composeClasswork(r){
+ const parts = [];
+ if (r.cwChapter || r.cwChapterName) parts.push('Ch. ' + (r.cwChapter||'') + (r.cwChapterName ? ' ('+r.cwChapterName+')' : ''));
+ if (r.cwTopic) parts.push(r.cwTopic);
+ if (r.cwDone) parts.push(r.cwDone);
+ return parts.join(' — ').trim();
+}
+// Compose a readable Home Work string from the structured fields.
+function _composeHomework(r){
+ const parts = [];
+ if (Array.isArray(r.hwActions) && r.hwActions.length) parts.push(r.hwActions.join('/'));
+ const ref = [];
+ if (r.hwChapter) ref.push('Ch. ' + r.hwChapter);
+ if (r.hwPage) ref.push('Pg. ' + r.hwPage);
+ if (r.hwExercise) ref.push(r.hwExercise);
+ if (ref.length) parts.push(ref.join(', '));
+ if (r.hwSubmitBy) { const d=new Date(r.hwSubmitBy); parts.push('submit by ' + (isNaN(d)? r.hwSubmitBy : fmtDate(r.hwSubmitBy))); }
+ return parts.join(' · ').trim();
+}
+// Normalize a row so structured fields exist; migrate legacy free-text into structured catch-alls.
+function _normalizeDiaryRow(r){
+ const row = Object.assign({ period:'', subject:'', cwChapter:'', cwChapterName:'', cwTopic:'', cwDone:'', hwActions:[], hwChapter:'', hwPage:'', hwExercise:'', hwSubmitBy:'', classwork:'', homework:'' }, r||{});
+ if (!Array.isArray(row.hwActions)) row.hwActions = [];
+ const hasStructured = row.cwChapter||row.cwChapterName||row.cwTopic||row.cwDone||row.hwChapter||row.hwPage||row.hwExercise||row.hwSubmitBy||row.hwActions.length;
+ // Legacy record (only classwork/homework text) → seed the catch-all fields so nothing is lost.
+ if (!hasStructured) {
+  if (row.classwork && !row.cwTopic) row.cwTopic = row.classwork;
+  if (row.homework && !row.hwExercise) row.hwExercise = row.homework;
+ }
+ return row;
 }
 // The most recent saved diary for a class BEFORE the given date (for "copy previous day").
 function _previousDiary(className, beforeDate){
  const prior = getDailyDiary()
-  .filter(d => String(d.className) === String(className) && !d._deleted && d.date < beforeDate && (d.rows||[]).some(r=>r.subject||r.classwork||r.homework))
+  .filter(d => String(d.className) === String(className) && !d._deleted && d.date < beforeDate && (d.rows||[]).some(r=>r.subject||r.classwork||r.homework||r.cwTopic||r.hwExercise))
   .sort((a,b) => (b.date||'').localeCompare(a.date||''));
  return prior[0] || null;
 }
-// Save a diary (upsert by class+date).
+// Save a diary (upsert by class+date). Composes readable strings from structured fields.
 function _saveDiary(className, date, rows){
+ rows = (rows||[]).map(r => {
+  const row = _normalizeDiaryRow(r);
+  row.classwork = _composeClasswork(row);
+  row.homework = _composeHomework(row);
+  return row;
+ });
  const all = getDailyDiary();
  const idx = all.findIndex(d => String(d.className) === String(className) && d.date === date && !d._deleted);
  const rec = {
@@ -2556,6 +2602,18 @@ function _diaryPrintShell(title, bodyHTML){
   .pcol { width:44px; text-align:center; font-weight:700; color:#555; }
   .scol { width:120px; }
   tr { height:46px; }
+  /* Structured blank-diary cells */
+  .th-sub { font-weight:normal; font-size:7pt; opacity:0.85; }
+  table.structured th, table.structured td { padding:4px 6px; }
+  table.structured .pcol { width:34px; }
+  table.structured .scol { width:60px; }
+  table.structured .tcol { width:48px; }
+  table.structured tr { height:78px; }
+  .cwcell { font-size:7.3pt; color:#6b5d55; line-height:1.9; }
+  .cwline { white-space:nowrap; }
+  .fl { color:#6b5d55; }
+  .cb { display:inline-block; width:9px; height:9px; border:1px solid #333; margin:0 2px -1px 2px; }
+  .instr { color:#7a1e2e; font-style:italic; font-weight:bold; font-size:7.3pt; margin:6px 0 2px; }
   .foot { margin-top:8px; font-size:8pt; color:#999; display:flex; justify-content:space-between; }
   .sign-row { margin-top:6px; font-size:9pt; }
   .btns { position:fixed; top:10px; right:10px; }
@@ -2578,20 +2636,32 @@ function _diaryHeaderHTML(){
 function _printBlankDiary(pages){
  pages = pages || 5;
  const labels = diaryPeriodLabels();
+ // Structured cells that FORCE specifics (chapter/topic/page/exercise) + tick-boxes for action.
+ const bl = 'border-bottom:1px solid #c9bfae;display:inline-block;';
+ const classworkCell = `
+   <div class="cwline"><span class="fl">Ch.</span><span style="${bl}width:34px"></span> <span class="fl">Name:</span><span style="${bl}width:150px"></span></div>
+   <div class="cwline"><span class="fl">Topic:</span><span style="${bl}width:190px"></span></div>
+   <div class="cwline"><span class="fl">Pg./Ex. done:</span><span style="${bl}width:150px"></span></div>`;
+ const homeworkCell = `
+   <div class="cwline"><span class="fl">Do:</span> <span class="cb"></span>Read <span class="cb"></span>Write <span class="cb"></span>Learn <span class="cb"></span>Solve <span class="cb"></span>Revise</div>
+   <div class="cwline"><span class="fl">Ch.</span><span style="${bl}width:30px"></span> <span class="fl">Pg.</span><span style="${bl}width:30px"></span> <span class="fl">Ex./Q.No.:</span><span style="${bl}width:110px"></span></div>
+   <div class="cwline"><span class="fl">Submit by:</span><span style="${bl}width:120px"></span></div>`;
  let body = '';
  for (let p = 0; p < pages; p++){
   body += `<div class="page">
    ${_diaryHeaderHTML()}
    <div class="meta">
     <div><span class="lbl">Class</span><div class="box">&nbsp;</div></div>
+    <div><span class="lbl">Section</span><div class="box">&nbsp;</div></div>
     <div><span class="lbl">Date</span><div class="box">&nbsp;</div></div>
     <div><span class="lbl">Day</span><div class="box">&nbsp;</div></div>
    </div>
-   <table>
-    <thead><tr><th class="pcol">Period</th><th class="scol">Subject</th><th>Classwork</th><th>Homework</th><th class="scol">T. Sign</th></tr></thead>
-    <tbody>${labels.map(l=>`<tr><td class="pcol">${l}</td><td></td><td></td><td></td><td></td></tr>`).join('')}</tbody>
+   <div class="instr">Fill EVERY blank — chapter, topic, page &amp; exercise/Q.No. One-word entries like &ldquo;do sums&rdquo; are incomplete.</div>
+   <table class="structured">
+    <thead><tr><th class="pcol">Period</th><th class="scol">Subject</th><th>CLASS WORK <span class="th-sub">(what was taught)</span></th><th>HOME WORK <span class="th-sub">(what to do)</span></th><th class="tcol">T. Sign</th></tr></thead>
+    <tbody>${labels.map(l=>`<tr><td class="pcol">${l}</td><td></td><td class="cwcell">${classworkCell}</td><td class="cwcell">${homeworkCell}</td><td></td></tr>`).join('')}</tbody>
    </table>
-   <div class="foot"><span>Class Teacher: ____________________</span><span>${escapeHTML(SCHOOL_INFO.shortName||'')} Daily Diary</span></div>
+   <div class="foot"><span>Class Teacher: ____________________</span><span>Checked by (Incharge): ____________________</span><span>${escapeHTML(SCHOOL_INFO.shortName||'MDBV')} Daily Diary</span></div>
   </div>`;
  }
  _diaryPrintShell('Blank Daily Diary', body);
@@ -6239,7 +6309,8 @@ function _renderDiaryEditor(myClasses){
  const classes = (myClasses && myClasses.length) ? myClasses : ALL_CLASSES;
  if (!_diaryClass && classes.length) _diaryClass = classes[0];
  const diary = _diaryFor(_diaryClass, _diaryDate);
- const rows = diary.rows && diary.rows.length ? diary.rows : _blankDiaryRows();
+ const rawRows = diary.rows && diary.rows.length ? diary.rows : _blankDiaryRows();
+ const rows = rawRows.map(_normalizeDiaryRow);
  const labels = diaryPeriodLabels();
  const dow = _dayOfWeek(_diaryDate);
  const prev = _previousDiary(_diaryClass, _diaryDate);
@@ -6267,20 +6338,33 @@ function _renderDiaryEditor(myClasses){
   <p class="text-xs text-gray-500 mb-2"><i class="fas fa-info-circle mr-1"></i>Fill the day's plan period by period. Leave a row blank if there's no class in that period. Either the class teacher (whole day) or a subject teacher (their row) can fill this — it saves for the whole class.</p>
 
   <div class="overflow-x-auto">
-   <table class="w-full text-sm border">
+   <table class="w-full text-sm border" style="min-width:820px">
     <thead class="bg-amber-50"><tr>
-     <th class="p-2 text-left w-12">Period</th>
-     <th class="p-2 text-left w-32">Subject</th>
-     <th class="p-2 text-left">Classwork</th>
-     <th class="p-2 text-left">Homework</th>
+     <th class="p-2 text-center w-10">Pd.</th>
+     <th class="p-2 text-left w-28">Subject</th>
+     <th class="p-2 text-left">Class Work <span class="font-normal text-gray-400 text-xs">(what was taught)</span></th>
+     <th class="p-2 text-left">Home Work <span class="font-normal text-gray-400 text-xs">(what to do)</span></th>
     </tr></thead>
     <tbody>
-     ${rows.map((r,i)=>`<tr class="border-t">
-      <td class="p-1 text-center font-semibold text-gray-500">${labels[i]||(i+1)}</td>
-      <td class="p-1"><input class="diaryCell text-sm w-full border-0 bg-transparent focus:bg-amber-50 rounded px-1 py-1" data-row="${i}" data-field="subject" value="${escapeHTML(r.subject||'')}" placeholder="—"></td>
-      <td class="p-1"><input class="diaryCell text-sm w-full border-0 bg-transparent focus:bg-amber-50 rounded px-1 py-1" data-row="${i}" data-field="classwork" value="${escapeHTML(r.classwork||'')}" placeholder="what was done in class"></td>
-      <td class="p-1"><input class="diaryCell text-sm w-full border-0 bg-transparent focus:bg-amber-50 rounded px-1 py-1" data-row="${i}" data-field="homework" value="${escapeHTML(r.homework||'')}" placeholder="homework given"></td>
-     </tr>`).join('')}
+     ${rows.map((r,i)=>{
+       const F = (field, ph, w) => `<input class="diaryF border rounded px-1 py-0.5 text-xs focus:bg-amber-50" data-row="${i}" data-field="${field}" value="${escapeHTML(r[field]||'')}" placeholder="${ph}" style="width:${w}">`;
+       const acts = ['Read','Write','Learn','Solve','Revise'];
+       const actBoxes = acts.map(a=>`<label class="inline-flex items-center gap-0.5 text-xs mr-1.5 cursor-pointer"><input type="checkbox" class="diaryAct w-auto" data-row="${i}" value="${a}" ${(r.hwActions||[]).includes(a)?'checked':''}>${a}</label>`).join('');
+       return `<tr class="border-t align-top">
+        <td class="p-1 text-center font-semibold text-gray-500 pt-2">${labels[i]||(i+1)}</td>
+        <td class="p-1">${F('subject','subject','100%')}</td>
+        <td class="p-1">
+         <div class="flex flex-wrap items-center gap-1 mb-1"><span class="text-xs text-gray-400">Ch.</span>${F('cwChapter','#','40px')}${F('cwChapterName','chapter name','130px')}</div>
+         <div class="mb-1">${F('cwTopic','topic taught','100%')}</div>
+         <div class="flex items-center gap-1"><span class="text-xs text-gray-400 whitespace-nowrap">Pg./Ex.:</span>${F('cwDone','pages / exercise done','100%')}</div>
+        </td>
+        <td class="p-1">
+         <div class="mb-1">${actBoxes}</div>
+         <div class="flex flex-wrap items-center gap-1 mb-1"><span class="text-xs text-gray-400">Ch.</span>${F('hwChapter','#','36px')}<span class="text-xs text-gray-400">Pg.</span>${F('hwPage','#','36px')}<span class="text-xs text-gray-400 whitespace-nowrap">Q.No.</span>${F('hwExercise','e.g. Q 1-5','110px')}</div>
+         <div class="flex items-center gap-1"><span class="text-xs text-gray-400 whitespace-nowrap">Submit by:</span><input type="date" class="diaryF border rounded px-1 py-0.5 text-xs" data-row="${i}" data-field="hwSubmitBy" value="${escapeHTML(r.hwSubmitBy||'')}" style="width:140px"></div>
+        </td>
+       </tr>`;
+     }).join('')}
     </tbody>
    </table>
   </div>
@@ -6844,16 +6928,21 @@ function _attachHomeworkEvents(){
  }));
  document.getElementById('diaryClearBtn')?.addEventListener('click', () => {
   if (!confirm('Clear all rows on this page? (Not saved until you click Save Diary.)')) return;
-  document.querySelectorAll('.diaryCell').forEach(c => { c.value = ''; });
+  document.querySelectorAll('.diaryF').forEach(c => { c.value = ''; });
+  document.querySelectorAll('.diaryAct').forEach(c => { c.checked = false; });
  });
  // Copy from the previous saved day into the current (unsaved) rows
  document.getElementById('diaryCopyPrevBtn')?.addEventListener('click', () => {
   const prev = _previousDiary(_diaryClass, _diaryDate);
   if (!prev) { showToast('No earlier diary to copy'); return; }
-  const cells = document.querySelectorAll('.diaryCell');
-  cells.forEach(c => {
+  const prevRows = (prev.rows||[]).map(_normalizeDiaryRow);
+  document.querySelectorAll('.diaryF').forEach(c => {
    const ri = parseInt(c.dataset.row), field = c.dataset.field;
-   if (prev.rows[ri]) c.value = prev.rows[ri][field] || '';
+   if (prevRows[ri]) c.value = prevRows[ri][field] || '';
+  });
+  document.querySelectorAll('.diaryAct').forEach(c => {
+   const ri = parseInt(c.dataset.row);
+   c.checked = prevRows[ri] && Array.isArray(prevRows[ri].hwActions) && prevRows[ri].hwActions.includes(c.value);
   });
   showToast('Copied from ' + fmtDate(prev.date) + ' — review, then Save');
  });
@@ -6875,11 +6964,17 @@ function _attachHomeworkEvents(){
  });
  document.getElementById('diarySaveBtn')?.addEventListener('click', () => {
   const rows = _blankDiaryRows();
-  document.querySelectorAll('.diaryCell').forEach(c => {
+  // Text/select/date fields
+  document.querySelectorAll('.diaryF').forEach(c => {
    const ri = parseInt(c.dataset.row), field = c.dataset.field;
    if (rows[ri]) rows[ri][field] = c.value.trim();
   });
-  const hasAny = rows.some(r => r.subject || r.classwork || r.homework);
+  // Action tick-boxes → hwActions array per row
+  document.querySelectorAll('.diaryAct').forEach(c => {
+   const ri = parseInt(c.dataset.row);
+   if (rows[ri] && c.checked) { if (!rows[ri].hwActions.includes(c.value)) rows[ri].hwActions.push(c.value); }
+  });
+  const hasAny = rows.some(r => r.subject || r.cwChapter || r.cwChapterName || r.cwTopic || r.cwDone || (r.hwActions&&r.hwActions.length) || r.hwChapter || r.hwPage || r.hwExercise || r.hwSubmitBy);
   if (!hasAny) { alert('Nothing to save — fill at least one period.'); return; }
   _saveDiary(_diaryClass, _diaryDate, rows);
   showToast('Diary saved for Class ' + _diaryClass + ' · ' + fmtDate(_diaryDate));
