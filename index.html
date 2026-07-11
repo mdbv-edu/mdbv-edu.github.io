@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1783621902 - homework oversight for owner + admin (view teacher uploads) -->
+<!-- BUILD: v-1783764522 - diary: day-of-week, adjustable periods, copy-previous, homework glance, printable blank+filled -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -2008,6 +2008,7 @@ const DB_SCHEMA = {
  bankAccounts:        { type: 'array', desc: 'School bank accounts' },
  bankTransactions:    { type: 'array', desc: 'Bank deposits / withdrawals' },
  homeworks:           { type: 'array', desc: 'Homework assignments posted by teachers' },
+ dailyDiary:          { type: 'array', desc: 'Structured daily class diary (period/subject/classwork/homework)' },
  homeworkSubmissions: { type: 'array', desc: 'Student submissions for homework' },
  examMarks:           { type: 'array', desc: 'Exam marks entered by teachers' },
  complaints:          { type: 'array', desc: 'Anonymous complaints' },
@@ -2424,8 +2425,202 @@ function set(k, d){ DB.setAll(k, d); }
 function getUsers(){ return DB.getAll('users'); }
 function getStudents(){ return DB.getAll('students'); }
 function getFeeTransactions(){ return DB.getAll('feeTransactions'); }
+// Compact HOMEWORK-ONLY summary from the diary — just subject + homework, latest day.
+// For parents who want a quick "what's the homework" glance.
+function renderHomeworkSummary(className, opts){
+ opts = opts || {};
+ const all = getDailyDiary().filter(d => String(d.className) === String(className) && !d._deleted && (d.rows||[]).some(r=>r.homework))
+   .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+ if (all.length === 0) return '';
+ const days = all.slice(0, opts.limit || 3);
+ return `<div class="space-y-3">
+  ${days.map(d => {
+    const hw = (d.rows||[]).filter(r=>r.homework && r.homework.trim());
+    if (!hw.length) return '';
+    return `<div class="border rounded-lg overflow-hidden">
+     <div class="bg-amber-100 px-3 py-1.5 text-sm font-semibold text-amber-900"><i class="fas fa-pen mr-1"></i>Homework · ${fmtDate(d.date)}${(() => { const dt=new Date(d.date); return isNaN(dt)?'':' ('+dt.toLocaleDateString('en-IN',{weekday:'short'})+')'; })()}</div>
+     <ul class="divide-y">${hw.map(r=>`<li class="px-3 py-2 text-sm"><span class="font-medium text-gray-700">${escapeHTML(r.subject||'—')}:</span> <span class="text-gray-900">${escapeHTML(r.homework)}</span></li>`).join('')}</ul>
+    </div>`;
+  }).join('')}
+ </div>`;
+}
+
+// Read-only diary view for a class — used by parents, students, and oversight.
+function renderDiaryView(className, opts){
+ opts = opts || {};
+ const all = getDailyDiary().filter(d => String(d.className) === String(className) && !d._deleted && (d.rows||[]).some(r=>r.subject||r.classwork||r.homework));
+ all.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+ if (all.length === 0) {
+  return `<div class="bg-white border rounded-lg p-8 text-center text-gray-400"><i class="fas fa-book text-3xl mb-2"></i><p>No diary entries yet for Class ${escapeHTML(String(className))}.</p></div>`;
+ }
+ const showN = opts.limit || all.length;
+ return `<div class="space-y-4">
+  ${all.slice(0, showN).map(d => {
+    const filled = (d.rows||[]).filter(r=>r.subject||r.classwork||r.homework);
+    return `<div class="bg-white border rounded-lg overflow-hidden">
+     <div class="bg-burgundy text-white px-4 py-2 flex flex-wrap justify-between items-center gap-2" style="background:#7a1e2e">
+      <div class="font-semibold"><i class="fas fa-calendar-day mr-1"></i>${fmtDate(d.date)}${(() => { const dt=new Date(d.date); return isNaN(dt)?'':' · '+dt.toLocaleDateString('en-IN',{weekday:'long'}); })()}</div>
+      <div class="text-xs opacity-80">Class ${escapeHTML(String(d.className))}</div>
+     </div>
+     <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+       <thead class="bg-amber-50"><tr><th class="p-2 text-left w-12">Period</th><th class="p-2 text-left w-32">Subject</th><th class="p-2 text-left">Classwork</th><th class="p-2 text-left">Homework</th></tr></thead>
+       <tbody>${filled.map(r=>`<tr class="border-t">
+        <td class="p-2 text-center font-semibold text-gray-400">${escapeHTML(r.period||'')}</td>
+        <td class="p-2 font-medium">${escapeHTML(r.subject||'')}</td>
+        <td class="p-2 text-gray-700">${escapeHTML(r.classwork||'')||'<span class="text-gray-300">—</span>'}</td>
+        <td class="p-2 text-gray-900">${escapeHTML(r.homework||'')||'<span class="text-gray-300">—</span>'}</td>
+       </tr>`).join('')}</tbody>
+      </table>
+     </div>
+    </div>`;
+  }).join('')}
+ </div>`;
+}
+
 function getHomeworks(){ return DB.getAll('homeworks'); }
+
+// ===== DAILY DIARY (structured Period/Subject/Classwork/Homework per class per day) =====
+// Stored in the 'dailyDiary' table. One record per class per date:
+//   { id, className, date, rows:[{period,subject,classwork,homework}], updatedBy, updatedAt }
+function getDailyDiary(){ return DB.getAll('dailyDiary'); }
+function saveDailyDiary(d){ DB.setAll('dailyDiary', d); }
+// Number of periods in a school day — configurable in Settings (default 8, matches the paper diary).
+const DIARY_PERIODS_DEFAULT = 8;
+const DIARY_PERIODS_MAX = 12;
+function diaryPeriodCount(){
+ const v = parseInt(DB.getScalar('_diaryPeriodCount'));
+ return (v && v >= 1 && v <= DIARY_PERIODS_MAX) ? v : DIARY_PERIODS_DEFAULT;
+}
+function setDiaryPeriodCount(n){ DB.setScalar('_diaryPeriodCount', Math.max(1, Math.min(DIARY_PERIODS_MAX, parseInt(n)||DIARY_PERIODS_DEFAULT))); }
+const _ROMAN = ['I','II','III','IV','V','VI','VII','VIII','IX','X','XI','XII'];
+function diaryPeriodLabels(){ return _ROMAN.slice(0, diaryPeriodCount()); }
+// Day of week for a date string (e.g. "Wednesday"), or '' if invalid.
+function _dayOfWeek(dateStr){
+ const d = new Date(dateStr);
+ return isNaN(d) ? '' : d.toLocaleDateString('en-IN', { weekday: 'long' });
+}
+// Fetch (or build a blank) diary for a class + date.
+function _diaryFor(className, date){
+ const all = getDailyDiary();
+ const found = all.find(d => String(d.className) === String(className) && d.date === date && !d._deleted);
+ if (found) return found;
+ return { className: String(className), date, rows: _blankDiaryRows(), _new: true };
+}
+function _blankDiaryRows(){
+ return diaryPeriodLabels().map(p => ({ period: p, subject: '', classwork: '', homework: '' }));
+}
+// The most recent saved diary for a class BEFORE the given date (for "copy previous day").
+function _previousDiary(className, beforeDate){
+ const prior = getDailyDiary()
+  .filter(d => String(d.className) === String(className) && !d._deleted && d.date < beforeDate && (d.rows||[]).some(r=>r.subject||r.classwork||r.homework))
+  .sort((a,b) => (b.date||'').localeCompare(a.date||''));
+ return prior[0] || null;
+}
+// Save a diary (upsert by class+date).
+function _saveDiary(className, date, rows){
+ const all = getDailyDiary();
+ const idx = all.findIndex(d => String(d.className) === String(className) && d.date === date && !d._deleted);
+ const rec = {
+  id: idx > -1 ? all[idx].id : (Date.now() + Math.floor(Math.random()*100000)),
+  className: String(className), date, rows,
+  updatedBy: currentUser?.name || '', updatedAt: new Date().toISOString()
+ };
+ if (idx > -1) all[idx] = { ...all[idx], ...rec }; else all.push(rec);
+ saveDailyDiary(all);
+ return rec;
+}
 function getComplaints(){ return DB.getAll('complaints'); }
+// ---- Diary printing (blank template + filled pages) ----
+function _diaryPrintShell(title, bodyHTML){
+ const school = SCHOOL_INFO;
+ const logoImg = school.logo ? `<img src="${school.logo}" style="width:54px;height:54px;object-fit:contain">` : '';
+ const w = window.open('', '_blank', 'width=900,height=1000');
+ if (!w) { alert('Pop-up blocked. Please allow pop-ups for this site, then try again.'); return; }
+ w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title}</title>
+ <style>
+  @page { size: A4 portrait; margin: 1.2cm; }
+  * { box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; color:#2a1410; margin:0; padding:0; }
+  .page { page-break-after: always; }
+  .page:last-child { page-break-after: auto; }
+  .hdr { display:flex; align-items:center; gap:12px; border-bottom:3px solid #7a1e2e; padding-bottom:8px; margin-bottom:6px; }
+  .sn { font-size:18pt; font-weight:800; color:#7a1e2e; line-height:1.1; }
+  .sm { font-size:8pt; color:#57433d; }
+  .meta { display:flex; justify-content:space-between; align-items:flex-end; margin:8px 0; font-size:11pt; }
+  .meta .box { border:1px solid #999; padding:3px 10px; border-radius:4px; min-width:120px; }
+  .lbl { font-size:8pt; color:#777; display:block; }
+  table { width:100%; border-collapse:collapse; margin-top:4px; }
+  th, td { border:1px solid #333; padding:6px 8px; font-size:10pt; vertical-align:top; }
+  th { background:#7a1e2e; color:#fff; text-align:left; font-size:9pt; }
+  .pcol { width:44px; text-align:center; font-weight:700; color:#555; }
+  .scol { width:120px; }
+  tr { height:46px; }
+  .foot { margin-top:8px; font-size:8pt; color:#999; display:flex; justify-content:space-between; }
+  .sign-row { margin-top:6px; font-size:9pt; }
+  .btns { position:fixed; top:10px; right:10px; }
+  .btns button { padding:8px 16px; font-weight:600; border:none; border-radius:8px; cursor:pointer; margin-left:6px; }
+  .pr { background:#7a1e2e; color:#fff; } .cl { background:#e5e5e5; }
+  @media print { .btns { display:none; } }
+ </style></head><body>
+  ${bodyHTML}
+  <div class="btns"><button class="pr" onclick="window.print()">Print / Save PDF</button><button class="cl" onclick="window.close()">Close</button></div>
+ </body></html>`);
+ w.document.close();
+}
+function _diaryHeaderHTML(){
+ const school = SCHOOL_INFO;
+ const logoImg = school.logo ? `<img src="${school.logo}" style="width:54px;height:54px;object-fit:contain">` : '';
+ return `<div class="hdr">${logoImg}<div><div class="sn">${escapeHTML(school.name)}</div><div class="sm">${escapeHTML((school.addressLine1||'')+ (school.addressLine2?', '+school.addressLine2:''))} · ${escapeHTML(school.phone||'')}</div></div></div>
+  <div style="text-align:center;font-weight:700;font-size:13pt;color:#c8860d;letter-spacing:2px;margin:4px 0">DAILY DIARY</div>`;
+}
+// Blank printable template — N pages, empty rows for handwriting.
+function _printBlankDiary(pages){
+ pages = pages || 5;
+ const labels = diaryPeriodLabels();
+ let body = '';
+ for (let p = 0; p < pages; p++){
+  body += `<div class="page">
+   ${_diaryHeaderHTML()}
+   <div class="meta">
+    <div><span class="lbl">Class</span><div class="box">&nbsp;</div></div>
+    <div><span class="lbl">Date</span><div class="box">&nbsp;</div></div>
+    <div><span class="lbl">Day</span><div class="box">&nbsp;</div></div>
+   </div>
+   <table>
+    <thead><tr><th class="pcol">Period</th><th class="scol">Subject</th><th>Classwork</th><th>Homework</th><th class="scol">T. Sign</th></tr></thead>
+    <tbody>${labels.map(l=>`<tr><td class="pcol">${l}</td><td></td><td></td><td></td><td></td></tr>`).join('')}</tbody>
+   </table>
+   <div class="foot"><span>Class Teacher: ____________________</span><span>${escapeHTML(SCHOOL_INFO.shortName||'')} Daily Diary</span></div>
+  </div>`;
+ }
+ _diaryPrintShell('Blank Daily Diary', body);
+}
+// Print a filled diary — one class, one date (or a range of dates).
+function _printFilledDiary(className, dates){
+ const labels = diaryPeriodLabels();
+ let body = '';
+ dates.forEach(date => {
+  const diary = _diaryFor(className, date);
+  const rows = (diary.rows||[]).length ? diary.rows : _blankDiaryRows();
+  const dow = _dayOfWeek(date);
+  body += `<div class="page">
+   ${_diaryHeaderHTML()}
+   <div class="meta">
+    <div><span class="lbl">Class</span><div class="box">${escapeHTML(String(className))}</div></div>
+    <div><span class="lbl">Date</span><div class="box">${fmtDate(date)}</div></div>
+    <div><span class="lbl">Day</span><div class="box">${dow||''}</div></div>
+   </div>
+   <table>
+    <thead><tr><th class="pcol">Period</th><th class="scol">Subject</th><th>Classwork</th><th>Homework</th></tr></thead>
+    <tbody>${rows.map((r,i)=>`<tr><td class="pcol">${labels[i]||(i+1)}</td><td>${escapeHTML(r.subject||'')}</td><td>${escapeHTML(r.classwork||'')}</td><td>${escapeHTML(r.homework||'')}</td></tr>`).join('')}</tbody>
+   </table>
+   <div class="foot"><span>Saved by: ${escapeHTML(diary.updatedBy||'—')}</span><span>${escapeHTML(SCHOOL_INFO.shortName||'')} Daily Diary</span></div>
+  </div>`;
+ });
+ _diaryPrintShell('Daily Diary — Class ' + className, body);
+}
+
 function getTeachers(){ return DB.getAll('teachers'); }
 // Gather every staff member across the school for the salary payee dropdown:
 // teachers (with their id), plus principal/accountant/admin user accounts, plus bus drivers.
@@ -2515,9 +2710,37 @@ function saveHomeworks(d){ DB.setAll('homeworks', d); }
 let _hwOverClass = '';
 let _hwOverTeacher = '';
 let _hwOverSearch = '';
+let _hwOverMode = 'diary';      // 'diary' | 'quick'
+let _hwOverDiaryClass = '';
 function renderHomeworkOversight(){
+ // Sub-mode: 'diary' (structured daily diary) or 'quick' (file/quick homework)
+ const diaryClasses = Array.from(new Set(getDailyDiary().filter(d=>!d._deleted).map(d=>String(d.className)))).sort();
+ if (!_hwOverDiaryClass && diaryClasses.length) _hwOverDiaryClass = diaryClasses[0];
+ const diarySection = `<div class="mb-4">
+  <div class="flex flex-wrap gap-2 mb-3">
+   <button class="hwOverModeBtn px-4 py-2 rounded-lg text-sm font-medium ${_hwOverMode==='diary'?'bg-amber-600 text-white':'bg-gray-100 hover:bg-gray-200'}" data-mode="diary"><i class="fas fa-table-list mr-1"></i>Daily Diary</button>
+   <button class="hwOverModeBtn px-4 py-2 rounded-lg text-sm font-medium ${_hwOverMode==='quick'?'bg-amber-600 text-white':'bg-gray-100 hover:bg-gray-200'}" data-mode="quick"><i class="fas fa-paperclip mr-1"></i>Quick Homework / Files</button>
+  </div>
+ </div>`;
+
+ if (_hwOverMode === 'diary') {
+  return `<div>${diarySection}
+   ${diaryClasses.length === 0 ? '<div class="bg-white border rounded-lg p-8 text-center text-gray-400"><i class="fas fa-book text-3xl mb-2"></i><p>No daily diary entries yet. Teachers fill these from their Homework → Daily Diary tab.</p></div>' : `
+   <div class="bg-white border rounded-lg p-4 mb-4 flex flex-wrap items-end justify-between gap-2">
+    <div>
+     <label class="text-xs font-medium">Class</label>
+     <select id="hwOverDiaryClass" class="text-sm ml-2">${diaryClasses.map(c=>`<option value="${escapeHTML(c)}" ${c===_hwOverDiaryClass?'selected':''}>Class ${escapeHTML(c)}</option>`).join('')}</select>
+    </div>
+    <button id="hwOverPrintDiaryBtn" class="bg-burgundy hover:opacity-90 text-white px-3 py-2 rounded-lg text-xs font-medium" style="background:#7a1e2e"><i class="fas fa-print mr-1"></i>Print recent pages</button>
+   </div>
+   ${renderDiaryView(_hwOverDiaryClass, { limit: 30 })}`}
+  </div>`;
+ }
+
+ // Quick homework / files mode (the original oversight)
  let hws = getHomeworks().slice().sort((a,b) => (b.date||b.dueDate||'').localeCompare(a.date||a.dueDate||''));
  // Distinct classes & teachers present, for filters
+ const _diaryPrefix = diarySection;
  const classes = Array.from(new Set(hws.map(h => String(h.className)))).filter(Boolean).sort();
  const teachers = Array.from(new Set(hws.map(h => h.teacher).filter(Boolean))).sort();
  // Apply filters
@@ -2530,6 +2753,7 @@ function renderHomeworkOversight(){
  const withFiles = getHomeworks().filter(h => h.attachmentData).length;
 
  return `<div>
+  ${_diaryPrefix}
   <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
    <div class="bg-amber-50 border-2 border-amber-200 rounded-xl p-4"><div class="text-xs text-amber-700 font-semibold uppercase">Total Homework</div><div class="text-2xl font-bold text-amber-900 mt-1">${total}</div></div>
    <div class="bg-blue-50 border-2 border-blue-200 rounded-xl p-4"><div class="text-xs text-blue-700 font-semibold uppercase">With Attachment</div><div class="text-2xl font-bold text-blue-900 mt-1">${withFiles}</div></div>
@@ -2582,6 +2806,15 @@ function _attachHomeworkOversightEvents(){
   if (isOwnerLevel() && ownerView === 'homework') { renderApp(); }
   else { refreshAdminTabContent(); }
  };
+ // Mode toggle (diary vs quick) + diary class selector
+ document.querySelectorAll('.hwOverModeBtn').forEach(b => b.addEventListener('click', () => { _hwOverMode = b.dataset.mode; rerender(); }));
+ document.getElementById('hwOverDiaryClass')?.addEventListener('change', e => { _hwOverDiaryClass = e.target.value; rerender(); });
+ // Print recent diary pages for the selected class (last 10 saved days)
+ document.getElementById('hwOverPrintDiaryBtn')?.addEventListener('click', () => {
+  const dates = getDailyDiary().filter(d=>String(d.className)===String(_hwOverDiaryClass) && !d._deleted && (d.rows||[]).some(r=>r.subject||r.classwork||r.homework)).sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,10).map(d=>d.date);
+  if (!dates.length) { showToast('No diary pages to print'); return; }
+  _printFilledDiary(_hwOverDiaryClass, dates);
+ });
  document.getElementById('hwOverSearch')?.addEventListener('input', e => { _hwOverSearch = e.target.value; rerender(); });
  document.getElementById('hwOverClass')?.addEventListener('change', e => { _hwOverClass = e.target.value; rerender(); });
  document.getElementById('hwOverTeacher')?.addEventListener('change', e => { _hwOverTeacher = e.target.value; rerender(); });
@@ -5987,7 +6220,114 @@ function renderTchAttendanceView(){
 }
 
 /* ---------- TAB 3: HOMEWORK ---------- */
+let _hwMode = 'diary';          // 'diary' | 'quick'
+let _diaryClass = '';
+let _diaryDate = new Date().toISOString().slice(0,10);
 function renderTchHomework(){
+ const myClasses = _teacherAssignedClasses();
+ return `<div>
+  <div class="flex flex-wrap gap-2 mb-4">
+   <button class="hwModeBtn px-4 py-2 rounded-lg text-sm font-medium ${_hwMode==='diary'?'bg-amber-600 text-white':'bg-gray-100 hover:bg-gray-200'}" data-mode="diary"><i class="fas fa-table-list mr-1"></i>Daily Diary</button>
+   <button class="hwModeBtn px-4 py-2 rounded-lg text-sm font-medium ${_hwMode==='quick'?'bg-amber-600 text-white':'bg-gray-100 hover:bg-gray-200'}" data-mode="quick"><i class="fas fa-bolt mr-1"></i>Quick Homework</button>
+  </div>
+  ${_hwMode==='diary' ? _renderDiaryEditor(myClasses) : _renderQuickHomework()}
+ </div>`;
+}
+
+// ---- Structured daily diary editor (Period / Subject / Classwork / Homework) ----
+function _renderDiaryEditor(myClasses){
+ const classes = (myClasses && myClasses.length) ? myClasses : ALL_CLASSES;
+ if (!_diaryClass && classes.length) _diaryClass = classes[0];
+ const diary = _diaryFor(_diaryClass, _diaryDate);
+ const rows = diary.rows && diary.rows.length ? diary.rows : _blankDiaryRows();
+ const labels = diaryPeriodLabels();
+ const dow = _dayOfWeek(_diaryDate);
+ const prev = _previousDiary(_diaryClass, _diaryDate);
+ return `<div class="bg-white border rounded-lg p-4">
+  <div class="flex flex-wrap items-end gap-3 mb-3">
+   <div>
+    <label class="text-xs font-medium block mb-0.5">Class</label>
+    <select id="diaryClass" class="text-sm">${classes.map(c=>`<option value="${c}" ${String(c)===String(_diaryClass)?'selected':''}>Class ${c}</option>`).join('')}</select>
+   </div>
+   <div>
+    <label class="text-xs font-medium block mb-0.5">Date</label>
+    <input type="date" id="diaryDate" value="${_diaryDate}" class="text-sm">
+   </div>
+   <div class="pb-2">
+    <span class="inline-block bg-burgundy text-white text-xs px-2 py-1 rounded" style="background:#7a1e2e"><i class="fas fa-calendar-day mr-1"></i>${dow||'—'}</span>
+   </div>
+   <div class="text-xs text-gray-500 pb-2">${diary._new ? '<i class="fas fa-circle-plus mr-1 text-emerald-500"></i>New page' : `<i class="fas fa-clock-rotate-left mr-1"></i>Last saved by ${escapeHTML(diary.updatedBy||'?')}`}</div>
+  </div>
+
+  <div class="flex flex-wrap gap-2 mb-2">
+   ${prev ? `<button id="diaryCopyPrevBtn" class="bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-copy mr-1"></i>Copy from ${fmtDate(prev.date)}</button>` : ''}
+   <button id="diaryPrintFilledBtn" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-print mr-1"></i>Print this page</button>
+  </div>
+
+  <p class="text-xs text-gray-500 mb-2"><i class="fas fa-info-circle mr-1"></i>Fill the day's plan period by period. Leave a row blank if there's no class in that period. Either the class teacher (whole day) or a subject teacher (their row) can fill this — it saves for the whole class.</p>
+
+  <div class="overflow-x-auto">
+   <table class="w-full text-sm border">
+    <thead class="bg-amber-50"><tr>
+     <th class="p-2 text-left w-12">Period</th>
+     <th class="p-2 text-left w-32">Subject</th>
+     <th class="p-2 text-left">Classwork</th>
+     <th class="p-2 text-left">Homework</th>
+    </tr></thead>
+    <tbody>
+     ${rows.map((r,i)=>`<tr class="border-t">
+      <td class="p-1 text-center font-semibold text-gray-500">${labels[i]||(i+1)}</td>
+      <td class="p-1"><input class="diaryCell text-sm w-full border-0 bg-transparent focus:bg-amber-50 rounded px-1 py-1" data-row="${i}" data-field="subject" value="${escapeHTML(r.subject||'')}" placeholder="—"></td>
+      <td class="p-1"><input class="diaryCell text-sm w-full border-0 bg-transparent focus:bg-amber-50 rounded px-1 py-1" data-row="${i}" data-field="classwork" value="${escapeHTML(r.classwork||'')}" placeholder="what was done in class"></td>
+      <td class="p-1"><input class="diaryCell text-sm w-full border-0 bg-transparent focus:bg-amber-50 rounded px-1 py-1" data-row="${i}" data-field="homework" value="${escapeHTML(r.homework||'')}" placeholder="homework given"></td>
+     </tr>`).join('')}
+    </tbody>
+   </table>
+  </div>
+
+  <div class="flex flex-wrap justify-between items-center gap-2 mt-3 pt-3 border-t">
+   <div class="text-xs text-gray-400">Parents and students of Class ${_diaryClass} will see this once saved.</div>
+   <div class="flex gap-2">
+    <button id="diaryClearBtn" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-2 rounded-lg text-sm font-medium">Clear rows</button>
+    <button id="diarySaveBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-lg text-sm font-medium"><i class="fas fa-save mr-1"></i>Save Diary</button>
+   </div>
+  </div>
+ </div>
+
+ <!-- Printable blank template + period setting -->
+ <div class="bg-white border rounded-lg p-4 mt-4">
+  <div class="flex flex-wrap items-center justify-between gap-2">
+   <div>
+    <h3 class="font-semibold text-sm"><i class="fas fa-file-lines text-burgundy mr-1" style="color:#7a1e2e"></i>Printable Blank Diary</h3>
+    <p class="text-xs text-gray-500">Print blank diary pages to hand to teachers as a physical diary.</p>
+   </div>
+   <button id="diaryPrintBlankBtn" class="bg-burgundy hover:opacity-90 text-white px-4 py-2 rounded-lg text-sm font-medium" style="background:#7a1e2e"><i class="fas fa-print mr-1"></i>Print Blank Diary</button>
+  </div>
+  <div class="mt-3 pt-3 border-t flex flex-wrap items-end gap-2">
+   <div>
+    <label class="text-xs font-medium block mb-0.5">Periods per day</label>
+    <select id="diaryPeriodCount" class="text-sm">${Array.from({length:DIARY_PERIODS_MAX},(_,i)=>i+1).map(n=>`<option value="${n}" ${n===diaryPeriodCount()?'selected':''}>${n} periods</option>`).join('')}</select>
+   </div>
+   <button id="diaryPeriodSaveBtn" class="bg-gray-700 hover:bg-gray-800 text-white px-3 py-2 rounded-lg text-xs font-medium">Set</button>
+   <span class="text-xs text-gray-400">Applies to the diary table and printouts for all classes.</span>
+  </div>
+ </div>
+
+ <!-- Recent diary pages -->
+ ${(() => {
+   const recent = getDailyDiary().filter(d=>!d._deleted && (!myClasses.length || myClasses.includes(String(d.className)))).sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,7);
+   if (!recent.length) return '';
+   return `<div class="bg-white border rounded-lg p-4 mt-4">
+    <h3 class="font-semibold text-sm mb-2"><i class="fas fa-clock-rotate-left text-gray-500 mr-1"></i>Recent Diary Pages</h3>
+    <div class="flex flex-wrap gap-2">${recent.map(d=>{
+      const filled = (d.rows||[]).filter(r=>r.subject||r.classwork||r.homework).length;
+      return `<button class="diaryJumpBtn text-xs border rounded px-2 py-1 hover:bg-amber-50" data-class="${escapeHTML(String(d.className))}" data-date="${d.date}">Class ${escapeHTML(String(d.className))} · ${fmtDate(d.date)} <span class="text-gray-400">(${filled})</span></button>`;
+    }).join('')}</div>
+   </div>`;
+ })()}`;
+}
+
+function _renderQuickHomework(){
  const myHws = getHomeworks().filter(h => h.teacherId === currentUser.id || h.teacher === currentUser.name);
  return `<div>
   <div class="bg-white border rounded-lg p-4 mb-4">
@@ -6490,6 +6830,62 @@ function _attachAttendanceEvents(){
 }
 
 function _attachHomeworkEvents(){
+ // Mode toggle (Daily Diary vs Quick Homework)
+ document.querySelectorAll('.hwModeBtn').forEach(b => b.addEventListener('click', () => {
+  _hwMode = b.dataset.mode;
+  renderApp();
+ }));
+
+ // ---- Daily Diary events ----
+ document.getElementById('diaryClass')?.addEventListener('change', e => { _diaryClass = e.target.value; renderApp(); });
+ document.getElementById('diaryDate')?.addEventListener('change', e => { _diaryDate = e.target.value; renderApp(); });
+ document.querySelectorAll('.diaryJumpBtn').forEach(b => b.addEventListener('click', () => {
+  _diaryClass = b.dataset.class; _diaryDate = b.dataset.date; renderApp();
+ }));
+ document.getElementById('diaryClearBtn')?.addEventListener('click', () => {
+  if (!confirm('Clear all rows on this page? (Not saved until you click Save Diary.)')) return;
+  document.querySelectorAll('.diaryCell').forEach(c => { c.value = ''; });
+ });
+ // Copy from the previous saved day into the current (unsaved) rows
+ document.getElementById('diaryCopyPrevBtn')?.addEventListener('click', () => {
+  const prev = _previousDiary(_diaryClass, _diaryDate);
+  if (!prev) { showToast('No earlier diary to copy'); return; }
+  const cells = document.querySelectorAll('.diaryCell');
+  cells.forEach(c => {
+   const ri = parseInt(c.dataset.row), field = c.dataset.field;
+   if (prev.rows[ri]) c.value = prev.rows[ri][field] || '';
+  });
+  showToast('Copied from ' + fmtDate(prev.date) + ' — review, then Save');
+ });
+ // Print the current page (uses saved data)
+ document.getElementById('diaryPrintFilledBtn')?.addEventListener('click', () => {
+  _printFilledDiary(_diaryClass, [_diaryDate]);
+ });
+ // Print blank template
+ document.getElementById('diaryPrintBlankBtn')?.addEventListener('click', () => {
+  const n = parseInt(prompt('How many blank diary pages to print?', '5')) || 5;
+  _printBlankDiary(Math.max(1, Math.min(50, n)));
+ });
+ // Set periods per day
+ document.getElementById('diaryPeriodSaveBtn')?.addEventListener('click', () => {
+  const n = parseInt(document.getElementById('diaryPeriodCount').value) || DIARY_PERIODS_DEFAULT;
+  setDiaryPeriodCount(n);
+  showToast('Diary set to ' + diaryPeriodCount() + ' periods per day');
+  renderApp();
+ });
+ document.getElementById('diarySaveBtn')?.addEventListener('click', () => {
+  const rows = _blankDiaryRows();
+  document.querySelectorAll('.diaryCell').forEach(c => {
+   const ri = parseInt(c.dataset.row), field = c.dataset.field;
+   if (rows[ri]) rows[ri][field] = c.value.trim();
+  });
+  const hasAny = rows.some(r => r.subject || r.classwork || r.homework);
+  if (!hasAny) { alert('Nothing to save — fill at least one period.'); return; }
+  _saveDiary(_diaryClass, _diaryDate, rows);
+  showToast('Diary saved for Class ' + _diaryClass + ' · ' + fmtDate(_diaryDate));
+  renderApp();
+ });
+
  // File picker — convert to base64 on selection (with size check)
  let attachmentData = null, attachmentName = null, attachmentType = null;
  document.getElementById('hwFile')?.addEventListener('change', e => {
@@ -7045,6 +7441,14 @@ function renderParAcademics(students){
      </div>
     </details>
 
+    <details class="border rounded" open>
+     <summary class="cursor-pointer px-3 py-2 bg-amber-50 font-medium text-sm"><i class="fas fa-table-list text-amber-600 mr-1"></i>Daily Diary — Class ${s.class}</summary>
+     <div class="p-3">
+      ${(() => { const summ = renderHomeworkSummary(s.class, { limit: 2 }); return summ ? `<div class="mb-3"><div class="text-xs font-semibold text-amber-700 mb-1">TODAY'S HOMEWORK AT A GLANCE</div>${summ}</div><div class="text-xs font-semibold text-gray-500 mb-1 mt-3">FULL DIARY</div>` : ''; })()}
+      ${renderDiaryView(s.class, { limit: 5 })}
+     </div>
+    </details>
+
     <details class="border rounded">
      <summary class="cursor-pointer px-3 py-2 bg-gray-50 font-medium text-sm">Homework (${myHws.length})</summary>
      <div class="p-3 space-y-2">
@@ -7239,7 +7643,12 @@ function renderStuHomework(s){
  const subsByHw = {};
  subs.forEach(sub => { subsByHw[sub.homeworkId] = sub; });
  return `<div class="space-y-3">
-  ${hws.length === 0 ? '<div class="bg-white border rounded-lg p-6 text-center text-gray-500"><i class="fas fa-book-open text-3xl mb-2"></i><div>No homework assigned yet</div></div>' : hws.map(h => {
+  <div class="bg-white border rounded-lg p-4">
+   <h3 class="font-semibold mb-3"><i class="fas fa-table-list text-amber-600 mr-1"></i>Daily Diary — Class ${s.class}</h3>
+   ${renderDiaryView(s.class, { limit: 7 })}
+  </div>
+  ${hws.length === 0 && subs.length === 0 ? '' : `<div class="text-sm font-semibold text-gray-500 mt-4 mb-1"><i class="fas fa-paperclip mr-1"></i>Homework with attachments / submissions</div>`}
+  ${hws.length === 0 ? '' : hws.map(h => {
     const sub = subsByHw[h.id];
     const isSubmitted = !!sub;
     const isOverdue = !isSubmitted && h.dueDate && new Date(h.dueDate) < new Date();
