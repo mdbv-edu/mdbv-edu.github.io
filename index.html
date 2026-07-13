@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1783768748 - Hindi option on login screen (shares parent language pref) -->
+<!-- BUILD: v-1783935345 - academic year (Apr-Mar) tagging on receipts + year filter for old dues -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -7534,11 +7534,12 @@ function renderParFees(students){
     ${txns.length === 0 ? `<div class="text-sm text-gray-500 py-3 text-center">${pt('No payments recorded yet','अभी तक कोई भुगतान दर्ज नहीं')}</div>` : `
      <h4 class="font-semibold text-sm mb-2">${pt('Payment History','भुगतान इतिहास')}</h4>
      <div class="overflow-x-auto"><table class="text-sm w-full border">
-      <thead class="bg-gray-100"><tr><th class="text-left p-2">${pt('Date','दिनांक')}</th><th class="text-left p-2">${pt('Receipt','रसीद')}</th><th class="text-left p-2">${pt('Towards','मद')}</th><th class="text-left p-2">${pt('Mode','माध्यम')}</th><th class="text-right p-2">${pt('Amount','राशि')}</th><th class="p-2">${pt('Action','कार्य')}</th></tr></thead>
+      <thead class="bg-gray-100"><tr><th class="text-left p-2">${pt('Date','दिनांक')}</th><th class="text-left p-2">${pt('Receipt','रसीद')}</th><th class="text-left p-2">${pt('Year','सत्र')}</th><th class="text-left p-2">${pt('Towards','मद')}</th><th class="text-left p-2">${pt('Mode','माध्यम')}</th><th class="text-right p-2">${pt('Amount','राशि')}</th><th class="p-2">${pt('Action','कार्य')}</th></tr></thead>
       <tbody>${txns.map(t => `<tr class="border-t hover:bg-emerald-50">
         <td class="p-2 text-xs">${fmtDate(t.date)}</td>
         <td class="p-2 font-mono text-xs">${t.receiptNo || '-'}</td>
-        <td class="p-2">${t.feeHead || 'Tuition'}</td>
+        <td class="p-2 text-xs">${t.academicYear || '-'}</td>
+        <td class="p-2">${t.headLabel || t.feeHead || 'Tuition'}</td>
         <td class="p-2 text-xs">${t.mode || '-'}</td>
         <td class="p-2 text-right font-semibold text-emerald-700">${fmtINR(t.amount)}</td>
         <td class="p-2"><button class="parPrintReceiptBtn bg-burgundy hover:opacity-80 text-white px-2 py-1 rounded text-xs" style="background:#7a1e2e" data-id="${t.id}"><i class="fas fa-print mr-1"></i>PDF</button></td>
@@ -7890,7 +7891,7 @@ function renderStuFees(s){
      <tbody>${txns.map(t => `<tr class="border-t hover:bg-emerald-50">
        <td class="p-2 text-xs">${fmtDate(t.date)}</td>
        <td class="p-2 font-mono text-xs">${t.receiptNo || '-'}</td>
-       <td class="p-2">${t.feeHead || 'Tuition'}</td>
+       <td class="p-2">${t.headLabel || t.feeHead || 'Tuition'}</td>
        <td class="p-2 text-xs">${t.mode || '-'}</td>
        <td class="p-2 text-right font-semibold text-emerald-700">${fmtINR(t.amount)}</td>
        <td class="p-2"><button class="stuPrintReceiptBtn bg-burgundy hover:opacity-80 text-white px-2 py-1 rounded text-xs" style="background:#7a1e2e" data-id="${t.id}" title="Download Receipt"><i class="fas fa-print mr-1"></i>Print/PDF</button></td>
@@ -7938,6 +7939,15 @@ const FEE_HEADS = [
   'Library', 'Late Fee', 'Other'
 ];
 
+// Fee heads on the printed receipt book (order matches the school's paper receipt).
+var _rcptYearFilter = 'all';
+const RECEIPT_FEE_HEADS = [
+  'Registration Fees', 'Admission Fee', 'Tuition Fee', 'Computer Fee',
+  'Transport Fees', 'Annual Charges', 'Examination Fee', 'Day Boarding (Mess)'
+];
+// Heads that reduce a student's outstanding fee balance when paid.
+const BALANCE_REDUCING_HEADS = ['Tuition Fee','Admission Fee','Annual Fee','Annual Charges','Transport','Transport Fees','Late Fee','Registration Fees','Computer Fee','Examination Fee','Day Boarding (Mess)'];
+
 /* ============================================================
    FEE STRUCTURE
    Defines annual fees per class per session.
@@ -7983,6 +7993,19 @@ function currentSession(){
  // Indian academic year: April-March. If month < 3 (Jan-Mar), session started previous year.
  const start = m < 3 ? y - 1 : y;
  return `${start}-${String(start+1).slice(2)}`;
+}
+// Academic year label from a start year number, e.g. 2025 → "2025-26".
+function _sessionLabel(startYear){ return `${startYear}-${String(startYear+1).slice(2)}`; }
+// A list of academic years for dropdowns: a few past years (for old dues) through next year.
+function academicYearOptions(){
+ const cur = parseInt(currentSession().slice(0,4));
+ const years = [];
+ for (let y = cur + 1; y >= cur - 4; y--) years.push(_sessionLabel(y));
+ // Include any years already present in saved receipts (in case older than the window)
+ try {
+  getFeeTransactions().forEach(t => { if (t.academicYear && !years.includes(t.academicYear)) years.push(t.academicYear); });
+ } catch(e){}
+ return years.sort((a,b)=>b.localeCompare(a));
 }
 
 // Compute total annual fee from a plan
@@ -8453,6 +8476,7 @@ function renderAccReceipts(){
  const receipts = getFeeTransactions();
  const banks = get('bankAccounts');
  const fmtINR = n => 'Rs.' + (n||0).toLocaleString('en-IN');
+ if (typeof _rcptYearFilter === 'undefined' || !_rcptYearFilter) _rcptYearFilter = 'all';
 
  // Class-wise fee monitoring
  const byClass = {};
@@ -8508,21 +8532,18 @@ function renderAccReceipts(){
       </optgroup>
      </select>
     </div>
-    <div>
-     <label class="text-xs font-medium">Fee Head *</label>
-     <select id="rcptHead">${FEE_HEADS.map(h => `<option>${h}</option>`).join('')}</select>
-    </div>
     <div id="rcptOtherNameRow" style="display:none">
      <label class="text-xs font-medium">Payer Name *</label>
      <input id="rcptPayerName" placeholder="e.g. donor name">
     </div>
     <div>
-     <label class="text-xs font-medium">Amount (Rs.) *</label>
-     <input id="rcptAmount" type="number" placeholder="0">
-    </div>
-    <div>
      <label class="text-xs font-medium">Mode *</label>
      <select id="rcptMode">${PAYMENT_MODES.map(m => `<option>${m}</option>`).join('')}</select>
+    </div>
+    <div>
+     <label class="text-xs font-medium">Academic Year * <span class="text-gray-400 font-normal">(Apr–Mar)</span></label>
+     <select id="rcptYear">${academicYearOptions().map(y => `<option value="${y}" ${y===currentSession()?'selected':''}>${y}${y===currentSession()?' (current)':''}</option>`).join('')}</select>
+     <div class="text-xs text-amber-600 mt-0.5" id="rcptYearHint" style="display:none"><i class="fas fa-triangle-exclamation mr-1"></i>Recording against a past year's dues</div>
     </div>
     <div>
      <label class="text-xs font-medium">Date</label>
@@ -8542,10 +8563,74 @@ function renderAccReceipts(){
      <input id="rcptNotes" placeholder="any reference details">
     </div>
    </div>
+
+   <!-- Fee-head breakdown: tick each head being paid and enter its amount -->
+   <div class="border rounded-lg overflow-hidden mb-3">
+    <div class="bg-gray-50 px-3 py-2 flex items-center justify-between">
+     <div class="text-sm font-semibold"><i class="fas fa-list-check text-emerald-600 mr-1"></i>Fee Heads — tick each one being paid</div>
+     <div class="text-xs text-gray-500">Multiple heads can be paid in one receipt</div>
+    </div>
+    <div class="divide-y">
+     ${RECEIPT_FEE_HEADS.map((h,i) => `<label class="flex items-center gap-2 px-3 py-1.5 hover:bg-emerald-50 cursor-pointer">
+       <input type="checkbox" class="rcptHeadChk w-auto" data-head="${escapeHTML(h)}" data-i="${i}">
+       <span class="text-sm flex-1">${i+1}. ${escapeHTML(h)}</span>
+       <span class="text-xs text-gray-400">Rs.</span>
+       <input type="number" class="rcptHeadAmt border rounded px-2 py-1 text-sm text-right" data-i="${i}" placeholder="0" style="width:110px" disabled>
+      </label>`).join('')}
+    </div>
+    <div class="bg-emerald-50 px-3 py-2 flex items-center justify-between">
+     <div class="text-sm font-semibold">Total</div>
+     <div class="text-lg font-bold text-emerald-800">Rs. <span id="rcptTotal">0</span></div>
+    </div>
+   </div>
+   <input type="hidden" id="rcptAmount">
+
    <button id="rcptSaveBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
     <i class="fas fa-plus mr-1"></i>Record Receipt
    </button>
   </div>
+
+  <!-- Receipts by Academic Year -->
+  ${(() => {
+    const live = receipts.filter(t => !t._deleted);
+    // Total collected per academic year
+    const byYear = {};
+    live.forEach(t => { const y = t.academicYear || 'Untagged'; byYear[y] = (byYear[y]||0) + (Number(t.amount)||0); });
+    const yearKeys = Object.keys(byYear).sort((a,b) => b.localeCompare(a));
+    // Receipts matching the current filter
+    const filtered = _rcptYearFilter === 'all' ? live : live.filter(t => (t.academicYear || 'Untagged') === _rcptYearFilter);
+    const filtered5 = filtered.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0, 12);
+    const filterTotal = filtered.reduce((s,t)=>s+(Number(t.amount)||0),0);
+    return `<div class="bg-white border rounded-lg p-4 mb-4">
+     <div class="flex flex-wrap justify-between items-center gap-2 mb-3">
+      <h3 class="font-semibold"><i class="fas fa-calendar-days text-indigo-600 mr-1"></i>Receipts by Academic Year</h3>
+      <div class="flex items-center gap-2">
+       <label class="text-xs text-gray-500">Show year:</label>
+       <select id="rcptYearFilter" class="text-sm">
+        <option value="all" ${_rcptYearFilter==='all'?'selected':''}>All years</option>
+        ${yearKeys.map(y=>`<option value="${y}" ${_rcptYearFilter===y?'selected':''}>${y}</option>`).join('')}
+       </select>
+      </div>
+     </div>
+     ${yearKeys.length === 0 ? '<div class="text-sm text-gray-500 py-2">No receipts recorded yet</div>' : `
+      <div class="flex flex-wrap gap-2 mb-3">
+       ${yearKeys.map(y=>`<button class="rcptYearChip px-3 py-1.5 rounded-lg text-xs border ${_rcptYearFilter===y?'bg-indigo-600 text-white border-indigo-600':'bg-gray-50 hover:bg-gray-100'}" data-year="${y}">${y}${y===currentSession()?' (current)':''} · <b>${fmtINR(byYear[y])}</b></button>`).join('')}
+      </div>
+      <div class="text-xs text-gray-500 mb-2">${_rcptYearFilter==='all'?'Showing all years':'Showing '+_rcptYearFilter} · ${filtered.length} receipt${filtered.length===1?'':'s'} · Total <b class="text-emerald-700">${fmtINR(filterTotal)}</b></div>
+      <div class="overflow-x-auto"><table class="text-sm w-full border">
+       <thead class="bg-gray-100"><tr><th class="text-left p-2">Date</th><th class="text-left p-2">Receipt</th><th class="text-left p-2">From</th><th class="text-left p-2">Year</th><th class="text-left p-2">Head</th><th class="text-right p-2">Amount</th></tr></thead>
+       <tbody>${filtered5.map(t => { const s = students.find(x => x.id === t.studentId); return `<tr class="border-t hover:bg-indigo-50">
+         <td class="p-2 text-xs">${fmtDate(t.date)}</td>
+         <td class="p-2 font-mono text-xs">${t.receiptNo||'-'}</td>
+         <td class="p-2 text-xs">${s?.name || t.payerName || '-'}</td>
+         <td class="p-2 text-xs">${t.academicYear ? `<span class="pill ${t.academicYear===currentSession()?'pill-green':'pill-amber'}">${t.academicYear}</span>` : '<span class="text-gray-400">—</span>'}</td>
+         <td class="p-2 text-xs">${escapeHTML(t.headLabel || t.feeHead || 'Tuition')}</td>
+         <td class="p-2 text-right font-semibold text-emerald-700">${fmtINR(t.amount)}</td>
+        </tr>`; }).join('')}</tbody>
+      </table></div>
+      ${filtered.length > 12 ? `<div class="text-xs text-gray-400 mt-1">Showing latest 12 of ${filtered.length}</div>` : ''}`}
+    </div>`;
+  })()}
 
   <!-- Class-wise fee status -->
   <div class="bg-white border rounded-lg p-4 mb-4">
@@ -9589,6 +9674,7 @@ function _generateReceiptHTML(txn){
      <div><span class="lbl">Receipt No:</span> <span class="val mono">${txn.receiptNo || '-'}</span></div>
      <div><span class="lbl">Date:</span> <span class="val">${dateStr}</span></div>
     </div>
+    ${txn.academicYear ? `<div class="receipt-meta"><div><span class="lbl">Academic Year:</span> <span class="val">${txn.academicYear} (Apr–Mar)</span></div></div>` : ''}
 
     <div class="receipt-body">
      <div class="row"><span class="lbl">Received with thanks from:</span></div>
@@ -9604,10 +9690,27 @@ function _generateReceiptHTML(txn){
        <div class="payer-meta">Outside payer / Donation</div>
       </div>`}
 
-     <div class="row split">
-      <div><span class="lbl">Towards:</span> <span class="val">${txn.feeHead || 'Tuition Fee'}</span></div>
-      <div><span class="lbl">Mode:</span> <span class="val">${txn.mode || 'Cash'}</span></div>
-     </div>
+     ${(txn.heads && txn.heads.length > 1) ? `
+      <table class="head-table" style="width:100%;border-collapse:collapse;margin:8px 0;font-size:11px">
+       <thead><tr>
+        <th style="text-align:left;border-bottom:1px solid #999;padding:3px 4px">S.No</th>
+        <th style="text-align:left;border-bottom:1px solid #999;padding:3px 4px">Particulars</th>
+        <th style="text-align:right;border-bottom:1px solid #999;padding:3px 4px">Amount (Rs.)</th>
+       </tr></thead>
+       <tbody>${txn.heads.map((h,i)=>`<tr>
+        <td style="padding:3px 4px">${i+1}</td>
+        <td style="padding:3px 4px">${h.head}</td>
+        <td style="text-align:right;padding:3px 4px">${fmt(h.amount)}</td>
+       </tr>`).join('')}
+       <tr><td colspan="2" style="text-align:right;padding:4px;font-weight:bold;border-top:1px solid #999">Total</td><td style="text-align:right;padding:4px;font-weight:bold;border-top:1px solid #999">${fmt(txn.amount)}</td></tr>
+       </tbody>
+      </table>
+      <div class="row"><span class="lbl">Mode:</span> <span class="val">${txn.mode || 'Cash'}</span></div>`
+     : `
+      <div class="row split">
+       <div><span class="lbl">Towards:</span> <span class="val">${txn.headLabel || txn.feeHead || 'Tuition Fee'}</span></div>
+       <div><span class="lbl">Mode:</span> <span class="val">${txn.mode || 'Cash'}</span></div>
+      </div>`}
 
      ${txn.chequeNo ? `<div class="row"><span class="lbl">Cheque No:</span> <span class="val mono">${txn.chequeNo}</span></div>` : ''}
      ${(bank && txn.mode && txn.mode !== 'Cash') ? `<div class="row"><span class="lbl">Credited to school A/C:</span> <span class="val">${bank.bankName} - A/C ${bank.accountNo}</span></div>` : ''}
@@ -10145,7 +10248,9 @@ function _openTxnEditModal(txnId, txnKind){
     </select>
    </div>
    <div><label class="text-xs font-medium">Payer Name (if Other)</label><input id="txePayerName" value="${(t.payerName||'').replace(/"/g,'&quot;')}"></div>
-   <div><label class="text-xs font-medium">Fee Head</label><select id="txeHead">${FEE_HEADS.map(h=>`<option ${t.feeHead===h?'selected':''}>${h}</option>`).join('')}</select></div>
+   <div><label class="text-xs font-medium">Fee Head</label><select id="txeHead">${Array.from(new Set([...RECEIPT_FEE_HEADS, ...FEE_HEADS])).map(h=>`<option ${t.feeHead===h?'selected':''}>${h}</option>`).join('')}</select></div>
+   <div><label class="text-xs font-medium">Academic Year</label><select id="txeYear">${academicYearOptions().map(y=>`<option ${t.academicYear===y?'selected':''}>${y}</option>`).join('')}</select></div>
+   ${(t.heads && t.heads.length > 1) ? `<div class="md:col-span-2 bg-amber-50 border border-amber-200 rounded p-2 text-xs text-amber-800"><i class="fas fa-list-check mr-1"></i><b>Multi-head receipt:</b> ${t.heads.map(h=>escapeHTML(h.head)+' Rs.'+h.amount).join(' + ')}. Editing the amount here adjusts the total; the split above is kept for the printed receipt.</div>` : ''}
    ` : `
    <div><label class="text-xs font-medium">Category</label><select id="txeCat">${EXPENSE_CATEGORIES.map(c=>`<option ${t.category===c?'selected':''}>${c}</option>`).join('')}</select></div>
    <div><label class="text-xs font-medium">Vendor</label><input id="txeVendor" value="${(t.vendor||'').replace(/"/g,'&quot;')}"></div>
@@ -10186,6 +10291,7 @@ function _openTxnEditModal(txnId, txnKind){
     studentId: newSid,
     payerName: newSid === 0 ? document.getElementById('txePayerName').value.trim() : undefined,
     feeHead: document.getElementById('txeHead').value,
+    academicYear: document.getElementById('txeYear')?.value || t.academicYear,
     amount: newAmount, mode: newMode, date: newDate,
     bankAccountId: newBankId || undefined };
   } else {
@@ -10698,19 +10804,36 @@ function _attachReceiptEvents(){
  document.getElementById('rcptSaveBtn')?.addEventListener('click', () => {
   const from = document.getElementById('rcptFrom').value;
   if (!from) { alert('Please select payer'); return; }
-  const amt = parseInt(document.getElementById('rcptAmount').value);
-  if (!amt || amt <= 0) { alert('Enter valid amount'); return; }
-  const head = document.getElementById('rcptHead').value;
+  // Collect ticked fee heads + their amounts
+  const heads = [];
+  document.querySelectorAll('.rcptHeadChk').forEach(chk => {
+   if (chk.checked) {
+    const i = chk.dataset.i;
+    const amtEl = document.querySelector('.rcptHeadAmt[data-i="'+i+'"]');
+    const a = parseFloat(amtEl?.value) || 0;
+    if (a > 0) heads.push({ head: chk.dataset.head, amount: a });
+   }
+  });
+  if (heads.length === 0) { alert('Tick at least one fee head and enter its amount.'); return; }
+  const amt = heads.reduce((s,h) => s + h.amount, 0);
+  if (!amt || amt <= 0) { alert('Enter a valid amount for the ticked heads.'); return; }
+  // Primary head = the largest one (used for single-head summaries); full split kept in `heads`.
+  const primaryHead = heads.slice().sort((a,b)=>b.amount-a.amount)[0].head;
+  const headLabel = heads.length === 1 ? heads[0].head : heads.map(h=>h.head+' Rs.'+h.amount).join(' + ');
   const mode = document.getElementById('rcptMode').value;
   const date = document.getElementById('rcptDate').value || new Date().toISOString().slice(0,10);
+  const academicYear = document.getElementById('rcptYear')?.value || currentSession();
   const chequeNo = document.getElementById('rcptChequeNo')?.value.trim();
-  // Only capture bank account for non-cash modes (UI hides the field but the dropdown still has a value)
   const bankAccId = (mode !== 'Cash') ? (parseInt(document.getElementById('rcptBankAcc')?.value) || null) : null;
   const notes = document.getElementById('rcptNotes').value.trim();
 
   const transaction = {
    id: Date.now(),
-   amount: amt, mode, date, feeHead: head,
+   amount: amt, mode, date,
+   academicYear: academicYear,    // academic year (Apr–Mar) this payment is for
+   feeHead: primaryHead,          // backward-compatible single head (largest)
+   heads: heads,                  // full multi-head breakdown
+   headLabel: headLabel,          // readable "A Rs.x + B Rs.y"
    receiptNo: 'RCP' + Date.now().toString().slice(-6),
    status: 'paid',
    chequeNo: chequeNo || undefined,
@@ -10724,12 +10847,12 @@ function _attachReceiptEvents(){
   if (from.startsWith('student:')) {
    const sid = parseInt(from.split(':')[1]);
    transaction.studentId = sid;
-   // Reduce student's fee balance only for tuition-like heads
-   const reducesBalance = ['Tuition Fee','Admission Fee','Annual Fee','Transport','Late Fee'].includes(head);
-   if (reducesBalance) {
+   // Reduce student's fee balance by the portion in balance-reducing heads
+   const reducing = heads.filter(h => BALANCE_REDUCING_HEADS.includes(h.head)).reduce((s,h)=>s+h.amount,0);
+   if (reducing > 0) {
     const ss = getStudents();
     const i = ss.findIndex(x => x.id === sid);
-    if (i > -1) { ss[i].feeBalance = Math.max(0, (ss[i].feeBalance||0) - amt); saveStudents(ss); }
+    if (i > -1) { ss[i].feeBalance = Math.max(0, (ss[i].feeBalance||0) - reducing); saveStudents(ss); }
    }
   } else {
    const payerName = document.getElementById('rcptPayerName').value.trim();
@@ -10744,7 +10867,7 @@ function _attachReceiptEvents(){
    const bi = banks.findIndex(b => b.id === bankAccId);
    if (bi > -1) { banks[bi].balance = (banks[bi].balance||0) + amt; set('bankAccounts', banks); }
    const bt = get('bankTransactions');
-   bt.push({ id: Date.now()+1, accountId: bankAccId, amount: amt, date, description: head + ' — ' + (transaction.payerName || (getStudents().find(s=>s.id===transaction.studentId)?.name||'')), type: 'Credit' });
+   bt.push({ id: Date.now()+1, accountId: bankAccId, amount: amt, date, description: headLabel + ' — ' + (transaction.payerName || (getStudents().find(s=>s.id===transaction.studentId)?.name||'')), type: 'Credit' });
    set('bankTransactions', bt);
   }
 
@@ -10753,10 +10876,49 @@ function _attachReceiptEvents(){
   saveFeeTransactions(tr);
   showToast('Receipt recorded: Rs.' + amt + ' (' + transaction.receiptNo + ')');
 
-  // Save the last receipt id so the post-save banner can offer to print it
   DB.setScalar('_lastReceiptId', String(transaction.id));
   renderApp();
  });
+
+ // Fee-head checkbox: enable/disable its amount field + recompute total
+ const _rcptRecalc = () => {
+  let total = 0;
+  document.querySelectorAll('.rcptHeadChk').forEach(chk => {
+   const i = chk.dataset.i;
+   const amtEl = document.querySelector('.rcptHeadAmt[data-i="'+i+'"]');
+   if (!amtEl) return;
+   amtEl.disabled = !chk.checked;
+   if (!chk.checked) { amtEl.value = ''; }
+   else total += parseFloat(amtEl.value) || 0;
+  });
+  const tEl = document.getElementById('rcptTotal');
+  if (tEl) tEl.textContent = total.toLocaleString('en-IN');
+  const hidden = document.getElementById('rcptAmount');
+  if (hidden) hidden.value = total;
+ };
+ document.querySelectorAll('.rcptHeadChk').forEach(chk => chk.addEventListener('change', () => {
+  const i = chk.dataset.i;
+  const amtEl = document.querySelector('.rcptHeadAmt[data-i="'+i+'"]');
+  if (chk.checked && amtEl) setTimeout(() => amtEl.focus(), 30);
+  _rcptRecalc();
+ }));
+ document.querySelectorAll('.rcptHeadAmt').forEach(a => a.addEventListener('input', _rcptRecalc));
+
+ // Academic-year hint — warn when recording against a past year's dues
+ const yearSel = document.getElementById('rcptYear');
+ const yearHint = document.getElementById('rcptYearHint');
+ if (yearSel && yearHint) {
+  const updateYearHint = () => { yearHint.style.display = (yearSel.value !== currentSession()) ? '' : 'none'; };
+  yearSel.addEventListener('change', updateYearHint);
+  updateYearHint();
+ }
+
+ // Receipts-by-year filter (dropdown + chips)
+ document.getElementById('rcptYearFilter')?.addEventListener('change', e => { _rcptYearFilter = e.target.value; renderApp(); });
+ document.querySelectorAll('.rcptYearChip').forEach(b => b.addEventListener('click', () => {
+  _rcptYearFilter = (_rcptYearFilter === b.dataset.year) ? 'all' : b.dataset.year;
+  renderApp();
+ }));
 
  // Export class-wise to Excel
  document.getElementById('rcptExportClassBtn')?.addEventListener('click', () => {
