@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1784020218 - Home Room Activity Calendar (54 important days, dynamic weekday, editable, imports to School Calendar) -->
+<!-- BUILD: v-1784022131 - academic year dropdown on Payments salary form (tags year, reduces prev salary dues) -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -9428,6 +9428,11 @@ function renderAccPayments(){
      <label class="text-xs font-medium">Salary For Month</label>
      <select id="expSalaryMonth">${SESSION_MONTHS.map(m=>`<option ${m===new Date().toLocaleDateString('en-IN',{month:'long'})?'selected':''}>${m}</option>`).join('')}</select>
     </div>
+    <div id="expSalaryYearRow" style="display:none">
+     <label class="text-xs font-medium">Academic Year <span class="text-gray-400">(Apr–Mar)</span></label>
+     <select id="expSalaryYear">${academicYearOptions().map(y=>`<option value="${y}" ${y===currentSession()?'selected':''}>${y}${y===currentSession()?' (current)':''}</option>`).join('')}</select>
+     <div class="text-xs text-amber-600 mt-0.5" id="expSalaryYearHint" style="display:none"><i class="fas fa-triangle-exclamation mr-1"></i>Past year's salary dues</div>
+    </div>
     <div>
      <label class="text-xs font-medium">Amount (Rs.) *</label>
      <input id="expAmount" type="number" placeholder="0">
@@ -11315,17 +11320,27 @@ function _attachPaymentEvents(){
  const catSel = document.getElementById('expCategory');
  const salStaffRow = document.getElementById('expSalaryStaffRow');
  const salMonthRow = document.getElementById('expSalaryMonthRow');
+ const salYearRow = document.getElementById('expSalaryYearRow');
  const vendorInput = document.getElementById('expVendor');
  const updateSalaryUI = () => {
   const isSalary = catSel && catSel.value === 'Salary';
   if (salStaffRow) salStaffRow.style.display = isSalary ? '' : 'none';
   if (salMonthRow) salMonthRow.style.display = isSalary ? '' : 'none';
+  if (salYearRow) salYearRow.style.display = isSalary ? '' : 'none';
   // For salary, the staff name replaces the generic vendor field — hide vendor to avoid confusion.
   const vendorWrap = vendorInput ? vendorInput.closest('div') : null;
   if (vendorWrap) vendorWrap.style.display = isSalary ? 'none' : '';
  };
  catSel?.addEventListener('change', updateSalaryUI);
  updateSalaryUI();
+ // Salary academic-year hint (past year warning)
+ const expYearSel = document.getElementById('expSalaryYear');
+ const expYearHint = document.getElementById('expSalaryYearHint');
+ if (expYearSel && expYearHint) {
+  const upd = () => { expYearHint.style.display = (expYearSel.value !== currentSession()) ? '' : 'none'; };
+  expYearSel.addEventListener('change', upd);
+  upd();
+ }
 
  // Save expense
  document.getElementById('expBillFile')?.addEventListener('change', e => {
@@ -11355,10 +11370,11 @@ function _attachPaymentEvents(){
 
   // Salary-specific: staff name (from the picker) + which month it's for.
   const isSalary = cat === 'Salary';
-  let salaryStaffName = '', salaryMonth = '';
+  let salaryStaffName = '', salaryMonth = '', salaryYear = currentSession();
   if (isSalary) {
    salaryStaffName = (document.getElementById('expSalaryStaff')?.value || '').trim();
    salaryMonth = document.getElementById('expSalaryMonth')?.value || '';
+   salaryYear = document.getElementById('expSalaryYear')?.value || currentSession();
    if (!salaryStaffName) { alert('Please pick or type the staff member being paid.'); return; }
    vendor = salaryStaffName; // the staff member is the recipient
   }
@@ -11373,7 +11389,8 @@ function _attachPaymentEvents(){
    billName: document.getElementById('expBillName')?.value || undefined,
    // Link fields so this expense and the salary record stay connected
    salaryStaffName: isSalary ? salaryStaffName : undefined,
-   salaryMonth: isSalary ? salaryMonth : undefined
+   salaryMonth: isSalary ? salaryMonth : undefined,
+   academicYear: isSalary ? salaryYear : undefined
   };
 
   // If non-cash, debit the bank account
@@ -11409,6 +11426,7 @@ function _attachPaymentEvents(){
     amount: amt,
     date,
     forMonth: salaryMonth,
+    academicYear: salaryYear,
     mode,
     chequeNo: chequeNo || '',
     note: description || '',
@@ -11419,8 +11437,17 @@ function _attachPaymentEvents(){
    saveSalaryPayments(payments);
    expense.salaryPaymentId = salRec.id; // forward-link
    set('expenses', all);
+   // If this salary is for a PAST academic year, reduce that staff's previous-year salary dues.
+   if (salaryYear && salaryYear !== currentSession() && staff && staff.teacherId) {
+    const ts = getTeachers();
+    const ti = ts.findIndex(x => x.id === staff.teacherId);
+    if (ti > -1 && (ts[ti].previousSalaryDues||0) > 0) {
+     ts[ti].previousSalaryDues = Math.max(0, (ts[ti].previousSalaryDues||0) - amt);
+     saveTeachers(ts);
+    }
+   }
    if (typeof _logAccountingChange === 'function') _logAccountingChange('create', 'salary', null, salRec, 'Salary paid via Payments tab');
-   showToast('Salary of Rs.' + amt + ' recorded for ' + salaryStaffName);
+   showToast('Salary of Rs.' + amt + ' recorded for ' + salaryStaffName + (salaryYear !== currentSession() ? ' (' + salaryYear + ')' : ''));
   } else {
    showToast('Payment recorded: Rs.' + amt);
   }
