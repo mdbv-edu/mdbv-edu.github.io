@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1783935345 - academic year (Apr-Mar) tagging on receipts + year filter for old dues -->
+<!-- BUILD: v-1784020218 - Home Room Activity Calendar (54 important days, dynamic weekday, editable, imports to School Calendar) -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -1974,7 +1974,7 @@ function initDB(){
  ]);
 
  // Empty array tables (ready for real-world data)
- ['feeTransactions','homeworks','complaints','examMarks','payrollSlips','inventory','vehicles','routeMovements','maintenance','expenses','bankAccounts','bankTransactions','correctionRequests','accountingAuditLog','messageLog','ptmEvents','homeworkSubmissions','teacherAuditLog','calendar','documents','chatMessages','notices','feeStructures','curriculum','teacherAppraisals','salaryPayments'].forEach(t => seedArray(t, []));
+ ['feeTransactions','homeworks','complaints','examMarks','payrollSlips','inventory','vehicles','routeMovements','maintenance','expenses','bankAccounts','bankTransactions','correctionRequests','accountingAuditLog','messageLog','ptmEvents','homeworkSubmissions','teacherAuditLog','calendar','activityCalendar','documents','chatMessages','notices','feeStructures','curriculum','teacherAppraisals','salaryPayments'].forEach(t => seedArray(t, []));
 
  // Singleton-object tables (correctly use setObject so they don't get stored as arrays)
  seedObject('busTracking',   {route1:{lat:null,lng:null,lastUpdate:'',status:''}});
@@ -2071,6 +2071,7 @@ const DB_SCHEMA = {
  routeMovements:      { type: 'array', desc: 'Bus route logs' },
  maintenance:         { type: 'array', desc: 'Vehicle maintenance records' },
  calendar:            { type: 'array', desc: 'School calendar events' },
+ activityCalendar:    { type: 'array', desc: 'Home-room activity calendar (important days, filled by staff)' },
  documents:           { type: 'array', desc: 'Uploaded documents' },
  broadcastLog:        { type: 'array', desc: 'Broadcast operation log' },
  enquiries:           { type: 'array', desc: 'Admissions enquiry form submissions' },
@@ -3146,13 +3147,30 @@ function _salaryStartIndex(teacher){
  }
  return 0; // default: April
 }
+// Months (by session index: 0=April … 2=June … 11=March) in which NO salary is paid
+// (e.g. June — summer holidays). Configurable; defaults to June.
+function noSalaryMonths(){
+ const raw = DB.getScalar('_noSalaryMonths');
+ if (raw === null || raw === undefined || raw === '') return ['June']; // default: June only
+ try { const arr = JSON.parse(raw); return Array.isArray(arr) ? arr : []; } catch(e){ return []; }
+}
+function setNoSalaryMonths(arr){ DB.setScalar('_noSalaryMonths', JSON.stringify(Array.isArray(arr)?arr:[])); }
+// Count of no-salary months that fall within [startIdx, endIdx] inclusive.
+function _noSalaryMonthsInRange(startIdx, endIdx){
+ const names = noSalaryMonths();
+ let count = 0;
+ names.forEach(nm => { const i = _sessionMonthIndex(nm); if (i >= 0 && i >= startIdx && i <= endIdx) count++; });
+ return count;
+}
 function _salaryExpectedToDate(teacher){
  const monthly = Number(teacher?.salary)||0;
  if (!monthly) return 0;
  const startIdx = _salaryStartIndex(teacher);
  const nowIdx = _currentSessionMonthIndex();
  // Months from start through current month inclusive; never negative.
- const monthsElapsed = Math.max(0, nowIdx - startIdx + 1);
+ let monthsElapsed = Math.max(0, nowIdx - startIdx + 1);
+ // Subtract holiday months (no salary) that fall in this range.
+ if (monthsElapsed > 0) monthsElapsed = Math.max(0, monthsElapsed - _noSalaryMonthsInRange(startIdx, nowIdx));
  return monthly * monthsElapsed;
 }
 // Dues = expected-to-date minus paid (for management view). Can be negative if advance-paid.
@@ -4208,7 +4226,8 @@ function renderDataManagementModals(){
     <div><label class="text-xs font-medium">Annual Fees (Rs.)</label><input type="number" id="dmStuAnnual" placeholder="e.g. 24000"></div>
     <div><label class="text-xs font-medium">Composite Fee (Rs.) <i class="fas fa-circle-info text-gray-400" title="Total fee after any discount/concession — the amount actually payable"></i></label><input type="number" id="dmStuDecided" placeholder="total after discount"></div>
     <div><label class="text-xs font-medium">Transport (monthly Rs.)</label><input type="number" id="dmStuTransport" placeholder="0 if not using"></div>
-    <div><label class="text-xs font-medium">Fee Balance (Rs.) <i class="fas fa-circle-info text-gray-400" title="Auto-calculated from installments if a plan is set below"></i></label><input type="number" id="dmStuFeeBal" value="0"></div>
+    <div><label class="text-xs font-medium">Fee Balance (Rs.) <i class="fas fa-circle-info text-gray-400" title="Current year's outstanding. Auto-calculated from installments if a plan is set below."></i></label><input type="number" id="dmStuFeeBal" value="0"></div>
+    <div><label class="text-xs font-medium text-amber-700">Previous Year Dues (Rs.) <i class="fas fa-circle-info text-gray-400" title="Amount still owed from LAST academic year (carry-forward). Tracked separately so old dues are visible and can be collected."></i></label><input type="number" id="dmStuPrevDues" value="0" placeholder="0"></div>
     <div class="col-span-2 md:col-span-3 flex flex-wrap gap-4 mt-2">
      <label class="text-sm flex items-center gap-1"><input type="checkbox" id="dmStuBpl" class="w-auto"> BPL (Below Poverty Line)</label>
      <label class="text-sm flex items-center gap-1"><input type="checkbox" id="dmStuCwsn" class="w-auto"> CWSN (Children with Special Needs)</label>
@@ -4957,9 +4976,9 @@ function renderVehicles(){
  const vehicles=get('vehicles'),moves=get('routeMovements');
  return `<div>
   <div class="flex flex-wrap justify-between items-center gap-2 mb-3"><h2 class="text-lg font-bold"><i class="fas fa-bus text-blue-600 mr-1"></i>Vehicles & Routes</h2><div class="flex gap-2"><button id="addVeh" class="bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-sm">+ Vehicle</button><button id="addMove" class="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm">+ Log Movement</button></div></div>
-  <h3 class="font-semibold mt-3 mb-1">Vehicles</h3><div class="overflow-x-auto"><table class="border"><thead><tr><th>Vehicle No</th><th>Driver</th><th>Route</th><th>Capacity</th><th>Status</th><th>Action</th></tr></thead><tbody>${vehicles.map(v=>`<tr><td>${v.vehicleNo}</td><td>${v.driver}</td><td>${v.route||'-'}</td><td>${v.capacity||'-'}</td><td><span class="pill pill-green">${v.status}</span></td><td><button class="delVeh text-red-600" data-id="${v.id}"><i class="fas fa-trash"></i></button></td></tr>`).join('')}</tbody></table></div>
+  <h3 class="font-semibold mt-3 mb-1">Vehicles</h3><div class="overflow-x-auto"><table class="border"><thead><tr><th>Vehicle No</th><th>Driver</th><th>Route</th><th>Capacity</th><th>Status</th><th>Action</th></tr></thead><tbody>${vehicles.map(v=>`<tr><td>${v.vehicleNo}</td><td>${v.driver}</td><td>${v.route||'-'}</td><td>${v.capacity||'-'}</td><td><span class="pill pill-${v.status==='Inactive'?'red':'green'}">${v.status||'Active'}</span></td><td><button class="editVeh text-blue-600 mr-2" data-id="${v.id}" title="Edit"><i class="fas fa-edit"></i></button><button class="delVeh text-red-600" data-id="${v.id}" title="Delete"><i class="fas fa-trash"></i></button></td></tr>`).join('')}</tbody></table></div>
   <h3 class="font-semibold mt-5 mb-1">Route Movements</h3><div class="overflow-x-auto"><table class="border"><thead><tr><th>Date</th><th>Departure</th><th>Arrival</th><th>Status</th><th>Action</th></tr></thead><tbody>${moves.map(m=>`<tr><td>${m.date}</td><td>${m.departure}</td><td>${m.arrival}</td><td>${m.status}</td><td><button class="delMove text-red-600" data-id="${m.id}"><i class="fas fa-trash"></i></button></td></tr>`).join('')}</tbody></table></div>
-  <div id="vehModal" class="hidden modal"><div class="modal-content"><h3 class="font-bold mb-3">Add Vehicle</h3><div class="space-y-2"><input id="vehNo" placeholder="Number"><input id="vehDriver" placeholder="Driver"><input id="vehRoute" placeholder="Route"><input id="vehCap" type="number" placeholder="Capacity"></div><div class="flex justify-end gap-2 mt-3"><button class="closeModal bg-gray-300 px-3 py-1.5 rounded">Cancel</button><button id="saveVehModal" class="bg-indigo-600 text-white px-3 py-1.5 rounded">Save</button></div></div></div>
+  <div id="vehModal" class="hidden modal"><div class="modal-content"><h3 class="font-bold mb-3" id="vehModalTitle">Add Vehicle</h3><input type="hidden" id="vehEditId"><div class="space-y-2"><input id="vehNo" placeholder="Number"><input id="vehDriver" placeholder="Driver"><input id="vehRoute" placeholder="Route"><input id="vehCap" type="number" placeholder="Capacity"><select id="vehStatus"><option>Active</option><option>Inactive</option></select></div><div class="flex justify-end gap-2 mt-3"><button class="closeModal bg-gray-300 px-3 py-1.5 rounded">Cancel</button><button id="saveVehModal" class="bg-indigo-600 text-white px-3 py-1.5 rounded">Save</button></div></div></div>
   <div id="moveModal" class="hidden modal"><div class="modal-content"><h3 class="font-bold mb-3">Log Movement</h3><div class="space-y-2"><select id="moveVehId">${vehicles.map(v=>`<option value="${v.id}">${v.vehicleNo}</option>`).join('')}</select><input type="date" id="moveDate"><input type="time" id="moveDep"><input type="time" id="moveArr"></div><div class="flex justify-end gap-2 mt-3"><button class="closeModal bg-gray-300 px-3 py-1.5 rounded">Cancel</button><button id="saveMoveModal" class="bg-indigo-600 text-white px-3 py-1.5 rounded">Save</button></div></div></div>
  </div>`;
 }
@@ -5958,9 +5977,224 @@ function attachNoticesTabEvents(){
  });
 }
 
+// ===== HOME-ROOM ACTIVITY CALENDAR =====
+// The standard list of important days observed through the year (month/day, name).
+// month is 1-12, day is 1-31. Editable Activity/Incharge/Remark are stored per entry.
+const ACTIVITY_DAYS = [
+ {m:1,  d:12, t:'National Youth Day'},
+ {m:1,  d:15, t:'Army Day'},
+ {m:1,  d:23, t:'Netaji Subhas Chandra Bose Birth Anniversary'},
+ {m:1,  d:25, t:'India Tourism Day'},
+ {m:1,  d:26, t:'Republic Day'},
+ {m:1,  d:28, t:'Birth Anniversary of Lala Lajpat Rai'},
+ {m:2,  d:13, t:"Sarojini Naidu's Birth Anniversary"},
+ {m:2,  d:28, t:'National Science Day'},
+ {m:3,  d:3,  t:'National Defence Day'},
+ {m:3,  d:4,  t:'National Security Day'},
+ {m:3,  d:8,  t:"International Women's Day"},
+ {m:3,  d:9,  t:'CISF Raising Day'},
+ {m:3,  d:16, t:'National Vaccination Day'},
+ {m:3,  d:19, t:'World Disabled Day'},
+ {m:3,  d:21, t:'World Forestry Day'},
+ {m:3,  d:22, t:'World Day for Water'},
+ {m:4,  d:7,  t:'World Health Day'},
+ {m:4,  d:13, t:'Jallianwala Bagh Massacre Day (1919)'},
+ {m:4,  d:22, t:'World Earth Day'},
+ {m:4,  d:23, t:'World Books Day'},
+ {m:5,  d:1,  t:'International Labour Day'},
+ {m:5,  d:8,  t:'International Red Cross Day'},
+ {m:5,  d:15, t:'International Family Day'},
+ {m:5,  d:17, t:'World Telecom Day'},
+ {m:5,  d:31, t:'World No Tobacco Day'},
+ {m:6,  d:5,  t:'World Environment Day'},
+ {m:7,  d:1,  t:"Doctor's Day"},
+ {m:7,  d:11, t:'World Population Day'},
+ {m:7,  d:26, t:'Kargil Victory Day'},
+ {m:8,  d:6,  t:'Hiroshima Day'},
+ {m:8,  d:15, t:'Independence Day'},
+ {m:8,  d:20, t:'Sadbhavna Divas'},
+ {m:8,  d:29, t:'Sports Day'},
+ {m:9,  d:5,  t:"Teacher's Day"},
+ {m:9,  d:7,  t:'Forgiveness Day'},
+ {m:9,  d:14, t:'Hindi Day'},
+ {m:9,  d:16, t:'World Ozone Day'},
+ {m:9,  d:25, t:'Social Justice Day'},
+ {m:9,  d:27, t:'World Tourism Day'},
+ {m:10, d:2,  t:'Gandhi Jayanti'},
+ {m:10, d:3,  t:'World Nature Day'},
+ {m:10, d:4,  t:'World Animal Day'},
+ {m:10, d:8,  t:'Indian Air Force Day'},
+ {m:10, d:10, t:'World Mental Health Day'},
+ {m:11, d:14, t:"Children's Day"},
+ {m:11, d:17, t:'Guru Nanak Birthday'},
+ {m:11, d:26, t:'Law Day'},
+ {m:11, d:30, t:'Flag Day'},
+ {m:12, d:1,  t:'World AIDS Day'},
+ {m:12, d:4,  t:'Navy Day'},
+ {m:12, d:10, t:'Human Rights Day'},
+ {m:12, d:14, t:'National Energy Conservation Day'},
+ {m:12, d:23, t:"Farmer's Day"},
+ {m:12, d:25, t:'Christmas Day'}
+];
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+var _calMode = 'events'; // 'events' | 'activity'
+function getActivityCalendar(){ return DB.getAll('activityCalendar'); }
+function saveActivityCalendar(d){ DB.setAll('activityCalendar', d); }
+// Which calendar year to show the activity calendar for (weekday depends on the year).
+function _activityCalYear(){ const y = parseInt(DB.getScalar('_activityCalYear')); return (y && y>2000) ? y : new Date().getFullYear(); }
+function setActivityCalYear(y){ DB.setScalar('_activityCalYear', String(y)); }
+// Stored edits are keyed by "m-d". Returns {activity, incharge, remark} or blanks.
+function _activityEdit(m, d){
+ const rec = getActivityCalendar().find(x => x.m === m && x.d === d);
+ return rec || { m, d, activity:'', incharge:'', remark:'' };
+}
+function _saveActivityEdit(m, d, fields){
+ const all = getActivityCalendar();
+ const i = all.findIndex(x => x.m === m && x.d === d);
+ if (i > -1) all[i] = { ...all[i], ...fields, m, d };
+ else all.push({ m, d, ...fields });
+ saveActivityCalendar(all);
+}
+// Weekday name for a month/day in the selected year.
+function _activityWeekday(m, d){
+ const dt = new Date(_activityCalYear(), m-1, d);
+ return isNaN(dt) ? '' : dt.toLocaleDateString('en-IN', { weekday: 'short' });
+}
+// Push all activity days into the main School Calendar as events (idempotent by title+date).
+function importActivityDaysToCalendar(){
+ const year = _activityCalYear();
+ const cal = get('calendar');
+ let added = 0;
+ ACTIVITY_DAYS.forEach(a => {
+  const date = `${year}-${String(a.m).padStart(2,'0')}-${String(a.d).padStart(2,'0')}`;
+  const exists = cal.some(e => e.title === a.t && e.date === date);
+  if (!exists) { cal.push({ id: Date.now() + Math.floor(Math.random()*100000), title: a.t, date, type: 'Event', description: 'Home Room Activity', public: false }); added++; }
+ });
+ set('calendar', cal);
+ return added;
+}
+
+// Renders the dynamic Home-Room Activity Calendar (month/date/day/activity/incharge/remark).
+function renderActivityCalendar(){
+ const year = _activityCalYear();
+ const canEdit = isAdminLevel() || isPrincipalLevel() || isTeacherRole();
+ // Group days by month
+ const byMonth = {};
+ ACTIVITY_DAYS.forEach(a => { (byMonth[a.m] = byMonth[a.m] || []).push(a); });
+ const rows = [];
+ Object.keys(byMonth).map(Number).sort((a,b)=>a-b).forEach(m => {
+  byMonth[m].sort((a,b)=>a.d-b.d).forEach((a, idx) => {
+   const e = _activityEdit(a.m, a.d);
+   rows.push(`<tr class="border-t">
+    <td class="p-2 text-xs font-semibold text-gray-600 border-r">${idx===0?MONTH_NAMES[m-1]:''}</td>
+    <td class="p-2 text-center border-r">${a.d}</td>
+    <td class="p-2 text-center text-xs text-gray-500 border-r">${_activityWeekday(a.m,a.d)}</td>
+    <td class="p-2 border-r"><span class="font-medium">${escapeHTML(a.t)}</span></td>
+    <td class="p-1 border-r">${canEdit?`<input class="actCell text-xs w-full border rounded px-1 py-1 focus:bg-amber-50" data-m="${a.m}" data-d="${a.d}" data-f="activity" value="${escapeHTML(e.activity||'')}" placeholder="what was done">`:`<span class="text-xs">${escapeHTML(e.activity||'')}</span>`}</td>
+    <td class="p-1 border-r">${canEdit?`<input class="actCell text-xs w-full border rounded px-1 py-1 focus:bg-amber-50" data-m="${a.m}" data-d="${a.d}" data-f="incharge" value="${escapeHTML(e.incharge||'')}" placeholder="teacher in charge">`:`<span class="text-xs">${escapeHTML(e.incharge||'')}</span>`}</td>
+    <td class="p-1">${canEdit?`<input class="actCell text-xs w-full border rounded px-1 py-1 focus:bg-amber-50" data-m="${a.m}" data-d="${a.d}" data-f="remark" value="${escapeHTML(e.remark||'')}" placeholder="remark">`:`<span class="text-xs">${escapeHTML(e.remark||'')}</span>`}</td>
+   </tr>`);
+  });
+ });
+ const years = [];
+ const cy = new Date().getFullYear();
+ for (let y=cy-1; y<=cy+1; y++) years.push(y);
+ return `<div class="bg-white rounded-xl border p-4 md:p-5">
+  <div class="flex flex-wrap justify-between items-center gap-2 mb-3">
+   <div>
+    <h2 class="text-lg font-bold"><i class="fas fa-calendar-star text-purple-600 mr-1"></i>Home Room Activity Calendar</h2>
+    <p class="text-xs text-gray-500">Important days through the year. The day of week updates automatically. ${canEdit?'Fill in the Activity, Incharge and Remark — they save as you type.':''}</p>
+   </div>
+   <div class="flex items-center gap-2">
+    <label class="text-xs text-gray-500">Year</label>
+    <select id="actCalYear" class="text-sm">${years.map(y=>`<option value="${y}" ${y===year?'selected':''}>${y}</option>`).join('')}</select>
+    ${canEdit?`<button id="actCalImportBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium" title="Add these days to the main School Calendar"><i class="fas fa-calendar-plus mr-1"></i>Add to School Calendar</button>`:''}
+    <button id="actCalPrintBtn" class="bg-gray-700 hover:bg-gray-800 text-white px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-print mr-1"></i>Print</button>
+   </div>
+  </div>
+  <div class="overflow-x-auto">
+   <table class="w-full text-sm border" style="min-width:760px">
+    <thead class="bg-purple-50"><tr>
+     <th class="p-2 text-left border-r w-24">Month</th>
+     <th class="p-2 text-center border-r w-12">Date</th>
+     <th class="p-2 text-center border-r w-12">Day</th>
+     <th class="p-2 text-left border-r">Home Room Activity</th>
+     <th class="p-2 text-left border-r">Activity</th>
+     <th class="p-2 text-left border-r">Activity Incharge</th>
+     <th class="p-2 text-left">Remark</th>
+    </tr></thead>
+    <tbody>${rows.join('')}</tbody>
+   </table>
+  </div>
+ </div>`;
+}
+function _attachActivityCalendarEvents(){
+ document.getElementById('actCalYear')?.addEventListener('change', e => { setActivityCalYear(parseInt(e.target.value)); renderApp(); });
+ // Save edits on the fly (debounced per field via change)
+ document.querySelectorAll('.actCell').forEach(inp => inp.addEventListener('change', () => {
+  const m = parseInt(inp.dataset.m), d = parseInt(inp.dataset.d), f = inp.dataset.f;
+  const cur = _activityEdit(m, d);
+  cur[f] = inp.value.trim();
+  _saveActivityEdit(m, d, { activity:cur.activity||'', incharge:cur.incharge||'', remark:cur.remark||'' });
+  showToast('Saved');
+ }));
+ document.getElementById('actCalImportBtn')?.addEventListener('click', () => {
+  const n = importActivityDaysToCalendar();
+  showToast(n>0 ? `${n} day(s) added to the School Calendar` : 'All days already in the School Calendar');
+  renderApp();
+ });
+ document.getElementById('actCalPrintBtn')?.addEventListener('click', _printActivityCalendar);
+}
+// Printable version of the activity calendar (branded A4).
+function _printActivityCalendar(){
+ const year = _activityCalYear();
+ const school = SCHOOL_INFO;
+ const logo = school.logo ? `<img src="${school.logo}" style="width:46px;height:46px;object-fit:contain">` : '';
+ const byMonth = {};
+ ACTIVITY_DAYS.forEach(a => { (byMonth[a.m] = byMonth[a.m] || []).push(a); });
+ let body = '';
+ Object.keys(byMonth).map(Number).sort((a,b)=>a-b).forEach(m => {
+  byMonth[m].sort((a,b)=>a.d-b.d).forEach((a, idx) => {
+   const e = _activityEdit(a.m, a.d);
+   body += `<tr>
+    <td>${idx===0?MONTH_NAMES[m-1]:''}</td><td style="text-align:center">${a.d}</td>
+    <td style="text-align:center">${_activityWeekday(a.m,a.d)}</td>
+    <td>${escapeHTML(a.t)}</td><td>${escapeHTML(e.activity||'')}</td>
+    <td>${escapeHTML(e.incharge||'')}</td><td>${escapeHTML(e.remark||'')}</td>
+   </tr>`;
+  });
+ });
+ const w = window.open('', '_blank', 'width=900,height=1000');
+ if (!w) { alert('Pop-up blocked. Please allow pop-ups and try again.'); return; }
+ w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Activity Calendar ${year}</title>
+  <style>@page{size:A4 portrait;margin:1.2cm}body{font-family:Arial,sans-serif;color:#2a1410;margin:0}
+   .hdr{display:flex;align-items:center;gap:10px;border-bottom:3px solid #7a1e2e;padding-bottom:6px;margin-bottom:4px}
+   .sn{font-size:15pt;font-weight:800;color:#7a1e2e}.sm{font-size:8pt;color:#57433d}
+   .ttl{text-align:center;font-weight:700;color:#7a1e2e;margin:4px 0 8px}
+   table{width:100%;border-collapse:collapse}th,td{border:1px solid #444;padding:4px 6px;font-size:8.5pt;vertical-align:top}
+   th{background:#7a1e2e;color:#fff;text-align:left}
+   .btns{position:fixed;top:10px;right:10px}.btns button{padding:8px 16px;border:none;border-radius:8px;cursor:pointer;margin-left:6px}
+   .pr{background:#7a1e2e;color:#fff}.cl{background:#e5e5e5}@media print{.btns{display:none}}</style></head><body>
+   <div class="hdr">${logo}<div><div class="sn">${escapeHTML(school.name)}</div><div class="sm">${escapeHTML((school.addressLine1||'')+(school.addressLine2?', '+school.addressLine2:''))}</div></div></div>
+   <div class="ttl">HOME ROOM ACTIVITY CALENDAR — ${year}</div>
+   <table><thead><tr><th>Month</th><th>Date</th><th>Day</th><th>Home Room Activity</th><th>Activity</th><th>Activity Incharge</th><th>Remark</th></tr></thead><tbody>${body}</tbody></table>
+   <div class="btns"><button class="pr" onclick="window.print()">Print / Save PDF</button><button class="cl" onclick="window.close()">Close</button></div>
+  </body></html>`);
+ w.document.close();
+}
+
 function renderCalendar(){
+ if (typeof _calMode === 'undefined') _calMode = 'events';
+ const modeToggle = `<div class="flex flex-wrap gap-2 mb-4">
+  <button class="calModeBtn px-4 py-2 rounded-lg text-sm font-medium ${_calMode==='events'?'bg-purple-600 text-white':'bg-gray-100 hover:bg-gray-200'}" data-mode="events"><i class="fas fa-calendar-days mr-1"></i>School Calendar</button>
+  <button class="calModeBtn px-4 py-2 rounded-lg text-sm font-medium ${_calMode==='activity'?'bg-purple-600 text-white':'bg-gray-100 hover:bg-gray-200'}" data-mode="activity"><i class="fas fa-calendar-star mr-1"></i>Activity Calendar</button>
+ </div>`;
+ if (_calMode === 'activity') {
+  return `<div>${modeToggle}${renderActivityCalendar()}</div>`;
+ }
  const events=get('calendar').sort((a,b)=>(a.date||'').localeCompare(b.date||''));
  return `<div>
+  ${modeToggle}
   <div class="flex justify-between items-center mb-3"><h2 class="text-lg font-bold"><i class="fas fa-calendar-days text-purple-600 mr-1"></i>School Calendar</h2><button id="addCalEvent" class="bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-sm">+ Add Event</button></div>
   <p class="text-xs text-gray-500 mb-3"><i class="fas fa-globe mr-1"></i>Events marked <b>"Show on public website"</b> appear on the school's public Calendar page for parents and visitors.</p>
   <div class="grid md:grid-cols-3 gap-3">${events.map(e=>`<div class="border p-3 rounded-lg ${e.public?'border-emerald-300 bg-emerald-50':''}">
@@ -7526,6 +7760,11 @@ function renderParFees(students){
       <div class="text-xs text-${balance>0?'rose':'emerald'}-700 font-semibold uppercase">${pt('Balance Due','शेष राशि')}</div>
       <div class="text-xl font-bold text-${balance>0?'rose':'emerald'}-900">${balance > 0 ? fmtINR(balance) : pt('Cleared ✓','चुकता ✓')}</div>
      </div>
+     ${(s.previousDues||0) > 0 ? `<div class="bg-amber-50 border-2 border-amber-300 p-3 rounded">
+      <div class="text-xs text-amber-700 font-semibold uppercase">${pt('Previous Year Dues','पिछले वर्ष का बकाया')}</div>
+      <div class="text-xl font-bold text-amber-900">${fmtINR(s.previousDues)}</div>
+      <div class="text-[10px] text-amber-600">${pt('carried forward','पिछले सत्र से')}</div>
+     </div>` : ''}
      <div class="bg-amber-50 border border-amber-200 p-3 rounded">
       <div class="text-xs text-amber-700 font-semibold uppercase">${pt('Transport (monthly)','परिवहन (मासिक)')}</div>
       <div class="text-xl font-bold text-amber-900">${s.transportMonthly ? fmtINR(s.transportMonthly) : '-'}</div>
@@ -7941,6 +8180,7 @@ const FEE_HEADS = [
 
 // Fee heads on the printed receipt book (order matches the school's paper receipt).
 var _rcptYearFilter = 'all';
+var _rcptHeads = []; // line items being added to the current receipt: [{head, amount}]
 const RECEIPT_FEE_HEADS = [
   'Registration Fees', 'Admission Fee', 'Tuition Fee', 'Computer Fee',
   'Transport Fees', 'Annual Charges', 'Examination Fee', 'Day Boarding (Mess)'
@@ -8477,6 +8717,7 @@ function renderAccReceipts(){
  const banks = get('bankAccounts');
  const fmtINR = n => 'Rs.' + (n||0).toLocaleString('en-IN');
  if (typeof _rcptYearFilter === 'undefined' || !_rcptYearFilter) _rcptYearFilter = 'all';
+ if (!Array.isArray(_rcptHeads)) _rcptHeads = [];
 
  // Class-wise fee monitoring
  const byClass = {};
@@ -8564,19 +8805,29 @@ function renderAccReceipts(){
     </div>
    </div>
 
-   <!-- Fee-head breakdown: tick each head being paid and enter its amount -->
+   <!-- Fee-head breakdown: choose a head, enter amount, Add. Repeat for multiple heads. -->
    <div class="border rounded-lg overflow-hidden mb-3">
-    <div class="bg-gray-50 px-3 py-2 flex items-center justify-between">
-     <div class="text-sm font-semibold"><i class="fas fa-list-check text-emerald-600 mr-1"></i>Fee Heads — tick each one being paid</div>
-     <div class="text-xs text-gray-500">Multiple heads can be paid in one receipt</div>
+    <div class="bg-gray-50 px-3 py-2">
+     <div class="text-sm font-semibold"><i class="fas fa-list-check text-emerald-600 mr-1"></i>Fee Heads</div>
+     <div class="text-xs text-gray-500">Choose a head, enter the amount, and tap Add. You can add several heads to one receipt.</div>
     </div>
-    <div class="divide-y">
-     ${RECEIPT_FEE_HEADS.map((h,i) => `<label class="flex items-center gap-2 px-3 py-1.5 hover:bg-emerald-50 cursor-pointer">
-       <input type="checkbox" class="rcptHeadChk w-auto" data-head="${escapeHTML(h)}" data-i="${i}">
-       <span class="text-sm flex-1">${i+1}. ${escapeHTML(h)}</span>
-       <span class="text-xs text-gray-400">Rs.</span>
-       <input type="number" class="rcptHeadAmt border rounded px-2 py-1 text-sm text-right" data-i="${i}" placeholder="0" style="width:110px" disabled>
-      </label>`).join('')}
+    <div class="p-3">
+     <div class="flex flex-wrap items-end gap-2">
+      <div class="flex-1 min-w-[160px]">
+       <label class="text-xs text-gray-500 block mb-0.5">Fee head</label>
+       <select id="rcptHeadSelect" class="text-sm w-full">
+        <option value="">— Select fee head —</option>
+        ${RECEIPT_FEE_HEADS.map(h => `<option value="${escapeHTML(h)}">${escapeHTML(h)}</option>`).join('')}
+       </select>
+      </div>
+      <div style="width:130px">
+       <label class="text-xs text-gray-500 block mb-0.5">Amount (Rs.)</label>
+       <input type="number" id="rcptHeadAmtInput" placeholder="0" class="text-sm w-full">
+      </div>
+      <button id="rcptHeadAddBtn" type="button" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-plus mr-1"></i>Add</button>
+     </div>
+     <!-- Added heads list (filled by JS) -->
+     <div id="rcptHeadsList" class="mt-3"></div>
     </div>
     <div class="bg-emerald-50 px-3 py-2 flex items-center justify-between">
      <div class="text-sm font-semibold">Total</div>
@@ -8657,12 +8908,13 @@ function renderAccReceipts(){
       </summary>
       <div class="overflow-x-auto p-2">
        <table class="text-xs w-full border">
-        <thead class="bg-gray-100"><tr><th>Roll</th><th>Reg. No</th><th>Name</th><th class="text-right">Decided</th><th class="text-right">Paid</th><th class="text-right">Balance</th><th>Status</th></tr></thead>
+        <thead class="bg-gray-100"><tr><th>Roll</th><th>Reg. No</th><th>Name</th><th class="text-right">Decided</th><th class="text-right">Paid</th><th class="text-right">Balance</th><th class="text-right">Prev. Dues</th><th>Status</th></tr></thead>
         <tbody>${list.sort((a,b) => (a.rollNo||0) - (b.rollNo||0)).map(s => {
           const decided = s.decidedFees || s.annualFees || 0;
           const balance = s.feeBalance || 0;
           const paid = Math.max(0, decided - balance);
-          return `<tr><td>${s.rollNo||'-'}</td><td class="font-mono">${s.registrationNo||s.admissionNo||'-'}</td><td>${s.name}</td><td class="text-right">${fmtINR(decided)}</td><td class="text-right text-emerald-700">${fmtINR(paid)}</td><td class="text-right ${balance>0?'text-red-700 font-semibold':'text-emerald-700'}">${fmtINR(balance)}</td><td>${balance===0?'<span class="pill pill-green">Cleared</span>':balance<decided?'<span class="pill pill-amber">Partial</span>':'<span class="pill pill-red">Pending</span>'}</td></tr>`;
+          const prevDues = s.previousDues || 0;
+          return `<tr><td>${s.rollNo||'-'}</td><td class="font-mono">${s.registrationNo||s.admissionNo||'-'}</td><td>${s.name}</td><td class="text-right">${fmtINR(decided)}</td><td class="text-right text-emerald-700">${fmtINR(paid)}</td><td class="text-right ${balance>0?'text-red-700 font-semibold':'text-emerald-700'}">${fmtINR(balance)}</td><td class="text-right ${prevDues>0?'text-amber-700 font-semibold':'text-gray-300'}">${prevDues>0?fmtINR(prevDues):'—'}</td><td>${balance===0&&prevDues===0?'<span class="pill pill-green">Cleared</span>':balance<decided?'<span class="pill pill-amber">Partial</span>':'<span class="pill pill-red">Pending</span>'}</td></tr>`;
         }).join('')}</tbody>
        </table>
       </div>
@@ -8882,14 +9134,19 @@ function renderAccSalary(){
       ${SESSION_MONTHS.map(m=>`<option value="${m}" ${t.salaryStartMonth===m?'selected':''}>${m}</option>`).join('')}
      </select>
     </div>
+    <div>
+     <label class="text-xs font-medium block mb-0.5 text-amber-700">Previous Year Dues (Rs.) <i class="fas fa-circle-info text-gray-400" title="Salary still owed from LAST academic year (carry-forward). Cleared first when you record a payment tagged to a past year."></i></label>
+     <input type="number" id="salSetPrevDues" value="${Number(t.previousSalaryDues)||''}" placeholder="0" class="text-sm" style="width:150px">
+    </div>
     <button id="salSetMonthlyBtn" class="bg-gray-700 hover:bg-gray-800 text-white px-3 py-2 rounded-lg text-xs font-medium"><i class="fas fa-save mr-1"></i>Save Salary</button>
     <span class="text-xs text-gray-400">This also updates the teacher's record.</span>
    </div>
 
-   <div class="grid grid-cols-2 md:grid-cols-3 gap-2 mb-4">
+   <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
     <div class="bg-emerald-50 rounded-lg p-3"><div class="text-xs text-gray-500">Total Paid (session)</div><div class="font-bold text-emerald-700">Rs.${paid.toLocaleString('en-IN')}</div></div>
-    ${canSeeDues?`<div class="bg-gray-50 rounded-lg p-3"><div class="text-xs text-gray-500">Expected to date</div><div class="font-bold text-gray-700">Rs.${expected.toLocaleString('en-IN')}</div></div>
+    ${canSeeDues?`<div class="bg-gray-50 rounded-lg p-3"><div class="text-xs text-gray-500">Expected to date</div><div class="font-bold text-gray-700">Rs.${expected.toLocaleString('en-IN')}</div>${noSalaryMonths().length?`<div class="text-[10px] text-amber-600 mt-0.5"><i class="fas fa-umbrella-beach mr-0.5"></i>excl. ${noSalaryMonths().join(', ')} (no salary)</div>`:''}</div>
     <div class="bg-${due>0?'rose':'green'}-50 rounded-lg p-3"><div class="text-xs text-gray-500">${due>0?'Dues (owed)':'Advance/Clear'}</div><div class="font-bold text-${due>0?'rose':'green'}-700">Rs.${Math.abs(due).toLocaleString('en-IN')}</div></div>`:''}
+    ${(Number(t.previousSalaryDues)||0) > 0 ? `<div class="bg-amber-50 border-2 border-amber-300 rounded-lg p-3"><div class="text-xs text-amber-700 font-semibold">Previous Year Dues</div><div class="font-bold text-amber-800">Rs.${(Number(t.previousSalaryDues)||0).toLocaleString('en-IN')}</div><div class="text-[10px] text-amber-600">carried forward</div></div>` : ''}
    </div>
 
    <!-- Record a payment -->
@@ -8899,11 +9156,13 @@ function renderAccSalary(){
     <div class="grid md:grid-cols-3 gap-2">
      <div><label class="text-xs">Amount (Rs.)</label><input type="number" id="salAmount" placeholder="${Number(t.salary)||''}" class="text-sm w-full"></div>
      <div><label class="text-xs">Date</label><input type="date" id="salDate" value="${new Date().toISOString().slice(0,10)}" class="text-sm w-full"></div>
-     <div><label class="text-xs">For Month</label><select id="salMonth" class="text-sm w-full">${SESSION_MONTHS.map(m=>`<option ${m===new Date().toLocaleDateString('en-IN',{month:'long'})?'selected':''}>${m}</option>`).join('')}</select></div>
+     <div><label class="text-xs">Academic Year <span class="text-gray-400">(Apr–Mar)</span></label><select id="salYear" class="text-sm w-full">${academicYearOptions().map(y=>`<option value="${y}" ${y===currentSession()?'selected':''}>${y}${y===currentSession()?' (current)':''}</option>`).join('')}</select></div>
+     <div><label class="text-xs">For Month</label><select id="salMonth" class="text-sm w-full">${SESSION_MONTHS.map(m=>`<option ${m===new Date().toLocaleDateString('en-IN',{month:'long'})?'selected':''}>${m}${noSalaryMonths().includes(m)?' (holiday — no salary)':''}</option>`).join('')}</select></div>
      <div><label class="text-xs">Mode</label><select id="salMode" class="text-sm w-full">${PAYMENT_MODES.map(m=>`<option>${m}</option>`).join('')}</select></div>
      <div><label class="text-xs">Cheque/Ref No (if any)</label><input id="salCheque" placeholder="optional" class="text-sm w-full"></div>
-     <div><label class="text-xs">Note</label><input id="salNote" placeholder="e.g. partial, advance" class="text-sm w-full"></div>
+     <div class="md:col-span-3"><label class="text-xs">Note</label><input id="salNote" placeholder="e.g. partial, advance" class="text-sm w-full"></div>
     </div>
+    <div id="salYearHint" class="text-xs text-amber-600 mt-1" style="display:none"><i class="fas fa-triangle-exclamation mr-1"></i>Recording against a past year's salary dues</div>
     <div class="flex justify-end mt-2"><button id="salRecordBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-save mr-1"></i>Record Payment</button></div>
    </div>
 
@@ -8937,16 +9196,17 @@ function renderAccSalary(){
    <!-- Payment history (all individual entries) -->
    <div class="text-sm font-semibold mb-1"><i class="fas fa-clock-rotate-left text-gray-600 mr-1"></i>All Payments</div>
    <table class="w-full text-sm border">
-    <thead class="bg-gray-50"><tr><th class="p-2 text-left">Date</th><th class="p-2 text-left">For Month</th><th class="p-2 text-left">Mode</th><th class="p-2 text-left">Cheque/Ref</th><th class="p-2 text-left">Note</th><th class="p-2 text-right">Amount</th><th class="p-2"></th></tr></thead>
+    <thead class="bg-gray-50"><tr><th class="p-2 text-left">Date</th><th class="p-2 text-left">For Month</th><th class="p-2 text-left">Year</th><th class="p-2 text-left">Mode</th><th class="p-2 text-left">Cheque/Ref</th><th class="p-2 text-left">Note</th><th class="p-2 text-right">Amount</th><th class="p-2"></th></tr></thead>
     <tbody>${tp.length?tp.map(p=>`<tr class="border-t">
       <td class="p-2 text-xs whitespace-nowrap">${fmtDate(p.date)}</td>
       <td class="p-2 text-xs">${escapeHTML(p.forMonth||'-')}</td>
+      <td class="p-2 text-xs">${p.academicYear ? `<span class="pill ${p.academicYear===currentSession()?'pill-green':'pill-amber'}">${escapeHTML(p.academicYear)}</span>` : '<span class="text-gray-300">—</span>'}</td>
       <td class="p-2 text-xs">${escapeHTML(p.mode||'-')}</td>
       <td class="p-2 text-xs">${escapeHTML(p.chequeNo||'-')}</td>
       <td class="p-2 text-xs">${escapeHTML(p.note||'-')}</td>
       <td class="p-2 text-right font-semibold text-emerald-700">Rs.${(Number(p.amount)||0).toLocaleString('en-IN')}</td>
       <td class="p-2 text-center whitespace-nowrap"><button class="salPrintBtn text-blue-500 hover:text-blue-700 mr-2" data-id="${p.id}" title="Print slip"><i class="fas fa-print"></i></button><button class="salDelBtn text-rose-400 hover:text-rose-600" data-id="${p.id}"><i class="fas fa-trash"></i></button></td>
-     </tr>`).join(''):'<tr><td colspan="7" class="text-center text-gray-400 py-4">No payments recorded yet</td></tr>'}</tbody>
+     </tr>`).join(''):'<tr><td colspan="8" class="text-center text-gray-400 py-4">No payments recorded yet</td></tr>'}</tbody>
    </table>
   </div>`;
  }
@@ -8957,6 +9217,12 @@ function renderAccSalary(){
  return `<div class="bg-white rounded-xl border p-4 md:p-5">
   <h2 class="text-lg font-bold mb-1"><i class="fas fa-money-check-dollar text-emerald-600 mr-1"></i>Staff Salary Payments</h2>
   <p class="text-sm text-gray-600 mb-4">Record salary payments individually — cash, cheque, or online, on any date, partial or full. ${showDuesColumn?'Dues (what is owed) are shown for management.':''}</p>
+  ${showDuesColumn ? `<div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+   <div class="flex flex-wrap items-center justify-between gap-2">
+    <div class="text-sm"><i class="fas fa-umbrella-beach text-amber-600 mr-1"></i><b>Holiday months (no salary):</b> <span class="text-amber-800">${noSalaryMonths().length ? noSalaryMonths().join(', ') : 'none'}</span><div class="text-xs text-gray-500">These months are excluded when calculating expected salary &amp; dues.</div></div>
+    <button id="salHolidayBtn" class="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-gear mr-1"></i>Change holiday months</button>
+   </div>
+  </div>` : ''}
   ${orphanSalaryExpenses.length > 0 ? `<div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-sm">
    <div class="flex flex-wrap items-center justify-between gap-2">
     <span class="text-amber-900"><i class="fas fa-circle-info mr-1"></i><b>${orphanSalaryExpenses.length} older salary payment(s)</b> were recorded in the Payments tab before salary syncing existed. Import them here so they show in this tab.</span>
@@ -8965,16 +9231,17 @@ function renderAccSalary(){
   </div>` : ''}
   <div class="overflow-auto">
    <table class="w-full text-sm border">
-    <thead class="bg-gray-50"><tr><th class="p-2 text-left">Name</th><th class="p-2 text-left">Job / Role</th><th class="p-2 text-right">Monthly Salary</th><th class="p-2 text-right">Paid (session)</th>${showDuesColumn?'<th class="p-2 text-right">Dues</th>':''}<th class="p-2 text-center">Action</th></tr></thead>
+    <thead class="bg-gray-50"><tr><th class="p-2 text-left">Name</th><th class="p-2 text-left">Job / Role</th><th class="p-2 text-right">Monthly Salary</th><th class="p-2 text-right">Paid (session)</th>${showDuesColumn?'<th class="p-2 text-right">Dues</th><th class="p-2 text-right">Prev. Dues</th>':''}<th class="p-2 text-center">Action</th></tr></thead>
     <tbody>${teachers.map(t=>{
       const paid = _salaryPaidToTeacher(t.id);
       const due = _salaryDue(t);
+      const prevDue = Number(t.previousSalaryDues)||0;
       return `<tr class="border-t hover:bg-gray-50">
        <td class="p-2"><div class="flex items-center gap-2">${t.photo?`<img src="${t.photo}" class="w-8 h-8 rounded-full object-cover">`:`<div class="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-xs font-bold">${initials(t.name)}</div>`}<span class="font-medium">${escapeHTML(t.name)}</span></div></td>
        <td class="p-2 text-xs text-gray-600">${escapeHTML(t.subject||'Teacher')}</td>
        <td class="p-2 text-right">${(Number(t.salary)||0)>0?'Rs.'+(Number(t.salary)||0).toLocaleString('en-IN'):'<span class="text-amber-500 text-xs">not set</span>'}</td>
        <td class="p-2 text-right text-emerald-700 font-medium">Rs.${paid.toLocaleString('en-IN')}</td>
-       ${showDuesColumn?`<td class="p-2 text-right ${due>0?'text-rose-600 font-semibold':'text-gray-400'}">${due>0?'Rs.'+due.toLocaleString('en-IN'):'—'}</td>`:''}
+       ${showDuesColumn?`<td class="p-2 text-right ${due>0?'text-rose-600 font-semibold':'text-gray-400'}">${due>0?'Rs.'+due.toLocaleString('en-IN'):'—'}</td><td class="p-2 text-right ${prevDue>0?'text-amber-700 font-semibold':'text-gray-300'}">${prevDue>0?'Rs.'+prevDue.toLocaleString('en-IN'):'—'}</td>`:''}
        <td class="p-2 text-center"><button class="salViewBtn bg-emerald-100 hover:bg-emerald-200 text-emerald-700 px-3 py-1 rounded text-xs font-medium" data-id="${t.id}">Manage</button></td>
       </tr>`;
     }).join('')}</tbody>
@@ -9626,7 +9893,7 @@ function _printSalarySlip(paymentId){
     <tr><td class="lbl">Employee Name</td><td>${escapeHTML(t.name||'-')}</td></tr>
     <tr><td class="lbl">Designation / Subject</td><td>${escapeHTML(t.subject||'-')}</td></tr>
     <tr><td class="lbl">Employee ID</td><td>${escapeHTML(t.employeeId||'-')}</td></tr>
-    <tr><td class="lbl">Payment For</td><td>${escapeHTML(p.forMonth||'-')} (Session ${currentSession()})</td></tr>
+    <tr><td class="lbl">Payment For</td><td>${escapeHTML(p.forMonth||'-')} (Session ${escapeHTML(p.academicYear || currentSession())})</td></tr>
     <tr><td class="lbl">Payment Date</td><td>${fmtDate(p.date)}</td></tr>
     <tr><td class="lbl">Payment Mode</td><td>${escapeHTML(p.mode||'-')}${p.chequeNo?' (Ref: '+escapeHTML(p.chequeNo)+')':''}</td></tr>
     ${p.note?`<tr><td class="lbl">Note</td><td>${escapeHTML(p.note)}</td></tr>`:''}
@@ -10578,6 +10845,33 @@ function _attachSalaryEvents(){
   _salarySelectedTeacher = parseInt(b.dataset.id);
   renderApp();
  }));
+ // Configure which months have no salary (summer holidays etc.)
+ document.getElementById('salHolidayBtn')?.addEventListener('click', () => {
+  const cur = noSalaryMonths();
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.style.display = 'flex';
+  modal.innerHTML = `<div class="modal-box" style="max-width:420px">
+   <h3 class="font-bold text-lg mb-1"><i class="fas fa-umbrella-beach text-amber-600 mr-1"></i>Holiday Months (No Salary)</h3>
+   <p class="text-sm text-gray-600 mb-3">Tick the months when staff are <b>not</b> paid (e.g. June — summer break). These are skipped when calculating expected salary and dues.</p>
+   <div class="grid grid-cols-2 gap-1 mb-4">
+    ${SESSION_MONTHS.map(m=>`<label class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-amber-50 cursor-pointer text-sm"><input type="checkbox" class="holMonthChk w-auto" value="${m}" ${cur.includes(m)?'checked':''}>${m}</label>`).join('')}
+   </div>
+   <div class="flex justify-end gap-2">
+    <button class="holCancelBtn bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm">Cancel</button>
+    <button class="holSaveBtn bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm font-medium">Save</button>
+   </div>
+  </div>`;
+  document.body.appendChild(modal);
+  modal.querySelector('.holCancelBtn').addEventListener('click', () => modal.remove());
+  modal.querySelector('.holSaveBtn').addEventListener('click', () => {
+   const picked = Array.from(modal.querySelectorAll('.holMonthChk')).filter(c=>c.checked).map(c=>c.value);
+   setNoSalaryMonths(picked);
+   modal.remove();
+   showToast('Holiday months updated: ' + (picked.length?picked.join(', '):'none'));
+   renderApp();
+  });
+ });
  document.getElementById('salBackBtn')?.addEventListener('click', () => {
   _salarySelectedTeacher = null;
   renderApp();
@@ -10592,6 +10886,8 @@ function _attachSalaryEvents(){
   const startM = document.getElementById('salSetStartMonth').value || '';
   teachers[i].salary = val;
   teachers[i].salaryStartMonth = startM || undefined;
+  const prevDues = parseInt(document.getElementById('salSetPrevDues')?.value) || 0;
+  teachers[i].previousSalaryDues = prevDues;
   saveTeachers(teachers);
   showToast('Monthly salary updated for ' + teachers[i].name);
   renderApp();
@@ -10601,6 +10897,7 @@ function _attachSalaryEvents(){
   const amount = parseInt(document.getElementById('salAmount').value) || 0;
   if (amount <= 0) { alert('Enter a valid payment amount.'); return; }
   const t = getTeachers().find(x => x.id === teacherId);
+  const academicYear = document.getElementById('salYear')?.value || currentSession();
   const payments = getSalaryPayments();
   payments.push({
    id: Date.now(),
@@ -10609,14 +10906,24 @@ function _attachSalaryEvents(){
    amount,
    date: document.getElementById('salDate').value || new Date().toISOString().slice(0,10),
    forMonth: document.getElementById('salMonth').value,
+   academicYear: academicYear,
    mode: document.getElementById('salMode').value,
    chequeNo: document.getElementById('salCheque').value.trim(),
    note: document.getElementById('salNote').value.trim(),
    paidBy: currentUser?.name || ''
   });
   saveSalaryPayments(payments);
+  // If this payment is for a PAST academic year, reduce that staff's previous-year salary dues.
+  if (academicYear && academicYear !== currentSession()) {
+   const ts = getTeachers();
+   const ti = ts.findIndex(x => x.id === teacherId);
+   if (ti > -1 && (ts[ti].previousSalaryDues||0) > 0) {
+    ts[ti].previousSalaryDues = Math.max(0, (ts[ti].previousSalaryDues||0) - amount);
+    saveTeachers(ts);
+   }
+  }
   _logAccountingChange('create', 'salary', null, payments[payments.length-1], 'Salary payment recorded');
-  showToast('Salary payment recorded for ' + (t?.name||'staff'));
+  showToast('Salary payment recorded for ' + (t?.name||'staff') + (academicYear !== currentSession() ? ' (' + academicYear + ')' : ''));
   renderApp();
  });
  document.querySelectorAll('.salDelBtn').forEach(b => b.addEventListener('click', () => {
@@ -10628,6 +10935,14 @@ function _attachSalaryEvents(){
  document.querySelectorAll('.salPrintBtn').forEach(b => b.addEventListener('click', () => {
   _printSalarySlip(parseInt(b.dataset.id));
  }));
+ // Salary academic-year hint — warn when paying against a past year's dues
+ const salYearSel = document.getElementById('salYear');
+ const salYearHint = document.getElementById('salYearHint');
+ if (salYearSel && salYearHint) {
+  const upd = () => { salYearHint.style.display = (salYearSel.value !== currentSession()) ? '' : 'none'; };
+  salYearSel.addEventListener('change', upd);
+  upd();
+ }
  // One-time import: pull old salary-category expenses (no salaryPaymentId) into the Salary tab.
  document.getElementById('salImportOldBtn')?.addEventListener('click', () => {
   const expenses = get('expenses');
@@ -10804,19 +11119,11 @@ function _attachReceiptEvents(){
  document.getElementById('rcptSaveBtn')?.addEventListener('click', () => {
   const from = document.getElementById('rcptFrom').value;
   if (!from) { alert('Please select payer'); return; }
-  // Collect ticked fee heads + their amounts
-  const heads = [];
-  document.querySelectorAll('.rcptHeadChk').forEach(chk => {
-   if (chk.checked) {
-    const i = chk.dataset.i;
-    const amtEl = document.querySelector('.rcptHeadAmt[data-i="'+i+'"]');
-    const a = parseFloat(amtEl?.value) || 0;
-    if (a > 0) heads.push({ head: chk.dataset.head, amount: a });
-   }
-  });
-  if (heads.length === 0) { alert('Tick at least one fee head and enter its amount.'); return; }
+  // Fee heads come from the added line-items list
+  const heads = (_rcptHeads || []).filter(h => (Number(h.amount)||0) > 0).map(h => ({ head: h.head, amount: Number(h.amount) }));
+  if (heads.length === 0) { alert('Add at least one fee head with an amount.'); return; }
   const amt = heads.reduce((s,h) => s + h.amount, 0);
-  if (!amt || amt <= 0) { alert('Enter a valid amount for the ticked heads.'); return; }
+  if (!amt || amt <= 0) { alert('Enter a valid amount for the fee heads.'); return; }
   // Primary head = the largest one (used for single-head summaries); full split kept in `heads`.
   const primaryHead = heads.slice().sort((a,b)=>b.amount-a.amount)[0].head;
   const headLabel = heads.length === 1 ? heads[0].head : heads.map(h=>h.head+' Rs.'+h.amount).join(' + ');
@@ -10852,7 +11159,20 @@ function _attachReceiptEvents(){
    if (reducing > 0) {
     const ss = getStudents();
     const i = ss.findIndex(x => x.id === sid);
-    if (i > -1) { ss[i].feeBalance = Math.max(0, (ss[i].feeBalance||0) - reducing); saveStudents(ss); }
+    if (i > -1) {
+     // If this receipt is for a PAST academic year, clear previous-year dues first; any
+     // remainder reduces the current-year balance. For the current year, reduce balance directly.
+     if (academicYear && academicYear !== currentSession() && (ss[i].previousDues||0) > 0) {
+      const prev = ss[i].previousDues || 0;
+      const appliedToPrev = Math.min(prev, reducing);
+      ss[i].previousDues = Math.max(0, prev - appliedToPrev);
+      const leftover = reducing - appliedToPrev;
+      if (leftover > 0) ss[i].feeBalance = Math.max(0, (ss[i].feeBalance||0) - leftover);
+     } else {
+      ss[i].feeBalance = Math.max(0, (ss[i].feeBalance||0) - reducing);
+     }
+     saveStudents(ss);
+    }
    }
   } else {
    const payerName = document.getElementById('rcptPayerName').value.trim();
@@ -10874,35 +11194,71 @@ function _attachReceiptEvents(){
   const tr = getFeeTransactions();
   tr.push(transaction);
   saveFeeTransactions(tr);
+  _rcptHeads = []; // clear the line items for the next receipt
   showToast('Receipt recorded: Rs.' + amt + ' (' + transaction.receiptNo + ')');
 
   DB.setScalar('_lastReceiptId', String(transaction.id));
   renderApp();
  });
 
- // Fee-head checkbox: enable/disable its amount field + recompute total
- const _rcptRecalc = () => {
-  let total = 0;
-  document.querySelectorAll('.rcptHeadChk').forEach(chk => {
-   const i = chk.dataset.i;
-   const amtEl = document.querySelector('.rcptHeadAmt[data-i="'+i+'"]');
-   if (!amtEl) return;
-   amtEl.disabled = !chk.checked;
-   if (!chk.checked) { amtEl.value = ''; }
-   else total += parseFloat(amtEl.value) || 0;
-  });
+ // ---- Dropdown-based fee-head line items ----
+ // Rebuild the added-heads list + total, and refresh the dropdown so used heads drop out.
+ const _rcptRenderHeads = () => {
+  const listEl = document.getElementById('rcptHeadsList');
+  const total = (_rcptHeads||[]).reduce((s,h)=>s+(Number(h.amount)||0),0);
+  if (listEl) {
+   if (!_rcptHeads || _rcptHeads.length === 0) {
+    listEl.innerHTML = '<div class="text-xs text-gray-400 italic">No fee heads added yet — choose one above and tap Add.</div>';
+   } else {
+    listEl.innerHTML = _rcptHeads.map((h,idx) => `<div class="flex items-center justify-between gap-2 border-b py-1.5">
+      <span class="text-sm font-medium">${idx+1}. ${escapeHTML(h.head)}</span>
+      <span class="flex items-center gap-3">
+       <span class="text-sm font-semibold text-emerald-700">Rs.${(Number(h.amount)||0).toLocaleString('en-IN')}</span>
+       <button type="button" class="rcptHeadDelBtn text-rose-400 hover:text-rose-600" data-idx="${idx}" title="Remove"><i class="fas fa-times-circle"></i></button>
+      </span>
+     </div>`).join('');
+   }
+  }
   const tEl = document.getElementById('rcptTotal');
   if (tEl) tEl.textContent = total.toLocaleString('en-IN');
   const hidden = document.getElementById('rcptAmount');
   if (hidden) hidden.value = total;
+  // Refresh dropdown options to exclude already-added heads
+  const sel = document.getElementById('rcptHeadSelect');
+  if (sel) {
+   const used = new Set((_rcptHeads||[]).map(h=>h.head));
+   const avail = RECEIPT_FEE_HEADS.filter(h => !used.has(h));
+   sel.innerHTML = '<option value="">— Select fee head —</option>' + avail.map(h=>`<option value="${escapeHTML(h)}">${escapeHTML(h)}</option>`).join('');
+  }
+  // Re-bind remove buttons
+  document.querySelectorAll('.rcptHeadDelBtn').forEach(b => b.addEventListener('click', () => {
+   const idx = parseInt(b.dataset.idx);
+   _rcptHeads.splice(idx, 1);
+   _rcptRenderHeads();
+  }));
  };
- document.querySelectorAll('.rcptHeadChk').forEach(chk => chk.addEventListener('change', () => {
-  const i = chk.dataset.i;
-  const amtEl = document.querySelector('.rcptHeadAmt[data-i="'+i+'"]');
-  if (chk.checked && amtEl) setTimeout(() => amtEl.focus(), 30);
-  _rcptRecalc();
- }));
- document.querySelectorAll('.rcptHeadAmt').forEach(a => a.addEventListener('input', _rcptRecalc));
+ // Add the selected head + amount as a line item
+ const _rcptAddHead = () => {
+  const sel = document.getElementById('rcptHeadSelect');
+  const amtEl = document.getElementById('rcptHeadAmtInput');
+  const head = sel?.value;
+  const amount = parseFloat(amtEl?.value) || 0;
+  if (!head) { alert('Choose a fee head first.'); sel?.focus(); return; }
+  if (amount <= 0) { alert('Enter an amount for ' + head + '.'); amtEl?.focus(); return; }
+  if (!Array.isArray(_rcptHeads)) _rcptHeads = [];
+  const existing = _rcptHeads.find(h => h.head === head);
+  if (existing) existing.amount = amount; else _rcptHeads.push({ head, amount });
+  if (sel) sel.value = '';
+  if (amtEl) amtEl.value = '';
+  _rcptRenderHeads();
+  sel?.focus();
+ };
+ document.getElementById('rcptHeadAddBtn')?.addEventListener('click', _rcptAddHead);
+ // Enter in the amount box adds the line item
+ document.getElementById('rcptHeadAmtInput')?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); _rcptAddHead(); } });
+ // Selecting a head jumps focus to the amount box
+ document.getElementById('rcptHeadSelect')?.addEventListener('change', () => { if (document.getElementById('rcptHeadSelect').value) document.getElementById('rcptHeadAmtInput')?.focus(); });
+ _rcptRenderHeads(); // initial paint
 
  // Academic-year hint — warn when recording against a past year's dues
  const yearSel = document.getElementById('rcptYear');
@@ -12727,6 +13083,7 @@ function attachDataManagementEvents(){
   document.getElementById('dmStuBlood').value = 'O+';
   document.getElementById('dmStuCaste').value = 'General';
   document.getElementById('dmStuFeeBal').value = '0';
+  const _pd = document.getElementById('dmStuPrevDues'); if (_pd) _pd.value = '0';
   if (existingId) {
    const s = getStudents().find(x => x.id === parseInt(existingId));
    if (s) {
@@ -12761,6 +13118,7 @@ function attachDataManagementEvents(){
     document.getElementById('dmStuDecided').value = s.decidedFees || '';
     document.getElementById('dmStuTransport').value = s.transportMonthly || '';
     document.getElementById('dmStuFeeBal').value = s.feeBalance || 0;
+    document.getElementById('dmStuPrevDues').value = s.previousDues || 0;
     document.getElementById('dmStuBpl').checked = !!s.bpl;
     document.getElementById('dmStuCwsn').checked = !!s.cwsn;
     document.getElementById('dmStuFreeChild').checked = !!s.freeChild;
@@ -12870,6 +13228,7 @@ function attachDataManagementEvents(){
     decidedFees: parseInt(document.getElementById('dmStuDecided').value) || 0,
     transportMonthly: parseInt(document.getElementById('dmStuTransport').value) || 0,
     feeBalance: parseInt(document.getElementById('dmStuFeeBal').value) || 0,
+    previousDues: parseInt(document.getElementById('dmStuPrevDues')?.value) || 0,
     bpl: document.getElementById('dmStuBpl').checked,
     cwsn: document.getElementById('dmStuCwsn').checked,
     freeChild: document.getElementById('dmStuFreeChild').checked,
@@ -12939,13 +13298,44 @@ function attachGenericModuleEvents(){
   set('inventory',inv);document.getElementById('invModal').classList.add('hidden');refreshAdminTabContent();
  });
  document.querySelectorAll('.delInv').forEach(b=>b.addEventListener('click',()=>{set('inventory',get('inventory').filter(x=>x.id!==parseInt(b.dataset.id)));refreshAdminTabContent()}));
- document.getElementById('addVeh')?.addEventListener('click',()=>document.getElementById('vehModal').classList.remove('hidden'));
+ document.getElementById('addVeh')?.addEventListener('click',()=>{
+  document.getElementById('vehModalTitle').innerText='Add Vehicle';
+  document.getElementById('vehEditId').value='';
+  document.getElementById('vehNo').value='';
+  document.getElementById('vehDriver').value='';
+  document.getElementById('vehRoute').value='';
+  document.getElementById('vehCap').value='';
+  document.getElementById('vehStatus').value='Active';
+  document.getElementById('vehModal').classList.remove('hidden');
+ });
+ document.querySelectorAll('.editVeh').forEach(b=>b.addEventListener('click',()=>{
+  const veh=get('vehicles').find(x=>x.id===parseInt(b.dataset.id));
+  if(!veh) return;
+  document.getElementById('vehModalTitle').innerText='Edit Vehicle';
+  document.getElementById('vehEditId').value=veh.id;
+  document.getElementById('vehNo').value=veh.vehicleNo||'';
+  document.getElementById('vehDriver').value=veh.driver||'';
+  document.getElementById('vehRoute').value=veh.route||'';
+  document.getElementById('vehCap').value=veh.capacity||'';
+  document.getElementById('vehStatus').value=veh.status||'Active';
+  document.getElementById('vehModal').classList.remove('hidden');
+ }));
  document.getElementById('saveVehModal')?.addEventListener('click',()=>{
   const v=get('vehicles');
-  v.push({id:Date.now(),vehicleNo:document.getElementById('vehNo').value,driver:document.getElementById('vehDriver').value,route:document.getElementById('vehRoute').value,capacity:parseInt(document.getElementById('vehCap').value)||0,type:'Bus',status:'Active'});
+  const editId=document.getElementById('vehEditId').value;
+  const data={vehicleNo:document.getElementById('vehNo').value,driver:document.getElementById('vehDriver').value,route:document.getElementById('vehRoute').value,capacity:parseInt(document.getElementById('vehCap').value)||0,status:document.getElementById('vehStatus').value||'Active'};
+  if(!data.vehicleNo.trim()){alert('Enter a vehicle number');return;}
+  if(editId){
+   const i=v.findIndex(x=>x.id===parseInt(editId));
+   if(i>-1) v[i]={...v[i],...data};
+   showToast('Vehicle updated');
+  } else {
+   v.push({id:Date.now(),type:'Bus',...data});
+   showToast('Vehicle added');
+  }
   set('vehicles',v);document.getElementById('vehModal').classList.add('hidden');refreshAdminTabContent();
  });
- document.querySelectorAll('.delVeh').forEach(b=>b.addEventListener('click',()=>{set('vehicles',get('vehicles').filter(x=>x.id!==parseInt(b.dataset.id)));refreshAdminTabContent()}));
+ document.querySelectorAll('.delVeh').forEach(b=>b.addEventListener('click',()=>{if(!confirm('Delete this vehicle?'))return;set('vehicles',get('vehicles').filter(x=>x.id!==parseInt(b.dataset.id)));refreshAdminTabContent()}));
  document.getElementById('addMove')?.addEventListener('click',()=>document.getElementById('moveModal').classList.remove('hidden'));
  document.getElementById('saveMoveModal')?.addEventListener('click',()=>{
   const m=get('routeMovements');
@@ -13000,6 +13390,10 @@ function attachGenericModuleEvents(){
   document.getElementById('calModal').classList.remove('hidden');
  };
  document.getElementById('addCalEvent')?.addEventListener('click',()=>_openCalModal(null));
+ // Calendar mode toggle (School Calendar / Activity Calendar)
+ document.querySelectorAll('.calModeBtn').forEach(b=>b.addEventListener('click',()=>{ _calMode=b.dataset.mode; renderApp(); }));
+ // Activity calendar handlers (only present when in that mode)
+ if (typeof _attachActivityCalendarEvents === 'function') _attachActivityCalendarEvents();
  document.querySelectorAll('.editEvent').forEach(b=>b.addEventListener('click',()=>{
   const ev=get('calendar').find(x=>x.id===parseInt(b.dataset.id));
   if(ev)_openCalModal(ev);
