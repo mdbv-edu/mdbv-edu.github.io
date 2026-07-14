@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1784022131 - academic year dropdown on Payments salary form (tags year, reduces prev salary dues) -->
+<!-- BUILD: v-1784025298 - salary-tab payments now post to Ledger (linked expense, no P&L double-count) + one-time backfill tool -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -3105,10 +3105,53 @@ function computeFinancialSummary(){
 // ===== STAGGERED TEACHER SALARY PAYMENTS =====
 // Each payment: {id, teacherId, teacherName, amount, date, mode, chequeNo, forMonth, note, paidBy}
 // Teachers are paid in cash/cheque/online, partial and on any date. Dues shown to management only.
-function getSalaryPayments(){ return DB.getAll('salaryPayments'); }
-// Active (non-recycled) salary payments — used for all calculations/display.
+function getSalaryPayments(){ return DB.getAll('salaryPayments'); }// Active (non-recycled) salary payments — used for all calculations/display.
 function _activeSalaryPayments(){ return getSalaryPayments().filter(p => !p._deleted); }
 function saveSalaryPayments(d){ DB.setAll('salaryPayments', d); }
+// Salary payments with NO linked Ledger expense (recorded via the Salary tab before Ledger-sync existed).
+// A payment is "in the Ledger" if a non-deleted expense links to it (by expenseId or salaryPaymentId).
+function _salaryPaymentsMissingLedger(){
+ const exps = get('expenses').filter(e => !e._deleted);
+ const linkedIds = new Set();
+ exps.forEach(e => { if (e.salaryPaymentId) linkedIds.add(e.salaryPaymentId); });
+ return _activeSalaryPayments().filter(p => {
+  if (p.expenseId) { const ex = exps.find(e => e.id === p.expenseId); if (ex) return false; }
+  return !linkedIds.has(p.id);
+ });
+}
+// One-time backfill: create a linked Ledger expense for each salary payment that's missing one.
+// Idempotent — only touches payments not already in the Ledger. Returns count added.
+function _backfillSalaryToLedger(){
+ const missing = _salaryPaymentsMissingLedger();
+ if (missing.length === 0) return 0;
+ const allExp = get('expenses');
+ const payments = getSalaryPayments();
+ let added = 0;
+ missing.forEach((p, idx) => {
+  const expId = Date.now() + idx + Math.floor(Math.random()*1000);
+  allExp.push({
+   id: expId,
+   date: p.date,
+   category: 'Salary',
+   vendor: p.teacherName || 'Staff',
+   description: 'Salary — ' + (p.teacherName||'staff') + (p.forMonth ? ' ('+p.forMonth+')' : ''),
+   amount: Number(p.amount)||0,
+   mode: p.mode || 'Cash',
+   chequeNo: p.chequeNo || undefined,
+   salaryStaffName: p.teacherName || undefined,
+   salaryMonth: p.forMonth || undefined,
+   academicYear: p.academicYear || undefined,
+   salaryPaymentId: p.id   // link expense → salary payment
+  });
+  // back-link the salary payment → expense
+  const pi = payments.findIndex(x => x.id === p.id);
+  if (pi > -1) payments[pi].expenseId = expId;
+  added++;
+ });
+ set('expenses', allExp);
+ saveSalaryPayments(payments);
+ return added;
+}
 // Total paid to a teacher (optionally within a session window by month string).
 function _salaryPaidToTeacher(teacherId){
  return _activeSalaryPayments().filter(p => p.teacherId === teacherId).reduce((a,p)=>a+(Number(p.amount)||0),0);
@@ -9214,6 +9257,8 @@ function renderAccSalary(){
  // List view — all staff with paid + dues
  // Detect old salary-category expenses recorded before cross-linking existed (no salaryPaymentId).
  const orphanSalaryExpenses = get('expenses').filter(e => !e._deleted && e.category === 'Salary' && !e.salaryPaymentId);
+ // Detect salary payments that have NO linked Ledger expense (recorded via Salary tab before this sync existed).
+ const missingLedgerSalaries = _salaryPaymentsMissingLedger();
  return `<div class="bg-white rounded-xl border p-4 md:p-5">
   <h2 class="text-lg font-bold mb-1"><i class="fas fa-money-check-dollar text-emerald-600 mr-1"></i>Staff Salary Payments</h2>
   <p class="text-sm text-gray-600 mb-4">Record salary payments individually — cash, cheque, or online, on any date, partial or full. ${showDuesColumn?'Dues (what is owed) are shown for management.':''}</p>
@@ -9221,6 +9266,12 @@ function renderAccSalary(){
    <div class="flex flex-wrap items-center justify-between gap-2">
     <div class="text-sm"><i class="fas fa-umbrella-beach text-amber-600 mr-1"></i><b>Holiday months (no salary):</b> <span class="text-amber-800">${noSalaryMonths().length ? noSalaryMonths().join(', ') : 'none'}</span><div class="text-xs text-gray-500">These months are excluded when calculating expected salary &amp; dues.</div></div>
     <button id="salHolidayBtn" class="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-gear mr-1"></i>Change holiday months</button>
+   </div>
+  </div>` : ''}
+  ${(showDuesColumn && missingLedgerSalaries.length > 0) ? `<div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 text-sm">
+   <div class="flex flex-wrap items-center justify-between gap-2">
+    <span class="text-blue-900"><i class="fas fa-book mr-1"></i><b>${missingLedgerSalaries.length} salary payment(s)</b> aren't showing in the Ledger yet (recorded before Ledger sync). Add them to the Ledger in one click.</span>
+    <button id="salBackfillLedgerBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium flex-shrink-0"><i class="fas fa-book-medical mr-1"></i>Add ${missingLedgerSalaries.length} to Ledger</button>
    </div>
   </div>` : ''}
   ${orphanSalaryExpenses.length > 0 ? `<div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-sm">
@@ -10903,21 +10954,51 @@ function _attachSalaryEvents(){
   if (amount <= 0) { alert('Enter a valid payment amount.'); return; }
   const t = getTeachers().find(x => x.id === teacherId);
   const academicYear = document.getElementById('salYear')?.value || currentSession();
-  const payments = getSalaryPayments();
-  payments.push({
-   id: Date.now(),
+  const date = document.getElementById('salDate').value || new Date().toISOString().slice(0,10);
+  const forMonth = document.getElementById('salMonth').value;
+  const mode = document.getElementById('salMode').value;
+  const chequeNo = document.getElementById('salCheque').value.trim();
+  const note = document.getElementById('salNote').value.trim();
+  const salId = Date.now();
+  const salRec = {
+   id: salId,
    teacherId,
    teacherName: t?.name || '',
    amount,
-   date: document.getElementById('salDate').value || new Date().toISOString().slice(0,10),
-   forMonth: document.getElementById('salMonth').value,
+   date,
+   forMonth,
    academicYear: academicYear,
-   mode: document.getElementById('salMode').value,
-   chequeNo: document.getElementById('salCheque').value.trim(),
-   note: document.getElementById('salNote').value.trim(),
+   mode,
+   chequeNo,
+   note,
    paidBy: currentUser?.name || ''
-  });
+  };
+  // Also create a matching expense record so this salary shows up in the Ledger.
+  // Cross-linked (salaryPaymentId / expenseId); category 'Salary' keeps computeFinancialSummary
+  // from double-counting (it counts salary from salaryPayments and skips Salary-category expenses).
+  const expId = salId + 1;
+  const expense = {
+   id: expId,
+   date,
+   category: 'Salary',
+   vendor: t?.name || 'Staff',
+   description: 'Salary — ' + (t?.name||'staff') + (forMonth ? ' ('+forMonth+')' : ''),
+   amount,
+   mode,
+   chequeNo: chequeNo || undefined,
+   salaryStaffName: t?.name || undefined,
+   salaryMonth: forMonth || undefined,
+   academicYear: academicYear,
+   salaryPaymentId: salId   // forward-link expense → salary payment
+  };
+  salRec.expenseId = expId;  // back-link salary payment → expense
+
+  const payments = getSalaryPayments();
+  payments.push(salRec);
   saveSalaryPayments(payments);
+  const allExp = get('expenses');
+  allExp.push(expense);
+  set('expenses', allExp);
   // If this payment is for a PAST academic year, reduce that staff's previous-year salary dues.
   if (academicYear && academicYear !== currentSession()) {
    const ts = getTeachers();
@@ -10927,13 +11008,23 @@ function _attachSalaryEvents(){
     saveTeachers(ts);
    }
   }
-  _logAccountingChange('create', 'salary', null, payments[payments.length-1], 'Salary payment recorded');
+  _logAccountingChange('create', 'salary', null, salRec, 'Salary payment recorded');
   showToast('Salary payment recorded for ' + (t?.name||'staff') + (academicYear !== currentSession() ? ' (' + academicYear + ')' : ''));
   renderApp();
  });
  document.querySelectorAll('.salDelBtn').forEach(b => b.addEventListener('click', () => {
   if (!confirm('Move this salary payment to the recycle bin?\n\nYou can restore it later from the Recycle Bin if this was a mistake.')) return;
-  _softDeleteFromTable('salaryPayments', parseInt(b.dataset.id), 'salary');
+  const salId = parseInt(b.dataset.id);
+  // Also soft-delete the linked Ledger expense (if any) so it doesn't linger in the Ledger.
+  const salRec = getSalaryPayments().find(p => p.id === salId);
+  if (salRec && salRec.expenseId) {
+   _softDeleteFromTable('expenses', salRec.expenseId, 'expense');
+  } else {
+   // Fallback: match a salary-linked expense by salaryPaymentId
+   const linked = get('expenses').find(e => !e._deleted && e.salaryPaymentId === salId);
+   if (linked) _softDeleteFromTable('expenses', linked.id, 'expense');
+  }
+  _softDeleteFromTable('salaryPayments', salId, 'salary');
   showToast('Moved to recycle bin');
   renderApp();
  }));
@@ -10948,6 +11039,16 @@ function _attachSalaryEvents(){
   salYearSel.addEventListener('change', upd);
   upd();
  }
+ // One-time backfill: add Salary-tab payments that are missing from the Ledger.
+ document.getElementById('salBackfillLedgerBtn')?.addEventListener('click', () => {
+  const missing = _salaryPaymentsMissingLedger();
+  if (missing.length === 0) { showToast('All salary payments are already in the Ledger'); return; }
+  const total = missing.reduce((s,p)=>s+(Number(p.amount)||0),0);
+  if (!confirm(`Add ${missing.length} salary payment(s) (total Rs.${total.toLocaleString('en-IN')}) to the Ledger?\n\nThis creates a matching Ledger entry for each one. Amounts and the Profit & Loss are NOT affected — salary is still counted once. It only makes these payments visible in the Ledger.`)) return;
+  const n = _backfillSalaryToLedger();
+  showToast(n>0 ? `${n} salary payment(s) added to the Ledger` : 'Nothing to add');
+  renderApp();
+ });
  // One-time import: pull old salary-category expenses (no salaryPaymentId) into the Salary tab.
  document.getElementById('salImportOldBtn')?.addEventListener('click', () => {
   const expenses = get('expenses');
