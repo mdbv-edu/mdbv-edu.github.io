@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1784025298 - salary-tab payments now post to Ledger (linked expense, no P&L double-count) + one-time backfill tool -->
+<!-- BUILD: v-1784392659 - users-fix(combo) + Activities page + Activity Incharge role + receipt slip no/photo + gallery compressor + Composite/Book fee + more subjects+Other + curriculum upload -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -669,6 +669,11 @@ function isTeacherRole(role){ return userRoles(role).includes('teacher'); }
 function isPrincipalLevel(role){
  const rs = userRoles(role);
  return rs.includes('principal') || rs.some(x => OWNER_LEVEL_ROLES.includes(x));
+}
+// Does the user have Activity-Incharge access? (activityincharge, or admin/principal/owner who supersede)
+function isActivityIncharge(role){
+ const rs = userRoles(role);
+ return rs.includes('activityincharge') || rs.includes('admin') || rs.includes('principal') || rs.some(x => OWNER_LEVEL_ROLES.includes(x));
 }
 
 // CONFIDENTIAL STUDENT NUMBERS (Batch 2):
@@ -1974,7 +1979,7 @@ function initDB(){
  ]);
 
  // Empty array tables (ready for real-world data)
- ['feeTransactions','homeworks','complaints','examMarks','payrollSlips','inventory','vehicles','routeMovements','maintenance','expenses','bankAccounts','bankTransactions','correctionRequests','accountingAuditLog','messageLog','ptmEvents','homeworkSubmissions','teacherAuditLog','calendar','activityCalendar','documents','chatMessages','notices','feeStructures','curriculum','teacherAppraisals','salaryPayments'].forEach(t => seedArray(t, []));
+ ['feeTransactions','homeworks','complaints','examMarks','payrollSlips','inventory','vehicles','routeMovements','maintenance','expenses','bankAccounts','bankTransactions','correctionRequests','accountingAuditLog','messageLog','ptmEvents','homeworkSubmissions','teacherAuditLog','calendar','activityCalendar','activities','documents','chatMessages','notices','feeStructures','curriculum','teacherAppraisals','salaryPayments'].forEach(t => seedArray(t, []));
 
  // Singleton-object tables (correctly use setObject so they don't get stored as arrays)
  seedObject('busTracking',   {route1:{lat:null,lng:null,lastUpdate:'',status:''}});
@@ -2072,6 +2077,7 @@ const DB_SCHEMA = {
  maintenance:         { type: 'array', desc: 'Vehicle maintenance records' },
  calendar:            { type: 'array', desc: 'School calendar events' },
  activityCalendar:    { type: 'array', desc: 'Home-room activity calendar (important days, filled by staff)' },
+ activities:          { type: 'array', desc: 'School activities & events with photos and write-ups' },
  documents:           { type: 'array', desc: 'Uploaded documents' },
  broadcastLog:        { type: 'array', desc: 'Broadcast operation log' },
  enquiries:           { type: 'array', desc: 'Admissions enquiry form submissions' },
@@ -3006,10 +3012,16 @@ function savePayrollSlips(d){ DB.setAll('payrollSlips', d); }
 const SESSION_MONTHS = ['April','May','June','July','August','September','October','November','December','January','February','March'];
 function getCurriculum(){ return DB.getAll('curriculum'); }
 function saveCurriculum(d){ DB.setAll('curriculum', d); }
-// All curriculum items for a class in the current (or given) session.
+// All curriculum items for a class in the current (or given) session. Excludes uploaded doc files.
 function _curriculumForClass(cls, session){
  const sess = session || currentSession();
- return getCurriculum().filter(c => c.class === cls && (c.session || currentSession()) === sess);
+ return getCurriculum().filter(c => c.class === cls && (c.session || currentSession()) === sess && c._kind !== 'doc');
+}
+// Uploaded curriculum/syllabus files for a class (PDF/image).
+function _curriculumDocsForClass(cls, session){
+ const sess = session || currentSession();
+ return getCurriculum().filter(c => c._kind === 'doc' && c.class === cls && (c.session || currentSession()) === sess && !c._deleted)
+   .sort((a,b) => (b.uploadedAt||'').localeCompare(a.uploadedAt||''));
 }
 // Completion stats for a class: {total, covered, progress, planned, pct}.
 function _curriculumStats(cls, session){
@@ -4000,6 +4012,7 @@ function renderAdminPanel(){
   {id:'enquiries',label:'Admissions',icon:'user-plus'},
   {id:'broadcast',label:'Broadcast',icon:'bullhorn'},
   {id:'gallery',label:'Gallery',icon:'images'},
+  {id:'activities',label:'Activities',icon:'photo-film'},
   {id:'disclosureDocs',label:'Disclosure PDFs',icon:'file-pdf'},
   {id:'inventory',label:'Inventory',icon:'boxes-stacked'},
   {id:'vehicles',label:'Vehicles',icon:'bus'},
@@ -4048,6 +4061,7 @@ function renderAdminTabContent(){
   case 'enquiries':return renderEnquiriesTab();
   case 'broadcast':return renderBroadcastTab();
   case 'gallery':return renderGalleryAdminTab();
+  case 'activities':return renderActivitiesPage();
   case 'disclosureDocs':return renderDisclosureDocsTab();
   case 'inventory':return renderInventory();
   case 'vehicles':return renderVehicles();
@@ -6120,7 +6134,7 @@ function importActivityDaysToCalendar(){
 // Renders the dynamic Home-Room Activity Calendar (month/date/day/activity/incharge/remark).
 function renderActivityCalendar(){
  const year = _activityCalYear();
- const canEdit = isAdminLevel() || isPrincipalLevel() || isTeacherRole();
+ const canEdit = isAdminLevel() || isPrincipalLevel() || isTeacherRole() || isActivityIncharge();
  // Group days by month
  const byMonth = {};
  ACTIVITY_DAYS.forEach(a => { (byMonth[a.m] = byMonth[a.m] || []).push(a); });
@@ -6224,6 +6238,169 @@ function _printActivityCalendar(){
    <div class="btns"><button class="pr" onclick="window.print()">Print / Save PDF</button><button class="cl" onclick="window.close()">Close</button></div>
   </body></html>`);
  w.document.close();
+}
+
+// ===== SCHOOL ACTIVITIES PAGE (photos + write-ups of events) =====
+function getActivities(){ return DB.getAll('activities').filter(a => !a._deleted); }
+function saveActivities(d){ DB.setAll('activities', d); }
+function renderActivitiesPage(){
+ const canEdit = isAdminLevel() || isPrincipalLevel() || isActivityIncharge();
+ const acts = getActivities().sort((a,b) => (b.date||'').localeCompare(a.date||''));
+ return `<div>
+  <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+   <div>
+    <h2 class="text-lg font-bold"><i class="fas fa-photo-film text-purple-600 mr-1"></i>School Activities</h2>
+    <p class="text-xs text-gray-500">Photos and write-ups of events, functions and activities.${canEdit ? ' You can add, edit and delete posts.' : ''}</p>
+   </div>
+   ${canEdit ? `<button id="actAddBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-plus mr-1"></i>Add Activity</button>` : ''}
+  </div>
+  ${acts.length === 0 ? `<div class="text-center text-gray-500 py-10 border border-dashed rounded-lg"><i class="fas fa-photo-film text-3xl mb-2"></i><div>No activities posted yet.${canEdit ? ' Click "Add Activity" to create the first post.' : ''}</div></div>` : `
+   <div class="grid md:grid-cols-2 gap-4">
+    ${acts.map(a => `<div class="bg-white border rounded-xl overflow-hidden shadow-sm">
+      ${a.photos && a.photos.length ? `<div class="grid ${a.photos.length===1?'grid-cols-1':'grid-cols-2'} gap-0.5 bg-gray-100">${a.photos.slice(0,4).map((p,i)=>`<img src="${p}" class="w-full h-40 object-cover cursor-pointer actPhotoView" data-src="${p}" alt="activity photo">`).join('')}</div>` : ''}
+      <div class="p-4">
+       <div class="flex items-start justify-between gap-2">
+        <div>
+         <div class="font-semibold text-base">${escapeHTML(a.title||'Activity')}</div>
+         <div class="text-xs text-gray-500">${a.date ? fmtDate(a.date) : ''}${a.category ? ' · '+escapeHTML(a.category) : ''}</div>
+        </div>
+        ${canEdit ? `<div class="flex gap-1 flex-shrink-0">
+         <button class="actEditBtn text-blue-600 hover:text-blue-800 px-1" data-id="${a.id}" title="Edit"><i class="fas fa-edit"></i></button>
+         <button class="actDelBtn text-rose-500 hover:text-rose-700 px-1" data-id="${a.id}" title="Delete"><i class="fas fa-trash"></i></button>
+        </div>` : ''}
+       </div>
+       ${a.description ? `<p class="text-sm text-gray-700 mt-2 whitespace-pre-wrap">${escapeHTML(a.description)}</p>` : ''}
+       ${a.photos && a.photos.length > 4 ? `<div class="text-xs text-gray-400 mt-1">+${a.photos.length-4} more photo(s)</div>` : ''}
+      </div>
+     </div>`).join('')}
+   </div>`}
+
+  ${canEdit ? `<div id="actModal" class="hidden modal"><div class="modal-content" style="max-width:560px">
+   <h3 class="text-lg font-bold mb-3" id="actModalTitle">Add Activity</h3>
+   <input type="hidden" id="actEditId">
+   <div class="space-y-2">
+    <div><label class="text-xs font-medium">Title *</label><input id="actTitle" placeholder="e.g. Annual Sports Day 2026"></div>
+    <div class="grid grid-cols-2 gap-2">
+     <div><label class="text-xs font-medium">Date</label><input type="date" id="actDate" value="${new Date().toISOString().slice(0,10)}"></div>
+     <div><label class="text-xs font-medium">Category</label><select id="actCategory"><option>Event</option><option>Function</option><option>Celebration</option><option>Competition</option><option>Sports</option><option>Excursion</option><option>Workshop</option><option>Other</option></select></div>
+    </div>
+    <div><label class="text-xs font-medium">Write-up / Description</label><textarea id="actDesc" rows="4" placeholder="Describe the activity..."></textarea></div>
+    <div>
+     <label class="text-xs font-medium">Photos <span class="text-gray-400">(select one or more — auto-compressed)</span></label>
+     <input type="file" id="actPhotos" accept="image/*" multiple class="text-sm">
+     <div id="actPhotoPreview" class="flex flex-wrap gap-1 mt-2"></div>
+    </div>
+   </div>
+   <div class="flex justify-end gap-2 mt-4"><button class="closeModal bg-gray-300 px-4 py-2 rounded-lg text-sm">Cancel</button><button id="actSaveBtn" class="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm">Save</button></div>
+  </div></div>
+
+  <div id="actViewModal" class="hidden modal"><div class="modal-content" style="max-width:800px;padding:0.5rem"><button class="closeModal absolute top-2 right-2 bg-white/90 rounded-full w-8 h-8 text-gray-700 z-10"><i class="fas fa-times"></i></button><img id="actViewImg" src="" class="w-full rounded" alt="activity"></div></div>` : ''}
+ </div>`;
+}
+
+// Working set of photos while the modal is open.
+var _actPhotos = [];
+function _actRenderPhotoPreview(){
+ const box = document.getElementById('actPhotoPreview');
+ if (!box) return;
+ box.innerHTML = _actPhotos.map((p,i)=>`<div class="relative"><img src="${p}" class="h-16 w-16 object-cover rounded border"><button type="button" class="actPhotoDel absolute -top-1 -right-1 bg-rose-600 text-white rounded-full w-5 h-5 text-xs" data-i="${i}">×</button></div>`).join('');
+ box.querySelectorAll('.actPhotoDel').forEach(b => b.addEventListener('click', () => { _actPhotos.splice(parseInt(b.dataset.i),1); _actRenderPhotoPreview(); }));
+}
+function attachActivitiesEvents(){
+ // View a photo full-size
+ document.querySelectorAll('.actPhotoView').forEach(img => img.addEventListener('click', () => {
+  const v = document.getElementById('actViewImg'); if (v) { v.src = img.dataset.src; document.getElementById('actViewModal').classList.remove('hidden'); }
+ }));
+ document.querySelectorAll('.closeModal').forEach(b => b.addEventListener('click', () => {
+  document.getElementById('actModal')?.classList.add('hidden');
+  document.getElementById('actViewModal')?.classList.add('hidden');
+ }));
+ const openModal = (act) => {
+  _actPhotos = act && act.photos ? act.photos.slice() : [];
+  document.getElementById('actModalTitle').innerText = act ? 'Edit Activity' : 'Add Activity';
+  document.getElementById('actEditId').value = act ? act.id : '';
+  document.getElementById('actTitle').value = act ? (act.title||'') : '';
+  document.getElementById('actDate').value = act ? (act.date||new Date().toISOString().slice(0,10)) : new Date().toISOString().slice(0,10);
+  document.getElementById('actCategory').value = act ? (act.category||'Event') : 'Event';
+  document.getElementById('actDesc').value = act ? (act.description||'') : '';
+  _actRenderPhotoPreview();
+  document.getElementById('actModal').classList.remove('hidden');
+ };
+ document.getElementById('actAddBtn')?.addEventListener('click', () => openModal(null));
+ document.querySelectorAll('.actEditBtn').forEach(b => b.addEventListener('click', () => {
+  const a = getActivities().find(x => x.id === parseInt(b.dataset.id)); if (a) openModal(a);
+ }));
+ document.querySelectorAll('.actDelBtn').forEach(b => b.addEventListener('click', () => {
+  if (!confirm('Delete this activity post?')) return;
+  const all = DB.getAll('activities');
+  const i = all.findIndex(x => x.id === parseInt(b.dataset.id));
+  if (i > -1) { all[i]._deleted = true; DB.setAll('activities', all); showToast('Activity deleted'); renderApp(); }
+ }));
+ // Photo picker — compress each and add to the working set
+ document.getElementById('actPhotos')?.addEventListener('change', async function(e){
+  const files = Array.from(e.target.files || []);
+  for (const f of files) {
+   await new Promise(res => compressImageToTarget(f, 700*1024, (dataUrl) => { if (dataUrl) _actPhotos.push(dataUrl); res(); }));
+  }
+  this.value = '';
+  _actRenderPhotoPreview();
+ });
+ document.getElementById('actSaveBtn')?.addEventListener('click', () => {
+  const title = document.getElementById('actTitle').value.trim();
+  if (!title) { alert('Please enter a title.'); return; }
+  const editId = document.getElementById('actEditId').value;
+  const rec = {
+   title,
+   date: document.getElementById('actDate').value,
+   category: document.getElementById('actCategory').value,
+   description: document.getElementById('actDesc').value.trim(),
+   photos: _actPhotos.slice(),
+   updatedBy: currentUser?.name || '',
+   updatedAt: new Date().toISOString()
+  };
+  const all = DB.getAll('activities');
+  if (editId) {
+   const i = all.findIndex(x => x.id === parseInt(editId));
+   if (i > -1) all[i] = { ...all[i], ...rec };
+   showToast('Activity updated');
+  } else {
+   rec.id = Date.now();
+   all.push(rec);
+   showToast('Activity posted');
+  }
+  DB.setAll('activities', all);
+  _actPhotos = [];
+  renderApp();
+ });
+}
+
+// ===== ACTIVITY INCHARGE PANEL =====
+// A staff member who manages the Activity Calendar and the School Activities page.
+let _actIncTab = 'activities';
+function renderActivityInchargePanel(){
+ const tabs = [
+  {id:'activities', label:'Activities', icon:'photo-film'},
+  {id:'calendar',   label:'Activity Calendar', icon:'calendar-star'}
+ ];
+ return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+  <div class="flex justify-between items-center mb-4 gap-2 flex-wrap">
+   <div>
+    <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-star text-purple-600 mr-2"></i>Activity Incharge</h1>
+    <div class="text-xs text-gray-600">${currentUser?.name || ''} · manage school activities &amp; the activity calendar</div>
+   </div>
+   <button id="logoutActIncBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
+  </div>
+  <div class="tab-scroll gap-1 border-b pb-2 mb-4">
+   ${tabs.map(t => `<button class="actinc-tab px-3 py-2 rounded-t-lg text-sm font-medium whitespace-nowrap ${_actIncTab===t.id?'bg-purple-600 text-white':'bg-gray-100 hover:bg-gray-200 text-gray-700'}" data-tab="${t.id}"><i class="fas fa-${t.icon} mr-1"></i>${t.label}</button>`).join('')}
+  </div>
+  <div id="actIncContent">${_actIncTab==='calendar' ? renderActivityCalendar() : renderActivitiesPage()}</div>
+ </div>`;
+}
+function attachActivityInchargeEvents(){
+ document.getElementById('logoutActIncBtn')?.addEventListener('click', () => { currentUser=null; renderApp(); });
+ document.querySelectorAll('.actinc-tab').forEach(b => b.addEventListener('click', () => { _actIncTab = b.dataset.tab; renderApp(); }));
+ if (_actIncTab === 'calendar') _attachActivityCalendarEvents();
+ else attachActivitiesEvents();
 }
 
 function renderCalendar(){
@@ -6755,7 +6932,8 @@ function _renderQuickHomework(){
     </div>
     <div>
      <label class="text-xs font-medium">Subject *</label>
-     <input id="hwSubject" placeholder="e.g. Mathematics, Science, English">
+     <select id="hwSubject" onchange="document.getElementById('hwSubjectOther').style.display=this.value==='Other'?'block':'none'">${subjectOptionsHTML()}</select>
+     <input id="hwSubjectOther" placeholder="Type subject name" style="display:none" class="mt-1 text-sm w-full">
     </div>
     <div>
      <label class="text-xs font-medium">Due Date</label>
@@ -6832,7 +7010,8 @@ function renderTchMarks(){
     </div>
     <div>
      <label class="text-xs font-medium">Subject *</label>
-     <select id="mkSubject"><option>Mathematics</option><option>Science</option><option>English</option><option>Hindi</option><option>Social Science</option><option>Sanskrit</option><option>Computer</option><option>Physical Education</option><option>Drawing</option><option>Other</option></select>
+     <select id="mkSubject" onchange="document.getElementById('mkSubjectOther').style.display=this.value==='Other'?'block':'none'">${subjectOptionsHTML()}</select>
+     <input id="mkSubjectOther" placeholder="Type subject name" style="display:none" class="mt-1 text-sm w-full">
     </div>
     <div>
      <label class="text-xs font-medium">Exam Name *</label>
@@ -6927,6 +7106,24 @@ function renderTchCurriculum(){
     <button id="tchCurrAddBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded text-sm font-medium"><i class="fas fa-plus mr-1"></i>Add</button>
    </div>
   </div>
+
+  <!-- Upload a curriculum / syllabus file (PDF or image) for this class -->
+  ${(() => {
+    const docs = _curriculumDocsForClass(cls, session);
+    return `<div class="bg-indigo-50 border border-indigo-100 rounded-lg p-3 mb-4">
+     <div class="text-xs font-semibold text-indigo-900 mb-2"><i class="fas fa-file-arrow-up mr-1"></i>Curriculum / Syllabus Files — ${cls}</div>
+     <div class="flex flex-wrap gap-2 items-end">
+      <div class="flex-1 min-w-[160px]"><label class="text-xs">Title</label><input id="tchCurrDocTitle" class="text-sm w-full" placeholder="e.g. Annual Syllabus, Term 1 Plan"></div>
+      <div><label class="text-xs">File (PDF/Image, up to 2 MB)</label><input type="file" id="tchCurrDocFile" accept="application/pdf,image/*" class="text-sm"></div>
+      <button id="tchCurrDocUploadBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded text-sm font-medium"><i class="fas fa-upload mr-1"></i>Upload</button>
+     </div>
+     ${docs.length ? `<div class="mt-3 space-y-1">${docs.map(d => `<div class="flex items-center justify-between bg-white border rounded px-2 py-1.5 text-sm">
+       <a href="${d.data}" download="${escapeHTML(d.name||'curriculum')}" class="text-indigo-700 hover:underline flex-1 truncate"><i class="fas fa-${(d.name||'').toLowerCase().endsWith('.pdf')?'file-pdf':'file-image'} mr-1"></i>${escapeHTML(d.title||d.name||'File')}</a>
+       <span class="text-xs text-gray-400 mx-2">${d.uploadedAt?fmtDate(d.uploadedAt):''}</span>
+       <button class="tchCurrDocDelBtn text-rose-500 hover:text-rose-700" data-id="${d.id}"><i class="fas fa-trash"></i></button>
+      </div>`).join('')}</div>` : '<div class="text-xs text-gray-500 mt-2">No curriculum files uploaded yet for this class.</div>'}
+    </div>`;
+  })()}
 
   <!-- Items for the selected month -->
   ${monthItems.length === 0 ? `<div class="text-center text-gray-400 py-8"><i class="fas fa-calendar-plus text-3xl mb-2"></i><p>No items planned for ${_tchCurrMonth} yet. Add curriculum topics and activities above.</p></div>` : `
@@ -7077,6 +7274,46 @@ function _attachCurriculumEvents(){
   showToast('Added to ' + _tchCurrMonth);
   renderApp();
  });
+ // Upload a curriculum/syllabus file (PDF or image)
+ document.getElementById('tchCurrDocUploadBtn')?.addEventListener('click', () => {
+  const fileEl = document.getElementById('tchCurrDocFile');
+  const f = fileEl && fileEl.files && fileEl.files[0];
+  if (!f) { alert('Please choose a PDF or image file to upload.'); return; }
+  if (f.size > 2 * 1024 * 1024) { alert('This file is ' + (f.size/1024/1024).toFixed(1) + ' MB, over the 2 MB limit.\n\nTip: for a photo, the app compresses it automatically. For a large PDF, use a free "compress PDF" tool first.'); return; }
+  const title = (document.getElementById('tchCurrDocTitle')?.value || '').trim() || f.name;
+  const store = (dataUrl) => {
+   if (!dataUrl) { alert('Could not read the file. Please try another.'); return; }
+   const items = getCurriculum();
+   items.push({
+    id: Date.now(),
+    _kind: 'doc',
+    class: _tchCurrClass,
+    session: currentSession(),
+    title,
+    name: f.name,
+    data: dataUrl,
+    uploadedBy: currentUser?.name || '',
+    uploadedAt: new Date().toISOString()
+   });
+   saveCurriculum(items);
+   showToast('Curriculum file uploaded');
+   renderApp();
+  };
+  if (f.type.startsWith('image/')) {
+   compressImageToTarget(f, 1024 * 1024, store);
+  } else {
+   const r = new FileReader();
+   r.onload = e => store(e.target.result);
+   r.onerror = () => alert('Could not read the file.');
+   r.readAsDataURL(f);
+  }
+ });
+ document.querySelectorAll('.tchCurrDocDelBtn').forEach(b => b.addEventListener('click', () => {
+  if (!confirm('Delete this curriculum file?')) return;
+  saveCurriculum(getCurriculum().filter(x => x.id !== parseInt(b.dataset.id)));
+  showToast('File deleted');
+  renderApp();
+ }));
  // Change status
  document.querySelectorAll('.tchCurrStatusSel').forEach(sel => sel.addEventListener('change', e => {
   const items = getCurriculum();
@@ -7358,7 +7595,8 @@ function _attachHomeworkEvents(){
  // Save homework
  document.getElementById('hwSaveBtn')?.addEventListener('click', () => {
   const cls = document.getElementById('hwClass').value;
-  const sub = document.getElementById('hwSubject').value.trim();
+  let sub = document.getElementById('hwSubject').value.trim();
+  if (sub === 'Other') { const o = document.getElementById('hwSubjectOther')?.value.trim(); if (o) sub = o; }
   const desc = document.getElementById('hwDesc').value.trim();
   const due = document.getElementById('hwDue').value;
   const broadcast = document.getElementById('hwBroadcast').checked;
@@ -7461,7 +7699,8 @@ function _attachMarksEvents(){
 
  saveBtn?.addEventListener('click', () => {
   const exam = document.getElementById('mkExam').value.trim();
-  const sub = document.getElementById('mkSubject').value;
+  let sub = document.getElementById('mkSubject').value;
+  if (sub === 'Other') { const o = document.getElementById('mkSubjectOther')?.value.trim(); if (o) sub = o; }
   const max = parseInt(document.getElementById('mkMax').value) || 100;
   if (!exam) { alert('Enter exam name'); return; }
   const all = getExamMarks();
@@ -8216,8 +8455,8 @@ function renderStuMessages(s){
 ============================================================ */
 
 const FEE_HEADS = [
-  'Tuition Fee', 'Admission Fee', 'Annual Fee', 'Books',
-  'Uniform', 'Transport', 'Exam Fee', 'Activity/Event',
+  'Composite Fee', 'Tuition Fee', 'Admission Fee', 'Annual Fee', 'Book Fee', 'Books',
+  'Uniform', 'Transport', 'Exam Fee', 'Computer Fee', 'Activity/Event',
   'Library', 'Late Fee', 'Other'
 ];
 
@@ -8225,11 +8464,22 @@ const FEE_HEADS = [
 var _rcptYearFilter = 'all';
 var _rcptHeads = []; // line items being added to the current receipt: [{head, amount}]
 const RECEIPT_FEE_HEADS = [
-  'Registration Fees', 'Admission Fee', 'Tuition Fee', 'Computer Fee',
+  'Registration Fees', 'Admission Fee', 'Composite Fee', 'Tuition Fee', 'Book Fee', 'Computer Fee',
   'Transport Fees', 'Annual Charges', 'Examination Fee', 'Day Boarding (Mess)'
 ];
 // Heads that reduce a student's outstanding fee balance when paid.
-const BALANCE_REDUCING_HEADS = ['Tuition Fee','Admission Fee','Annual Fee','Annual Charges','Transport','Transport Fees','Late Fee','Registration Fees','Computer Fee','Examination Fee','Day Boarding (Mess)'];
+const BALANCE_REDUCING_HEADS = ['Composite Fee','Tuition Fee','Admission Fee','Annual Fee','Annual Charges','Book Fee','Books','Transport','Transport Fees','Late Fee','Registration Fees','Computer Fee','Examination Fee','Day Boarding (Mess)'];
+
+// ===== SUBJECTS (shared list for marks, homework, curriculum) =====
+// "Other" lets staff type a custom subject in an editable field.
+const SUBJECTS = [
+  'English','Hindi','Mathematics','Science','Social Science','EVS',
+  'Sanskrit','Computer','General Knowledge','Reasoning','Fine Arts',
+  'Drawing','Physical Education','Moral Science','Music','Dance','Other'
+];
+function subjectOptionsHTML(selected){
+  return SUBJECTS.map(s => `<option value="${s}" ${selected===s?'selected':''}>${s}</option>`).join('');
+}
 
 /* ============================================================
    FEE STRUCTURE
@@ -8842,9 +9092,18 @@ function renderAccReceipts(){
      <select id="rcptBankAcc">${banks.map(b => `<option value="${b.id}">${b.bankName} · ${b.accountNo}</option>`).join('')}</select>
      <div class="text-xs text-gray-500 mt-0.5">Select the school's bank account that received this payment</div>
     </div>
+    <div>
+     <label class="text-xs font-medium">Slip / Receipt No <span class="text-gray-400">(from receipt book)</span></label>
+     <input id="rcptSlipNo" placeholder="e.g. 2049">
+    </div>
     <div class="md:col-span-2">
      <label class="text-xs font-medium">Notes (optional)</label>
      <input id="rcptNotes" placeholder="any reference details">
+    </div>
+    <div class="md:col-span-2">
+     <label class="text-xs font-medium">Photo of receipt slip <span class="text-gray-400">(optional — auto-compressed)</span></label>
+     <input type="file" id="rcptSlipPhoto" accept="image/*" class="text-sm">
+     <div id="rcptSlipPhotoPreview" class="mt-1"></div>
     </div>
    </div>
 
@@ -9852,7 +10111,7 @@ function _renderLedgerResults(){
        <td>${s?.name || r.payerName || '-'}${s ? ' <span class="text-xs text-gray-500">(Class '+s.class+')</span>' : ''}</td>
        <td class="text-xs">${escapeHTML(_ledgerHead(r))}</td>
        <td class="text-xs">${r.mode}</td>
-       <td class="text-xs font-mono">${r.receiptNo || ''}${r.chequeNo ? ' Chq:'+r.chequeNo : ''}</td>
+       <td class="text-xs font-mono">${r.receiptNo || ''}${r.chequeNo ? ' Chq:'+r.chequeNo : ''}${r.slipPhoto ? ` <a href="${r.slipPhoto}" target="_blank" class="text-blue-600 ml-1" title="View receipt slip photo"><i class="fas fa-image"></i></a>` : ''}</td>
        <td class="text-right font-semibold text-emerald-700">+${fmtINR(r.amount)}</td>
        <td class="whitespace-nowrap">${printBtn} ${actionBtn}</td>
       </tr>`;
@@ -11188,6 +11447,17 @@ function _attachVehicleExpenseEvents(){
 }
 
 function _attachReceiptEvents(){
+ // Receipt slip photo — compress and stash on the input's dataset for the save handler.
+ document.getElementById('rcptSlipPhoto')?.addEventListener('change', function(e){
+  const f = e.target.files && e.target.files[0];
+  const prev = document.getElementById('rcptSlipPhotoPreview');
+  if (!f) { this.dataset.img = ''; if (prev) prev.innerHTML = ''; return; }
+  compressImageToTarget(f, 800 * 1024, (dataUrl) => {
+   if (!dataUrl) { this.dataset.img = ''; if (prev) prev.innerHTML = '<span class="text-xs text-red-600">Could not read image</span>'; return; }
+   this.dataset.img = dataUrl;
+   if (prev) prev.innerHTML = `<img src="${dataUrl}" class="h-20 rounded border" alt="receipt slip"> <span class="text-xs text-emerald-600">Attached ✓</span>`;
+  });
+ });
  // Print last receipt banner
  document.getElementById('rcptPrintLastBtn')?.addEventListener('click', () => {
   const lastId = DB.getScalar('_lastReceiptId');
@@ -11239,6 +11509,8 @@ function _attachReceiptEvents(){
   const chequeNo = document.getElementById('rcptChequeNo')?.value.trim();
   const bankAccId = (mode !== 'Cash') ? (parseInt(document.getElementById('rcptBankAcc')?.value) || null) : null;
   const notes = document.getElementById('rcptNotes').value.trim();
+  const slipNo = document.getElementById('rcptSlipNo')?.value.trim();
+  const slipPhoto = document.getElementById('rcptSlipPhoto')?.dataset.img || '';
 
   const transaction = {
    id: Date.now(),
@@ -11247,7 +11519,10 @@ function _attachReceiptEvents(){
    feeHead: primaryHead,          // backward-compatible single head (largest)
    heads: heads,                  // full multi-head breakdown
    headLabel: headLabel,          // readable "A Rs.x + B Rs.y"
-   receiptNo: 'RCP' + Date.now().toString().slice(-6),
+   // Use the slip/receipt-book number if entered, otherwise auto-generate.
+   receiptNo: slipNo || ('RCP' + Date.now().toString().slice(-6)),
+   slipNo: slipNo || undefined,          // the number written on the paper receipt book
+   slipPhoto: slipPhoto || undefined,    // photo of the paper receipt slip
    status: 'paid',
    chequeNo: chequeNo || undefined,
    bankAccountId: bankAccId || undefined,
@@ -11824,8 +12099,10 @@ function renderApp(){
   case 'parent':html=renderParentPanel();break;
   case 'student':html=renderStudentPanel();break;
   case 'accountant':html=renderAccountantPanel();break;
+  case 'activityincharge':html=renderActivityInchargePanel();break;
   case 'admin_teacher':html=_comboSwitcher('admin','teacher')+(comboView==='teacher'?renderTeacherPanel():renderAdminPanel());break;
   case 'accountant_teacher':html=_comboSwitcher('accountant','teacher')+(comboView==='teacher'?renderTeacherPanel():renderAccountantPanel());break;
+  case 'teacher_activityincharge':html=_comboSwitcher('activityincharge','teacher')+(comboView==='teacher'?renderTeacherPanel():renderActivityInchargePanel());break;
   default:html='<div class="p-6">Unknown role</div>';
  }
  app.innerHTML=html;
@@ -11836,6 +12113,7 @@ function renderApp(){
  else if(currentUser.role==='parent')attachParentEvents();
  else if(currentUser.role==='student')attachStudentEvents();
  else if(currentUser.role==='accountant')attachAccountantEvents();
+ else if(currentUser.role==='activityincharge')attachActivityInchargeEvents();
  else if(currentUser.role==='admin_teacher'){
   _attachComboSwitcher();
   if(comboView==='teacher')attachTeacherEvents();
@@ -11846,6 +12124,11 @@ function renderApp(){
   if(comboView==='teacher')attachTeacherEvents();
   else attachAccountantEvents();
  }
+ else if(currentUser.role==='teacher_activityincharge'){
+  _attachComboSwitcher();
+  if(comboView==='teacher')attachTeacherEvents();
+  else attachActivityInchargeEvents();
+ }
  renderChatOnly();
  // Wire ALL Cancel/close buttons (.closeModal) across every view, after every render.
  // This ensures modals in the Notice Board, Students, and other tabs always close properly.
@@ -11855,7 +12138,7 @@ function renderApp(){
 // Combined-role view switcher (for staff doing two jobs, e.g. accountant + teacher)
 let comboView = 'primary'; // 'primary' (admin/accountant) or 'teacher'
 function _comboSwitcher(primaryRole, secondaryRole){
- const label = r => ({admin:'Admin', accountant:'Accountant', teacher:'Teacher'})[r] || r;
+ const label = r => ({admin:'Admin', accountant:'Accountant', teacher:'Teacher', activityincharge:'Activity Incharge'})[r] || r;
  const active = comboView === 'teacher' ? 'teacher' : 'primary';
  return `<div class="bg-indigo-900 text-white px-4 py-2 flex items-center gap-2 text-sm sticky top-0 z-40">
   <span class="font-semibold mr-2"><i class="fas fa-user-gear mr-1"></i>Dual Role:</span>
@@ -12226,6 +12509,7 @@ function attachActiveAdminTabEvents(){
  else if(activeAdminTab==='enquiries')attachEnquiriesTabEvents();
  else if(activeAdminTab==='datamanagement')attachDataManagementEvents();
  else if(activeAdminTab==='gallery')attachGalleryAdminEvents();
+ else if(activeAdminTab==='activities')attachActivitiesEvents();
  else if(activeAdminTab==='disclosureDocs')attachDisclosureDocsEvents();
  else if(activeAdminTab==='users')attachUsersTabEvents();
  else if(activeAdminTab==='backup')attachBackupEvents();
@@ -13994,7 +14278,14 @@ function renderGalleryAdminTab(){
     <div><label class="text-xs">Choose images (you can select multiple) *</label><input type="file" id="galFileInput" accept="image/*" multiple></div>
     <div><label class="text-xs">Default caption (optional)</label><input id="galFileTitle" placeholder="Will apply to all selected"></div>
     <div><label class="text-xs">Default category</label><select id="galFileCat"><option>Campus</option><option>Classrooms</option><option>Activities</option></select></div>
-    <div class="text-xs text-gray-500">Note: Large files will be auto-resized to fit browser storage limits. For best performance, upload images already optimized to ~800x600 or smaller.</div>
+    <div><label class="text-xs">Photo quality (built-in compressor)</label>
+     <select id="galFileQuality" class="text-sm w-full">
+      <option value="500">Standard — smallest (up to ~0.5 MB each)</option>
+      <option value="1000" selected>High — recommended (up to ~1 MB each)</option>
+      <option value="1600">Max — sharpest (up to ~1.6 MB each, uses more storage)</option>
+     </select>
+     <div class="text-xs text-gray-500 mt-0.5">Photos are automatically compressed to the size you pick — you can upload big camera photos and the app shrinks them for you.</div>
+    </div>
    </div>
    <div class="flex justify-end gap-2 mt-4"><button class="closeModal bg-gray-300 px-4 py-2 rounded-lg text-sm">Cancel</button><button id="galFileSave" class="bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm">Upload</button></div>
   </div></div>
@@ -14030,30 +14321,20 @@ function attachGalleryAdminEvents(){
   if (!files.length) { alert('Please select at least one file'); return; }
   const defaultTitle = document.getElementById('galFileTitle').value.trim();
   const defaultCat = document.getElementById('galFileCat').value;
+  const targetKB = parseInt(document.getElementById('galFileQuality')?.value) || 1000;
+  const targetBytes = targetKB * 1024;
   const photos = DB.getAll('gallery');
 
-  const resizeImage = (file, maxW = 1200) => new Promise((res, rej) => {
-   const img = new Image();
-   const reader = new FileReader();
-   reader.onload = e => {
-    img.onload = () => {
-     const ratio = Math.min(1, maxW / img.width);
-     const w = Math.round(img.width * ratio); const h = Math.round(img.height * ratio);
-     const c = document.createElement('canvas'); c.width = w; c.height = h;
-     c.getContext('2d').drawImage(img, 0, 0, w, h);
-     res(c.toDataURL('image/jpeg', 0.82));
-    };
-    img.onerror = rej;
-    img.src = e.target.result;
-   };
-   reader.onerror = rej;
-   reader.readAsDataURL(file);
+  // Use the shared built-in compressor — accepts big camera photos and shrinks to target size.
+  const compress = (file) => new Promise((res) => {
+   compressImageToTarget(file, targetBytes, (dataUrl) => res(dataUrl || null));
   });
 
   let added = 0, failed = 0;
   for (const f of files) {
    try {
-    const dataUrl = await resizeImage(f);
+    const dataUrl = await compress(f);
+    if (!dataUrl) { failed++; continue; }
     photos.push({ id: Date.now() + Math.floor(Math.random() * 100000), src: dataUrl, title: defaultTitle || f.name.replace(/\.[^.]+$/, ''), category: defaultCat, addedAt: new Date().toISOString() });
     added++;
    } catch (e) { failed++; }
@@ -14063,7 +14344,7 @@ function attachGalleryAdminEvents(){
    DB.setAll('gallery', photos);
    showToast(`Uploaded ${added} photo${added !== 1 ? 's' : ''}${failed ? ` (${failed} failed)` : ''}`);
   } catch (e) {
-   showToast('Storage quota exceeded — try smaller/fewer photos, or use the URL option instead');
+   showToast('Storage quota exceeded — pick a smaller quality, use fewer photos, or use the URL option instead');
   }
   document.getElementById('galUploadModal').classList.add('hidden');
   refresh();
@@ -14176,7 +14457,8 @@ function renderUsersTab(){
  const users = getUsers();
  const myId = currentUser?.id;
  const myRole = currentUser?.role;
- const canManage = ['owner','admin'].includes(myRole);
+ // Use role helpers so combined roles (e.g. "admin_teacher") are recognised, not just literal "admin".
+ const canManage = isOwnerLevel() || isAdminLevel();
  if (!canManage) {
   return `<div class="text-center py-8 text-gray-500">
    <i class="fas fa-lock text-3xl mb-3"></i>
@@ -14266,8 +14548,10 @@ function renderUsersTab(){
      <option value="admin">Admin</option>
      <option value="principal">Principal</option>
      <option value="teacher">Teacher</option>
+     <option value="activityincharge">Activity Incharge</option>
      <option value="admin_teacher">Admin + Teacher</option>
      <option value="accountant_teacher">Accountant + Teacher</option>
+     <option value="teacher_activityincharge">Teacher + Activity Incharge</option>
      <option value="parent">Parent</option>
      <option value="accountant">Accountant</option>
      <option value="student">Student</option>
@@ -14379,7 +14663,7 @@ function attachUsersTabEvents(){
    });
   }
   const updateLinkedRows = () => {
-   const needsTeacher = ['teacher','admin_teacher','accountant_teacher'].includes(roleSel.value);
+   const needsTeacher = ['teacher','admin_teacher','accountant_teacher','teacher_activityincharge'].includes(roleSel.value);
    document.getElementById('teacherIdRow').style.display = needsTeacher ? '' : 'none';
    document.getElementById('studentIdRow').style.display = roleSel.value === 'student' ? '' : 'none';
   };
@@ -14432,7 +14716,7 @@ function attachUsersTabEvents(){
   const data = { name, username, role };
   const teacherId = parseInt(document.getElementById('userModalTeacherId').value);
   const studentId = parseInt(document.getElementById('userModalStudentId').value);
-  if (['teacher','admin_teacher','accountant_teacher'].includes(role) && teacherId) data.teacherId = teacherId;
+  if (['teacher','admin_teacher','accountant_teacher','teacher_activityincharge'].includes(role) && teacherId) data.teacherId = teacherId;
   if (role === 'student' && studentId) data.studentId = studentId;
   // Hash the password if one was entered; otherwise keep the existing one (edit mode)
   if (password) { data.password = await hashPassword(password); data.defaultPw = false; }
