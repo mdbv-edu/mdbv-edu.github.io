@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1784744624 - homework attachments now upload to Supabase Storage (cloud) instead of browser; no more storage-full on files -->
+<!-- BUILD: v-1784745547 - Free Up Space tool: migrate old homework/gallery/activity files from browser to cloud (frees storage)  -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -3300,6 +3300,74 @@ function _dataURLtoBlob(dataUrl, type){
 function _hwFileHref(h){ return (h && (h.attachmentUrl || h.attachmentData)) || ''; }
 function _hwHasFile(h){ return !!(h && (h.attachmentUrl || h.attachmentData)); }
 
+// Move existing inline (base64) files — old homework attachments, gallery photos, activity
+// photos — up to Supabase Storage, and drop the base64 from the browser. This frees the
+// browser-storage space they were taking. Requires cloud storage to be set up.
+async function _freeUpBrowserStorage(progressCb){
+ if (!DB.storageAvailable()) throw new Error('NO_CLOUD');
+ let moved = 0, failed = 0, freedBytes = 0;
+ const mkFile = (blob, name) => (typeof File !== 'undefined') ? new File([blob], name, { type: blob.type }) : blob;
+ const report = () => { if (progressCb) progressCb(moved); };
+
+ // 1) Homework attachments (usually the biggest)
+ const hws = getHomeworks();
+ let hwChanged = false;
+ for (const h of hws) {
+  if (h.attachmentData && !h.attachmentUrl && String(h.attachmentData).startsWith('data:')) {
+   try {
+    const blob = _dataURLtoBlob(h.attachmentData, h.attachmentType);
+    if (!blob) { failed++; continue; }
+    const { url, path } = await DB.uploadFile(mkFile(blob, h.attachmentName || ('homework_' + h.id)), 'homework/' + (h.className || 'x'));
+    freedBytes += h.attachmentData.length * 2;
+    h.attachmentUrl = url; h.attachmentPath = path; delete h.attachmentData;
+    hwChanged = true; moved++; report();
+   } catch (e) { if (e.message === 'STORAGE_BUCKET_MISSING') throw e; failed++; }
+  }
+ }
+ if (hwChanged) saveHomeworks(hws);
+
+ // 2) Gallery photos (src)
+ const gal = DB.getAll('gallery');
+ let galChanged = false;
+ for (const p of gal) {
+  if (p.src && String(p.src).startsWith('data:')) {
+   try {
+    const blob = _dataURLtoBlob(p.src);
+    if (!blob) { failed++; continue; }
+    const { url, path } = await DB.uploadFile(mkFile(blob, 'gallery_' + p.id + '.jpg'), 'gallery');
+    freedBytes += p.src.length * 2;
+    p.src = url; p.storagePath = path;
+    galChanged = true; moved++; report();
+   } catch (e) { if (e.message === 'STORAGE_BUCKET_MISSING') throw e; failed++; }
+  }
+ }
+ if (galChanged) DB.setAll('gallery', gal);
+
+ // 3) Activity photos (photos[] array)
+ const acts = DB.getAll('activities');
+ let actChanged = false;
+ for (const a of acts) {
+  if (Array.isArray(a.photos)) {
+   for (let i = 0; i < a.photos.length; i++) {
+    const ph = a.photos[i];
+    if (ph && String(ph).startsWith('data:')) {
+     try {
+      const blob = _dataURLtoBlob(ph);
+      if (!blob) { failed++; continue; }
+      const { url } = await DB.uploadFile(mkFile(blob, 'activity_' + a.id + '_' + i + '.jpg'), 'activities');
+      freedBytes += ph.length * 2;
+      a.photos[i] = url;
+      actChanged = true; moved++; report();
+     } catch (e) { if (e.message === 'STORAGE_BUCKET_MISSING') throw e; failed++; }
+    }
+   }
+  }
+ }
+ if (actChanged) DB.setAll('activities', acts);
+
+ return { moved, failed, freedMB: freedBytes / (1024 * 1024) };
+}
+
 // Estimate how much browser storage this app is using (all localStorage keys), in MB.
 function _localStorageUsageMB(){
  let bytes = 0;
@@ -3352,10 +3420,41 @@ function showStorageFullModal(){
    </ul>
   </div>
   <p class="text-xs text-gray-500 mb-3">Tip: photos are the main space users. Text records (students, fees, homework, marks) take very little.</p>
+  <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-3">
+   <div class="text-sm font-semibold text-emerald-900 mb-1"><i class="fas fa-cloud-arrow-up mr-1"></i>Free up space automatically</div>
+   <p class="text-xs text-gray-700 mb-2">Move your existing attachments and photos to cloud storage — this clears the local space they're using while keeping the files fully accessible. (Needs cloud storage set up.)</p>
+   <button id="storageFreeBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full"><i class="fas fa-broom mr-1"></i>Move old files to cloud &amp; free space</button>
+   <div id="storageFreeStatus" class="text-xs text-gray-600 mt-2"></div>
+  </div>
   <div class="flex justify-end gap-2"><button class="closeModal bg-gray-700 text-white px-4 py-2 rounded-lg text-sm">Got it</button></div>
  </div>`;
  document.body.appendChild(el);
  el.querySelectorAll('.closeModal').forEach(b => b.addEventListener('click', () => el.remove()));
+ // Wire the "free up space" migration
+ const freeBtn = el.querySelector('#storageFreeBtn');
+ const freeStatus = el.querySelector('#storageFreeStatus');
+ freeBtn?.addEventListener('click', async () => {
+  if (!DB.storageAvailable()) { alert('This needs the online cloud connection. Please check your internet and try again.'); return; }
+  freeBtn.disabled = true;
+  const orig = freeBtn.innerHTML;
+  freeBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Moving files to cloud…';
+  if (freeStatus) freeStatus.textContent = 'Starting… please keep this page open.';
+  try {
+   const res = await _freeUpBrowserStorage((n) => { if (freeStatus) freeStatus.textContent = 'Moved ' + n + ' file(s) so far…'; });
+   const now = _localStorageUsageMB().toFixed(1);
+   alert('Done! Moved ' + res.moved + ' file(s) to the cloud and freed about ' + res.freedMB.toFixed(1) + ' MB.' + (res.failed ? (' (' + res.failed + ' could not be moved and were left as-is.)') : '') + '\n\nBrowser storage now: about ' + now + ' MB used.');
+   el.remove();
+   renderApp();
+  } catch (e) {
+   freeBtn.disabled = false; freeBtn.innerHTML = orig;
+   if (e.message === 'NO_CLOUD') { alert('This needs the online cloud connection.'); }
+   else if (e.message === 'STORAGE_BUCKET_MISSING') {
+    if (freeStatus) freeStatus.innerHTML = '<span class="text-rose-600">Cloud storage isn\'t set up yet.</span>';
+    alert('Cloud file storage isn\'t set up yet.\n\nOne-time setup:\n1. In Supabase → Storage → create a bucket named "attachments" and make it Public.\n2. In Supabase → SQL Editor → run the MDBV_Storage_Setup.sql file.\n\nThen click this button again to free up space.');
+   }
+   else { alert('Could not free space: ' + (e.message || 'unknown error')); }
+  }
+ });
 }
 
 /* ============================================================
@@ -15511,6 +15610,13 @@ function renderBackupTab(){
    <b>Why backup matters:</b> All your data (users, students, fees, attendance, etc.) lives in this browser's local storage. If the browser cache is cleared, the device is replaced, or you switch browsers, the data is lost. Backup regularly (weekly recommended) and keep the JSON file safe.
   </div>
 
+  <div class="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-5">
+   <h3 class="font-semibold mb-1"><i class="fas fa-hard-drive text-amber-700 mr-1"></i>Browser Storage &amp; Free Up Space</h3>
+   <p class="text-sm text-gray-700 mb-2">This browser is using <b>${_localStorageUsageMB().toFixed(1)} MB</b> of its ~5–10 MB limit. Photos and file attachments use the most. Move them to cloud storage to free space (keeps files accessible).</p>
+   <button id="storageFreeBtnTab" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-broom mr-1"></i>Move files to cloud &amp; free space</button>
+   <span id="storageFreeStatusTab" class="text-xs text-gray-600 ml-2"></span>
+  </div>
+
   <div class="grid md:grid-cols-2 gap-4">
 
    <div class="border rounded-lg p-5">
@@ -15570,6 +15676,23 @@ function renderBackupTab(){
 }
 
 function attachBackupEvents(){
+ // Free up browser storage by moving files to the cloud
+ document.getElementById('storageFreeBtnTab')?.addEventListener('click', async () => {
+  const b = document.getElementById('storageFreeBtnTab');
+  const st = document.getElementById('storageFreeStatusTab');
+  if (!DB.storageAvailable()) { alert('This needs the online cloud connection.'); return; }
+  b.disabled = true; const orig = b.innerHTML; b.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Moving files…';
+  try {
+   const res = await _freeUpBrowserStorage((n) => { if (st) st.textContent = 'Moved ' + n + '…'; });
+   alert('Done! Moved ' + res.moved + ' file(s) to the cloud and freed about ' + res.freedMB.toFixed(1) + ' MB.' + (res.failed ? (' (' + res.failed + ' could not be moved.)') : ''));
+   renderApp();
+  } catch (e) {
+   b.disabled = false; b.innerHTML = orig;
+   if (e.message === 'STORAGE_BUCKET_MISSING') alert('Cloud storage isn\'t set up yet.\n\n1. Supabase → Storage → create a public bucket named "attachments".\n2. Supabase → SQL Editor → run MDBV_Storage_Setup.sql.\n\nThen try again.');
+   else if (e.message === 'NO_CLOUD') alert('This needs the online cloud connection.');
+   else alert('Could not free space: ' + (e.message || 'unknown'));
+  }
+ });
  document.getElementById('backupExportBtn')?.addEventListener('click', () => {
   const data = {};
   Object.keys(localStorage).forEach(k => { data[k] = localStorage.getItem(k); });
