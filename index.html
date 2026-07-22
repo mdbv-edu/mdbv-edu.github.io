@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1784392659 - users-fix(combo) + Activities page + Activity Incharge role + receipt slip no/photo + gallery compressor + Composite/Book fee + more subjects+Other + curriculum upload -->
+<!-- BUILD: v-1784742533 - fix: duplicate homework field IDs (admin modal vs teacher form) breaking Post Homework -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -5012,7 +5012,7 @@ function renderDataManagement(){
   <tbody>${comps.map(c=>`<tr><td>${c.text}</td><td><span class="pill pill-${c.status==='resolved'?'green':'amber'}">${c.status}</span></td><td><button class="resolveCompBtn bg-green-500 hover:bg-green-600 text-white px-2 py-1 rounded text-xs" data-id="${c.id}">Resolve</button> <button class="deleteCompBtn text-red-600 ml-1" data-id="${c.id}">Delete</button></td></tr>`).join('')||'<tr><td colspan="3" class="text-center text-gray-500 py-3">No complaints</td></tr>'}</tbody></table></div></div>
 
   <!-- Modals -->
-  <div id="hwModal" class="hidden modal"><div class="modal-content"><h3 class="font-bold mb-3">Homework</h3><div class="space-y-2"><input id="hwClass" placeholder="Class"><input id="hwSubject" placeholder="Subject"><textarea id="hwDesc" placeholder="Description"></textarea><input type="date" id="hwDue"></div><div class="flex justify-end gap-2 mt-3"><button class="closeModal bg-gray-300 px-3 py-1.5 rounded">Cancel</button><button id="saveHwModal" class="bg-indigo-600 text-white px-3 py-1.5 rounded">Save</button></div></div></div>
+  <div id="hwModal" class="hidden modal"><div class="modal-content"><h3 class="font-bold mb-3">Homework</h3><div class="space-y-2"><input id="dmHwClass" placeholder="Class"><input id="dmHwSubject" placeholder="Subject"><textarea id="dmHwDesc" placeholder="Description"></textarea><input type="date" id="dmHwDue"></div><div class="flex justify-end gap-2 mt-3"><button class="closeModal bg-gray-300 px-3 py-1.5 rounded">Cancel</button><button id="saveHwModal" class="bg-indigo-600 text-white px-3 py-1.5 rounded">Save</button></div></div></div>
   <div id="examModal" class="hidden modal"><div class="modal-content"><h3 class="font-bold mb-3">Add Exam Marks</h3><div class="space-y-2"><select id="examStudentId">${students.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}</select><input id="examName" placeholder="Exam Name"><input id="examSubject" placeholder="Subject"><input type="number" id="examMarks" placeholder="Marks"><input type="number" id="examMax" placeholder="Max Marks"></div><div class="flex justify-end gap-2 mt-3"><button class="closeModal bg-gray-300 px-3 py-1.5 rounded">Cancel</button><button id="saveExamModal" class="bg-indigo-600 text-white px-3 py-1.5 rounded">Save</button></div></div></div>
 
   <!-- Add/Edit Student modal (extended with all XLS fields) -->
@@ -13469,10 +13469,10 @@ function attachDataManagementEvents(){
  }));
  document.getElementById('addHomeworkAdmin')?.addEventListener('click',()=>document.getElementById('hwModal').classList.remove('hidden'));
  document.getElementById('saveHwModal')?.addEventListener('click',()=>{
-  const cl=document.getElementById('hwClass').value.trim();
+  const cl=document.getElementById('dmHwClass').value.trim();
   if(!cl){alert('Fill class');return}
   const hws=getHomeworks();
-  hws.push({id:Date.now(),className:cl,subject:document.getElementById('hwSubject').value,description:document.getElementById('hwDesc').value,dueDate:document.getElementById('hwDue').value,teacher:currentUser.name,submitted:[]});
+  hws.push({id:Date.now(),className:cl,subject:document.getElementById('dmHwSubject').value,description:document.getElementById('dmHwDesc').value,dueDate:document.getElementById('dmHwDue').value,teacher:currentUser.name,submitted:[]});
   saveHomeworks(hws);document.getElementById('hwModal').classList.add('hidden');showToast('Homework added');refreshAdminTabContent();
  });
  document.getElementById('addExamMarkBtn')?.addEventListener('click',()=>document.getElementById('examModal').classList.remove('hidden'));
