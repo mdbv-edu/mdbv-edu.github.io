@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1784745547 - Free Up Space tool: migrate old homework/gallery/activity files from browser to cloud (frees storage)  -->
+<!-- BUILD: v-1784746358 - AUTOMATIC file-to-cloud migration (runs on startup + after photo uploads; silent, no teacher action needed) -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -3368,6 +3368,45 @@ async function _freeUpBrowserStorage(progressCb){
  return { moved, failed, freedMB: freedBytes / (1024 * 1024) };
 }
 
+// Are there any files still stored inline (base64) in the browser that could be moved to cloud?
+function _hasInlineFiles(){
+ try {
+  if (getHomeworks().some(h => h.attachmentData && !h.attachmentUrl && String(h.attachmentData).startsWith('data:'))) return true;
+  if (DB.getAll('gallery').some(p => p.src && String(p.src).startsWith('data:'))) return true;
+  if (DB.getAll('activities').some(a => Array.isArray(a.photos) && a.photos.some(ph => ph && String(ph).startsWith('data:')))) return true;
+ } catch (_) {}
+ return false;
+}
+
+// Runs automatically in the background so teachers never have to manage storage.
+// Silent: shows a small toast only if it actually frees space; stays quiet on failure
+// (e.g. storage bucket not set up) so it never nags. Guarded against concurrent/repeat runs.
+let _autoMigrateRunning = false;
+let _autoMigrateDoneThisSession = false;
+async function _autoMigrateFilesToCloud(){
+ if (_autoMigrateRunning) return;
+ if (!DB.storageAvailable()) return;          // needs cloud
+ if (!_hasInlineFiles()) { _autoMigrateDoneThisSession = true; return; }  // nothing to do
+ if (_autoMigrateDoneThisSession) return;      // already swept once this session
+ _autoMigrateRunning = true;
+ // Give the app a moment to finish first paint before doing background work.
+ setTimeout(async () => {
+  try {
+   const res = await _freeUpBrowserStorage();
+   _autoMigrateDoneThisSession = true;
+   if (res.moved > 0) {
+    showToast('Freed ' + res.freedMB.toFixed(1) + ' MB — files moved to cloud');
+    if (typeof renderApp === 'function' && currentUser) renderApp();
+   }
+  } catch (e) {
+   // Bucket not set up or offline — stay silent. The manual button + storage modal
+   // remain available as a fallback, and we'll try again next session.
+  } finally {
+   _autoMigrateRunning = false;
+  }
+ }, 2500);
+}
+
 // Estimate how much browser storage this app is using (all localStorage keys), in MB.
 function _localStorageUsageMB(){
  let bytes = 0;
@@ -6590,6 +6629,8 @@ function attachActivitiesEvents(){
   }
   DB.setAll('activities', all);
   _actPhotos = [];
+  // Move any new activity photos to cloud in the background.
+  _autoMigrateDoneThisSession = false; if (typeof _autoMigrateFilesToCloud === 'function') _autoMigrateFilesToCloud();
   renderApp();
  });
 }
@@ -14618,6 +14659,8 @@ function attachGalleryAdminEvents(){
   try {
    DB.setAll('gallery', photos);
    showToast(`Uploaded ${added} photo${added !== 1 ? 's' : ''}${failed ? ` (${failed} failed)` : ''}`);
+   // Move these new photos to cloud in the background so they don't fill browser storage.
+   _autoMigrateDoneThisSession = false; if (typeof _autoMigrateFilesToCloud === 'function') _autoMigrateFilesToCloud();
   } catch (e) {
    showToast('Storage quota exceeded — pick a smaller quality, use fewer photos, or use the URL option instead');
   }
@@ -15846,6 +15889,9 @@ if (DB.mode === 'cloud') {
   if (r.ok) {
    updateSyncBadge('idle', DB._lastSyncAt);
    if (typeof renderApp === 'function' && currentUser) renderApp();
+   // Cloud is reachable — quietly move any files still sitting in the browser up to
+   // cloud storage, so teachers never have to manage storage themselves.
+   if (typeof _autoMigrateFilesToCloud === 'function') _autoMigrateFilesToCloud();
   } else {
    // Cloud unreachable or errored. We did NOT seed before (cloud mode), so if local
    // is also empty (brand-new device, offline), seed now so the app is usable.
