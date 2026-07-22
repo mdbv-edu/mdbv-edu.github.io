@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1784742533 - fix: duplicate homework field IDs (admin modal vs teacher form) breaking Post Homework -->
+<!-- BUILD: v-1784744624 - homework attachments now upload to Supabase Storage (cloud) instead of browser; no more storage-full on files -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -2113,7 +2113,9 @@ const DB = {
   } catch { return []; }
  },
  setAll(table, data) {
-  localStorage.setItem(table, JSON.stringify(Array.isArray(data) ? data : []));
+  try {
+   localStorage.setItem(table, JSON.stringify(Array.isArray(data) ? data : []));
+  } catch (e) { this._handleStorageError(e); throw e; }
   this._queueSync(table);
  },
  insert(table, record) {
@@ -2151,7 +2153,9 @@ const DB = {
   } catch { return {}; }
  },
  setObject(table, obj) {
-  localStorage.setItem(table, JSON.stringify(obj || {}));
+  try {
+   localStorage.setItem(table, JSON.stringify(obj || {}));
+  } catch (e) { this._handleStorageError(e); throw e; }
   this._queueSync(table);
  },
 
@@ -2160,9 +2164,20 @@ const DB = {
   return localStorage.getItem(key);
  },
  setScalar(key, value) {
-  if (value === null || value === undefined) localStorage.removeItem(key);
-  else localStorage.setItem(key, String(value));
+  try {
+   if (value === null || value === undefined) localStorage.removeItem(key);
+   else localStorage.setItem(key, String(value));
+  } catch (e) { this._handleStorageError(e); throw e; }
   // Scalars are low-value (UI state like _lastReceiptId, schemaVersion) — don't auto-sync.
+ },
+
+ // Detect a "storage full" (QuotaExceeded) failure and surface it clearly to the user.
+ // Data isn't lost — it's still in the cloud — but the local browser cache is full, so new
+ // saves fail until space is freed. We show a one-time modal explaining what to do.
+ _handleStorageError(e) {
+  const isQuota = e && (e.name === 'QuotaExceededError' || e.code === 22 || e.code === 1014 || /quota|exceeded|storage/i.test(e.message || ''));
+  if (!isQuota) return;
+  try { if (typeof showStorageFullModal === 'function') showStorageFullModal(); } catch (_) {}
  },
 
  // ── Key removal & reset ──
@@ -2214,6 +2229,40 @@ const DB = {
   } catch (e) {
    return { ok: false, error: e.message };
   }
+ },
+
+ // ── Cloud file storage (Supabase Storage) ──
+ // Large files (homework attachments, photos) are uploaded here instead of being kept as
+ // base64 in the browser — so they never count against the browser's ~5 MB storage limit.
+ STORAGE_BUCKET: 'attachments',
+ // Upload a File/Blob; returns { url, path }. Throws with a clear message if the bucket is missing.
+ async uploadFile(file, folder) {
+  if (this.mode !== 'cloud') throw new Error('Cloud storage needs the online connection.');
+  const sb = this._supabase();
+  const safeName = (file.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
+  const path = (folder ? folder.replace(/[^a-zA-Z0-9._/-]/g, '_') + '/' : '') + Date.now() + '_' + Math.floor(Math.random() * 100000) + '_' + safeName;
+  const { error } = await sb.storage.from(this.STORAGE_BUCKET).upload(path, file, {
+   upsert: true,
+   contentType: file.type || 'application/octet-stream'
+  });
+  if (error) {
+   const msg = error.message || '';
+   if (/bucket not found|not found/i.test(msg)) {
+    throw new Error('STORAGE_BUCKET_MISSING');
+   }
+   throw new Error('Upload failed: ' + msg);
+  }
+  const { data: pub } = sb.storage.from(this.STORAGE_BUCKET).getPublicUrl(path);
+  return { url: pub.publicUrl, path };
+ },
+ // Delete a stored file by its path (best-effort; ignores errors).
+ async deleteFile(path) {
+  if (!path || this.mode !== 'cloud') return;
+  try { await this._supabase().storage.from(this.STORAGE_BUCKET).remove([path]); } catch (_) {}
+ },
+ // Is cloud storage usable right now?
+ storageAvailable() {
+  return this.mode === 'cloud' && typeof window.supabase !== 'undefined';
  },
 
  // Push a single table's local data to cloud
@@ -2879,7 +2928,7 @@ function renderHomeworkOversight(){
  if (q) hws = hws.filter(h => [h.subject, h.description, h.teacher, String(h.className), h.attachmentName].join(' ').toLowerCase().includes(q));
 
  const total = getHomeworks().length;
- const withFiles = getHomeworks().filter(h => h.attachmentData).length;
+ const withFiles = getHomeworks().filter(h => _hwHasFile(h)).length;
 
  return `<div>
   ${_diaryPrefix}
@@ -2910,21 +2959,21 @@ function renderHomeworkOversight(){
   ${hws.length === 0 ? '<div class="bg-white border rounded-lg p-8 text-center text-gray-400"><i class="fas fa-book-open text-3xl mb-2"></i><p>No homework matches these filters.</p></div>' : `
   <div class="space-y-2">
    ${hws.map(h => {
-     const isImage = h.attachmentData && (h.attachmentType||'').startsWith('image/');
-     const isPdf = h.attachmentData && (h.attachmentType||'').includes('pdf');
+     const isImage = _hwHasFile(h) && (h.attachmentType||'').startsWith('image/');
+     const isPdf = _hwHasFile(h) && (h.attachmentType||'').includes('pdf');
      return `<div class="bg-white border rounded-lg p-3">
       <div class="flex flex-wrap items-start justify-between gap-2 mb-1">
        <div>
         <div class="font-semibold">Class ${escapeHTML(String(h.className))} · ${escapeHTML(h.subject || 'General')}</div>
         <div class="text-xs text-gray-500"><i class="fas fa-user mr-1"></i>${escapeHTML(h.teacher || 'Unknown')} · Posted ${fmtDate(h.date || h.dueDate)} · Due ${fmtDate(h.dueDate)}</div>
        </div>
-       ${h.attachmentData ? `<div class="flex gap-1">
+       ${_hwHasFile(h) ? `<div class="flex gap-1">
         ${isImage ? `<button class="hwOverViewBtn bg-indigo-500 hover:bg-indigo-600 text-white px-2 py-1 rounded text-xs" data-id="${h.id}"><i class="fas fa-eye mr-1"></i>View Image</button>` : ''}
-        <a href="${h.attachmentData}" download="${escapeHTML(h.attachmentName||'attachment')}" class="bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs"><i class="fas fa-download mr-1"></i>${isPdf?'PDF':'Download'}</a>
+        <a href="${_hwFileHref(h)}" target="_blank" download="${escapeHTML(h.attachmentName||'attachment')}" class="bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs"><i class="fas fa-download mr-1"></i>${isPdf?'PDF':'Download'}</a>
        </div>` : '<span class="text-xs text-gray-400 self-center">No attachment</span>'}
       </div>
       <div class="text-sm text-gray-700 mt-1">${escapeHTML(h.description || '').replace(/\n/g,'<br>')}</div>
-      ${isImage ? `<div class="hwOverImgWrap mt-2 hidden" data-id="${h.id}"><img src="${h.attachmentData}" class="max-w-full md:max-w-md rounded border" alt="${escapeHTML(h.attachmentName||'')}"></div>` : ''}
+      ${isImage ? `<div class="hwOverImgWrap mt-2 hidden" data-id="${h.id}"><img src="${_hwFileHref(h)}" class="max-w-full md:max-w-md rounded border" alt="${escapeHTML(h.attachmentName||'')}"></div>` : ''}
      </div>`;
    }).join('')}
   </div>`}
@@ -3236,6 +3285,78 @@ function saveChatMessages(d){ DB.setAll('chatMessages', d); }
 function saveCompliance(d){ DB.setAll('compliance', d); }
 
 function showToast(m){const t=document.createElement('div');t.className='toast';t.innerText=m;document.body.appendChild(t);setTimeout(()=>t.remove(),3000)}
+
+// Convert a data URL (base64) into a Blob so it can be uploaded to cloud storage.
+function _dataURLtoBlob(dataUrl, type){
+ try {
+  const parts = dataUrl.split(',');
+  const bin = atob(parts[1]);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return new Blob([arr], { type: type || (parts[0].match(/:(.*?);/) || [])[1] || 'application/octet-stream' });
+ } catch (_) { return null; }
+}
+// The link to a homework attachment — prefers the cloud URL, falls back to old inline base64 records.
+function _hwFileHref(h){ return (h && (h.attachmentUrl || h.attachmentData)) || ''; }
+function _hwHasFile(h){ return !!(h && (h.attachmentUrl || h.attachmentData)); }
+
+// Estimate how much browser storage this app is using (all localStorage keys), in MB.
+function _localStorageUsageMB(){
+ let bytes = 0;
+ try {
+  for (let i = 0; i < localStorage.length; i++) {
+   const k = localStorage.key(i);
+   const v = localStorage.getItem(k) || '';
+   bytes += (k.length + v.length) * 2; // UTF-16 ~2 bytes/char
+  }
+ } catch (_) {}
+ return (bytes / (1024 * 1024));
+}
+// Break down which tables use the most space (helps decide what to trim).
+function _localStorageBreakdown(){
+ const rows = [];
+ try {
+  for (let i = 0; i < localStorage.length; i++) {
+   const k = localStorage.key(i);
+   const v = localStorage.getItem(k) || '';
+   rows.push({ key: k, mb: ((k.length + v.length) * 2) / (1024 * 1024) });
+  }
+ } catch (_) {}
+ return rows.sort((a, b) => b.mb - a.mb);
+}
+let _storageModalShown = false;
+function showStorageFullModal(){
+ if (_storageModalShown) return;            // don't spam if many writes fail at once
+ _storageModalShown = true;
+ setTimeout(() => { _storageModalShown = false; }, 4000);
+ const used = _localStorageUsageMB().toFixed(1);
+ const top = _localStorageBreakdown().slice(0, 5)
+   .filter(r => r.mb > 0.05)
+   .map(r => `<li class="flex justify-between"><span>${escapeHTML(r.key)}</span><span class="font-mono text-gray-600">${r.mb.toFixed(1)} MB</span></li>`)
+   .join('');
+ const existing = document.getElementById('storageFullModal');
+ if (existing) existing.remove();
+ const el = document.createElement('div');
+ el.id = 'storageFullModal';
+ el.className = 'modal';
+ el.innerHTML = `<div class="modal-content" style="max-width:520px">
+  <h3 class="text-lg font-bold text-rose-700 mb-2"><i class="fas fa-triangle-exclamation mr-1"></i>Browser storage is full</h3>
+  <p class="text-sm text-gray-700 mb-2">This device's storage for the app is full (about <b>${used} MB</b> used), so the last save didn't go through. <b>Your data is safe</b> — it's stored in the cloud too. You just need to free some local space, then try again.</p>
+  ${top ? `<div class="text-sm mb-2"><div class="font-semibold mb-1">Biggest space users:</div><ul class="space-y-0.5 bg-gray-50 rounded p-2">${top}</ul></div>` : ''}
+  <div class="text-sm text-gray-700 mb-3">
+   <div class="font-semibold mb-1">How to free space:</div>
+   <ul class="list-disc pl-5 space-y-1">
+    <li>Delete some older <b>Gallery</b> and <b>School Activities</b> photos (images use the most space).</li>
+    <li>Remove receipt-slip photos you no longer need.</li>
+    <li>On a shared computer, other saved sites can also fill storage — clearing very old browsing data helps.</li>
+   </ul>
+  </div>
+  <p class="text-xs text-gray-500 mb-3">Tip: photos are the main space users. Text records (students, fees, homework, marks) take very little.</p>
+  <div class="flex justify-end gap-2"><button class="closeModal bg-gray-700 text-white px-4 py-2 rounded-lg text-sm">Got it</button></div>
+ </div>`;
+ document.body.appendChild(el);
+ el.querySelectorAll('.closeModal').forEach(b => b.addEventListener('click', () => el.remove()));
+}
 
 /* ============================================================
    PHOTO UPLOAD HELPER (shared by staff + student profiles)
@@ -3862,7 +3983,7 @@ function renderOwnerDashboard(){
    <div class="bg-gradient-to-r from-amber-50 to-yellow-50 border-2 border-amber-200 rounded-xl p-5">
     <h2 class="font-semibold mb-1"><i class="fas fa-book-open text-amber-600 mr-2"></i>Homework</h2>
     <p class="text-sm text-gray-700">See what every teacher has posted — with attachments. Filter by class or teacher.</p>
-    ${(() => { const hw=getHomeworks(); const wf=hw.filter(h=>h.attachmentData).length; return `<div class="flex flex-wrap gap-2 mt-2 text-xs">
+    ${(() => { const hw=getHomeworks(); const wf=hw.filter(h=>_hwHasFile(h)).length; return `<div class="flex flex-wrap gap-2 mt-2 text-xs">
      <span class="text-gray-700"><i class="fas fa-list mr-1"></i>${hw.length} posted</span>
      <span class="text-gray-700"><i class="fas fa-paperclip mr-1"></i>${wf} with files</span>
     </div>`; })()}
@@ -6943,6 +7064,7 @@ function _renderQuickHomework(){
      <label class="text-xs font-medium">Attach File <span class="text-gray-500">(PDF or Image, up to 2 MB)</span></label>
      <input type="file" id="hwFile" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx">
      <div id="hwFileStatus" class="text-xs mt-1"></div>
+     <button type="button" id="hwFileClear" class="text-xs text-rose-600 hover:text-rose-800 mt-1" style="display:none"><i class="fas fa-times-circle mr-1"></i>Remove attached file</button>
      <div class="text-xs text-gray-400 mt-0.5"><i class="fas fa-wand-magic-sparkles mr-1"></i>Large photos are compressed automatically. For big PDFs, attach a photo of the page instead.</div>
     </div>
     <div class="md:col-span-2">
@@ -6980,7 +7102,7 @@ function _renderQuickHomework(){
         <div class="text-xs text-gray-600">Due ${fmtDate(h.dueDate)} · Posted ${fmtDate(h.date || h.dueDate)}</div>
        </div>
        <div class="flex gap-1">
-        ${h.attachmentData ? `<a href="${h.attachmentData}" download="${h.attachmentName}" class="bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs"><i class="fas fa-download mr-1"></i>${h.attachmentName}</a>` : ''}
+        ${_hwHasFile(h) ? `<a href="${_hwFileHref(h)}" target="_blank" download="${h.attachmentName}" class="bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs"><i class="fas fa-download mr-1"></i>${h.attachmentName}</a>` : ''}
         <button class="hwBroadcastBtn bg-emerald-500 hover:bg-emerald-600 text-white px-2 py-1 rounded text-xs" data-id="${h.id}" title="Re-broadcast"><i class="fab fa-whatsapp"></i></button>
         <button class="hwDelBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs" data-id="${h.id}" title="Delete"><i class="fas fa-trash"></i></button>
        </div>
@@ -7547,45 +7669,60 @@ function _attachHomeworkEvents(){
   renderApp();
  });
 
- // File picker — convert to base64 on selection (with size check)
+ // File picker — with cloud storage, we hold the file and upload it on Post (so it doesn't
+ // sit in the browser). If cloud isn't available, we fall back to inline base64 (old behavior).
  let attachmentData = null, attachmentName = null, attachmentType = null;
+ let pendingFile = null;   // File/Blob to upload to cloud on Post
+ const _hwClearBtn = document.getElementById('hwFileClear');
+ const _showClear = (show) => { if (_hwClearBtn) _hwClearBtn.style.display = show ? '' : 'none'; };
+ const _resetAttach = () => {
+  attachmentData = null; attachmentName = null; attachmentType = null; pendingFile = null;
+  const fi = document.getElementById('hwFile'); if (fi) fi.value = '';
+  const st = document.getElementById('hwFileStatus'); if (st) st.innerHTML = '';
+  _showClear(false);
+ };
+ _hwClearBtn?.addEventListener('click', _resetAttach);
  document.getElementById('hwFile')?.addEventListener('change', e => {
   const f = e.target.files[0];
-  const LIMIT = 2 * 1024 * 1024; // 2 MB storage limit
   const statusEl = document.getElementById('hwFileStatus');
   const setStatus = (msg, color) => { if (statusEl) statusEl.innerHTML = color ? `<span class="text-${color}-600">${msg}</span>` : msg; };
-  if (!f) { attachmentData = null; attachmentName = null; setStatus(''); return; }
+  if (!f) { _resetAttach(); return; }
+  _showClear(true);
+  const useCloud = DB.storageAvailable();
+  const CLOUD_MAX = 10 * 1024 * 1024;  // 10 MB cap for cloud uploads
+  const LOCAL_MAX = 2 * 1024 * 1024;   // 2 MB cap for browser (base64) fallback
 
-  // Images: if over the limit, auto-compress to fit while keeping them readable.
+  // IMAGES — always compress (saves upload size and storage).
   if (f.type.startsWith('image/')) {
-   if (f.size <= LIMIT) {
-    const reader = new FileReader();
-    reader.onload = () => { attachmentData = reader.result; attachmentName = f.name; attachmentType = f.type; setStatus(`<i class="fas fa-check mr-1"></i>Attached (${Math.round(f.size/1024)} KB)`, 'emerald'); };
-    reader.readAsDataURL(f);
-    return;
-   }
-   setStatus('<i class="fas fa-spinner fa-spin mr-1"></i>Compressing image…', 'blue');
-   compressImageToTarget(f, LIMIT, (dataUrl, outcome) => {
-    if (!dataUrl) { alert('Could not process this image. Please try a different file.'); e.target.value=''; attachmentData=null; setStatus(''); return; }
+   setStatus('<i class="fas fa-spinner fa-spin mr-1"></i>Preparing image…', 'blue');
+   compressImageToTarget(f, LOCAL_MAX, (dataUrl) => {
+    if (!dataUrl) { alert('Could not process this image. Please try a different file.'); _resetAttach(); return; }
     const bytes = Math.round((dataUrl.length - (dataUrl.indexOf(',')+1)) * 0.75);
-    attachmentData = dataUrl;
-    attachmentName = f.name.replace(/\.(png|jpg|jpeg|webp|gif|bmp)$/i, '') + '.jpg';
+    attachmentName = (f.name || 'photo').replace(/\.(png|jpg|jpeg|webp|gif|bmp)$/i, '') + '.jpg';
     attachmentType = 'image/jpeg';
-    if (outcome === 'still-large') {
-     setStatus(`<i class="fas fa-triangle-exclamation mr-1"></i>Compressed to ${Math.round(bytes/1024)} KB (still large, but attached). A clearer scan may upload better.`, 'amber');
+    if (useCloud) {
+     pendingFile = _dataURLtoBlob(dataUrl, 'image/jpeg');
+     attachmentData = null;
+     setStatus(`<i class="fas fa-cloud-arrow-up mr-1"></i>Ready (${Math.round(bytes/1024)} KB) — saves to cloud when you post.`, 'emerald');
     } else {
-     setStatus(`<i class="fas fa-wand-magic-sparkles mr-1"></i>Compressed from ${Math.round(f.size/1024)} KB to ${Math.round(bytes/1024)} KB and attached.`, 'emerald');
+     attachmentData = dataUrl; pendingFile = null;
+     setStatus(`<i class="fas fa-check mr-1"></i>Attached (${Math.round(bytes/1024)} KB)`, 'emerald');
     }
    });
    return;
   }
 
-  // Non-images (PDF, Word): can't be compressed in the browser. Enforce the limit with guidance.
-  if (f.size > LIMIT) {
-   alert('This file is ' + (f.size/1024/1024).toFixed(1) + ' MB, over the 2 MB limit.\n\nTips to reduce it:\n\u2022 If it is a scanned worksheet, take a PHOTO (JPG) instead \u2014 the app will auto-compress images.\n\u2022 For a PDF, use a free "compress PDF" tool online, or scan at a lower quality.\n\u2022 Split a large PDF into smaller parts.');
-   e.target.value = '';
-   attachmentData = null; setStatus('');
+  // NON-IMAGES (PDF, Word, etc.)
+  if (useCloud) {
+   if (f.size > CLOUD_MAX) { alert('This file is ' + (f.size/1024/1024).toFixed(1) + ' MB. Please keep attachments under 10 MB.'); _resetAttach(); return; }
+   pendingFile = f; attachmentName = f.name; attachmentType = f.type; attachmentData = null;
+   setStatus(`<i class="fas fa-cloud-arrow-up mr-1"></i>Ready (${Math.round(f.size/1024)} KB) — saves to cloud when you post.`, 'emerald');
    return;
+  }
+  // Local fallback: enforce 2 MB and store base64.
+  if (f.size > LOCAL_MAX) {
+   alert('This file is ' + (f.size/1024/1024).toFixed(1) + ' MB, over the 2 MB limit for offline mode.\n\u2022 If it is a scanned worksheet, take a PHOTO (JPG) instead.\n\u2022 Or connect to the internet so it can be saved to the cloud.');
+   _resetAttach(); return;
   }
   const reader = new FileReader();
   reader.onload = () => { attachmentData = reader.result; attachmentName = f.name; attachmentType = f.type; setStatus(`<i class="fas fa-check mr-1"></i>Attached (${Math.round(f.size/1024)} KB)`, 'emerald'); };
@@ -7593,7 +7730,7 @@ function _attachHomeworkEvents(){
  });
 
  // Save homework
- document.getElementById('hwSaveBtn')?.addEventListener('click', () => {
+ document.getElementById('hwSaveBtn')?.addEventListener('click', async () => {
   const cls = document.getElementById('hwClass').value;
   let sub = document.getElementById('hwSubject').value.trim();
   if (sub === 'Other') { const o = document.getElementById('hwSubjectOther')?.value.trim(); if (o) sub = o; }
@@ -7604,20 +7741,59 @@ function _attachHomeworkEvents(){
   if (!sub) { alert('Enter subject'); return; }
   if (!desc) { alert('Enter description'); return; }
 
+  const btn = document.getElementById('hwSaveBtn');
   const hws = getHomeworks();
   const hw = {
    id: Date.now(), className: cls, subject: sub,
    description: desc, dueDate: due, date: new Date().toISOString().slice(0,10),
    teacher: currentUser.name, teacherId: currentUser.id, submitted: []
   };
-  if (attachmentData) {
-   hw.attachmentData = attachmentData;
-   hw.attachmentName = attachmentName;
-   hw.attachmentType = attachmentType;
+
+  // 1) If there's a file to upload to the cloud, do that first (keeps it out of the browser).
+  if (pendingFile && DB.storageAvailable()) {
+   const orig = btn ? btn.innerHTML : '';
+   if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-cloud-arrow-up fa-spin mr-1"></i>Uploading…'; }
+   try {
+    const { url, path } = await DB.uploadFile(pendingFile, 'homework/' + cls);
+    hw.attachmentUrl = url; hw.attachmentPath = path;
+    hw.attachmentName = attachmentName; hw.attachmentType = attachmentType;
+   } catch (err) {
+    if (btn) { btn.disabled = false; btn.innerHTML = orig; }
+    if (err && err.message === 'STORAGE_BUCKET_MISSING') {
+     alert('Cloud file storage isn\'t set up yet, so the file can\'t be attached.\n\nAsk your admin to create a public Storage bucket named "attachments" in Supabase (a one-time setup).\n\nFor now, you can post the homework text without the file.');
+    } else {
+     alert('Could not upload the file: ' + ((err && err.message) || 'unknown') + '\n\nYou can post the homework without the file, or try again.');
+    }
+    return;
+   }
+   if (btn) { btn.disabled = false; btn.innerHTML = orig; }
+  } else if (attachmentData) {
+   // Offline / local fallback: store inline (may hit the browser limit, handled below).
+   hw.attachmentData = attachmentData; hw.attachmentName = attachmentName; hw.attachmentType = attachmentType;
   }
+
+  // 2) Save the (now small) homework record.
   hws.push(hw);
-  saveHomeworks(hws);
-  showToast('Homework posted');
+  try {
+   saveHomeworks(hws);
+  } catch (err) {
+   const isQuota = err && (err.name === 'QuotaExceededError' || err.code === 22 || /quota|exceeded|storage/i.test(err.message||''));
+   if (isQuota && hw.attachmentData) {
+    const sizeKB = Math.round((hw.attachmentData.length * 0.75) / 1024);
+    if (confirm('Your browser storage is full, so the attached file (' + (hw.attachmentName||'file') + ', ~' + sizeKB + ' KB) could not be saved.\n\nPost the homework WITHOUT the attachment? The text will be saved — you can share the file separately (e.g. on WhatsApp).')) {
+     delete hw.attachmentData; delete hw.attachmentName; delete hw.attachmentType;
+     try { saveHomeworks(hws); } catch (e2) { showStorageFullModal(); return; }
+     showToast('Homework posted (without the attachment)');
+     if (broadcast) { _generateHomeworkBroadcast(hw); } else { renderApp(); }
+     return;
+    }
+    return;
+   }
+   if (isQuota) { showStorageFullModal(); return; }
+   alert('Could not save the homework: ' + (err.message || 'unknown error'));
+   return;
+  }
+  showToast(hw.attachmentUrl ? 'Homework posted with attachment' : 'Homework posted');
 
   if (broadcast) {
    _generateHomeworkBroadcast(hw);
@@ -8145,7 +8321,7 @@ function renderParAcademics(students){
          <div class="text-xs text-gray-500 mt-1">${pt('By','द्वारा')} ${h.teacher || '?'}</div>
          <div class="mt-2 flex flex-wrap gap-2">
           <button class="parPrintHwBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-hw="${h.id}" data-stu="${s.id}"><i class="fas fa-file-pdf mr-1"></i>${pt('Download Assignment','कार्य डाउनलोड करें')}</button>
-          ${h.attachmentData ? `<a href="${h.attachmentData}" download="${h.attachmentName}" class="bg-cyan-600 hover:bg-cyan-700 text-white px-2 py-1 rounded text-xs"><i class="fas fa-paperclip mr-1"></i>${h.attachmentName}</a>` : ''}
+          ${_hwHasFile(h) ? `<a href="${_hwFileHref(h)}" target="_blank" download="${h.attachmentName}" class="bg-cyan-600 hover:bg-cyan-700 text-white px-2 py-1 rounded text-xs"><i class="fas fa-paperclip mr-1"></i>${h.attachmentName}</a>` : ''}
          </div>
         </div>`;
        }).join('')}
@@ -8345,7 +8521,7 @@ function renderStuHomework(s){
       </div>
       <div class="flex flex-col gap-1">
        <button class="stuPrintHwBtn bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap" data-hw="${h.id}" title="Download a printable PDF of this assignment"><i class="fas fa-file-pdf mr-1"></i>Download Assignment</button>
-       ${h.attachmentData ? `<a href="${h.attachmentData}" download="${h.attachmentName}" class="bg-cyan-600 hover:bg-cyan-700 text-white px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap"><i class="fas fa-paperclip mr-1"></i>Teacher's File: ${h.attachmentName}</a>` : ''}
+       ${_hwHasFile(h) ? `<a href="${_hwFileHref(h)}" target="_blank" download="${h.attachmentName}" class="bg-cyan-600 hover:bg-cyan-700 text-white px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap"><i class="fas fa-paperclip mr-1"></i>Teacher's File: ${h.attachmentName}</a>` : ''}
        ${!isSubmitted ? `<button class="stuUploadBtn bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap" data-hw="${h.id}"><i class="fas fa-upload mr-1"></i>Upload Submission</button>` : ''}
       </div>
      </div>
