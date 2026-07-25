@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1784966509 - admin student attendance tracker + NEW staff attendance tracker (mark P/A/L/H + per-staff report/export); confirmed owner/admin user pages share one table -->
+<!-- BUILD: v-1784967158 - CBSE Syllabus & Resource Catalog: browsable by class/subject/type, seeded with official CBSE+NCERT links, file uploads to cloud; available to teacher/admin/owner -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -1979,7 +1979,7 @@ function initDB(){
  ]);
 
  // Empty array tables (ready for real-world data)
- ['feeTransactions','homeworks','complaints','examMarks','payrollSlips','inventory','vehicles','routeMovements','maintenance','expenses','bankAccounts','bankTransactions','correctionRequests','accountingAuditLog','messageLog','ptmEvents','homeworkSubmissions','teacherAuditLog','calendar','activityCalendar','activities','documents','chatMessages','notices','feeStructures','curriculum','teacherAppraisals','salaryPayments'].forEach(t => seedArray(t, []));
+ ['feeTransactions','homeworks','complaints','examMarks','payrollSlips','inventory','vehicles','routeMovements','maintenance','expenses','bankAccounts','bankTransactions','correctionRequests','accountingAuditLog','messageLog','ptmEvents','homeworkSubmissions','teacherAuditLog','calendar','activityCalendar','activities','resources','documents','chatMessages','notices','feeStructures','curriculum','teacherAppraisals','salaryPayments'].forEach(t => seedArray(t, []));
 
  // Singleton-object tables (correctly use setObject so they don't get stored as arrays)
  seedObject('busTracking',   {route1:{lat:null,lng:null,lastUpdate:'',status:''}});
@@ -2078,6 +2078,7 @@ const DB_SCHEMA = {
  calendar:            { type: 'array', desc: 'School calendar events' },
  activityCalendar:    { type: 'array', desc: 'Home-room activity calendar (important days, filled by staff)' },
  activities:          { type: 'array', desc: 'School activities & events with photos and write-ups' },
+ resources:           { type: 'array', desc: 'Syllabus & resource catalog (CBSE/NCERT links + uploaded files)' },
  documents:           { type: 'array', desc: 'Uploaded documents' },
  broadcastLog:        { type: 'array', desc: 'Broadcast operation log' },
  enquiries:           { type: 'array', desc: 'Admissions enquiry form submissions' },
@@ -3896,6 +3897,20 @@ function renderOwnerDashboard(){
   </div>`;
  }
 
+ if (ownerView === 'resources') {
+  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+    <div>
+     <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
+     <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-crown text-amber-500 mr-2"></i>${currentUser.role==='managing_director'?'Managing Director':currentUser.role==='trustee'?'Trustee':'Owner'} · Resources</h1>
+     <p class="text-gray-600 text-xs">${currentUser.name} · syllabus &amp; resource catalog</p>
+    </div>
+    <button id="logoutBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
+   </div>
+   ${renderResourceCatalog()}
+  </div>`;
+ }
+
  if (ownerView === 'ledger') {
   return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
@@ -4150,6 +4165,16 @@ function renderOwnerDashboard(){
      <i class="fas fa-arrow-right-to-bracket mr-1"></i>Review Homework
     </button>
    </div>
+   <div class="bg-gradient-to-r from-indigo-50 to-blue-50 border-2 border-indigo-200 rounded-xl p-5">
+    <h2 class="font-semibold mb-1"><i class="fas fa-book-open-reader text-indigo-600 mr-2"></i>Syllabus &amp; Resources</h2>
+    <p class="text-sm text-gray-700">CBSE &amp; NCERT syllabus links plus the school's own resource library, by class and subject.</p>
+    <div class="flex flex-wrap gap-2 mt-2 text-xs">
+     <span class="text-gray-700"><i class="fas fa-book mr-1"></i>${getResources().length} resources</span>
+    </div>
+    <button id="ownerOpenResourcesBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
+     <i class="fas fa-arrow-right-to-bracket mr-1"></i>Open Catalog
+    </button>
+   </div>
    <div class="bg-gradient-to-r from-purple-50 to-fuchsia-50 border-2 border-purple-200 rounded-xl p-5">
     <h2 class="font-semibold mb-1"><i class="fas fa-file-lines text-purple-600 mr-2"></i>Report Cards</h2>
     <p class="text-sm text-gray-700">Generate and print term report cards for any class.</p>
@@ -4286,6 +4311,7 @@ function renderAdminPanel(){
   {id:'teachers',label:'Staff',icon:'users'},
   {id:'staffattendance',label:'Staff Attendance',icon:'user-clock'},
   {id:'homework',label:'Homework',icon:'book-open'},
+  {id:'resources',label:'Resources',icon:'book-open-reader'},
   {id:'datamanagement',label:'Data',icon:'database'},
   {id:'compliance',label:'Compliance',icon:'shield-halved'},
   {id:'notices',label:'Notice Board',icon:'thumbtack'},
@@ -4337,6 +4363,7 @@ function renderAdminTabContent(){
   case 'teachers':return renderTeachersTab();
   case 'staffattendance':return renderStaffAttendance();
   case 'homework':return renderHomeworkOversight();
+  case 'resources':return renderResourceCatalog();
   case 'datamanagement':return renderDataManagement();
   case 'compliance':return renderComplianceTab();
   case 'notices':return renderNoticesTab();
@@ -6524,9 +6551,195 @@ function _printActivityCalendar(){
  w.document.close();
 }
 
+// ===== CBSE SYLLABUS & RESOURCE CATALOG =====
+// A browsable library of syllabus/reference resources, organised by class + subject.
+// Each resource holds a link (to official CBSE/NCERT sources) and/or an uploaded file
+// (stored in cloud storage, so no browser-space impact). Read by all staff; edited by
+// admin/owner/principal and the teacher who added an item.
+const RESOURCE_TYPES = ['Syllabus','Textbook','Reference','Worksheet','Sample Paper','Lesson Plan','Video','Link'];
+function getResources(){ return DB.getAll('resources').filter(r => !r._deleted); }
+function saveResources(d){ DB.setAll('resources', d); }
+function _resourceCanEdit(r){
+ // Admin/owner/principal can edit anything; a teacher can edit what they added.
+ if (isAdminLevel() || isPrincipalLevel() || isOwnerLevel()) return true;
+ return r && r.addedById && currentUser && r.addedById === currentUser.id;
+}
+function _resourceCanAdd(){ return isAdminLevel() || isPrincipalLevel() || isOwnerLevel() || isTeacherRole(); }
+// Seed the catalog with official CBSE/NCERT reference links (runs once, only if empty).
+function seedResourceCatalog(){
+ if (getResources().length > 0) return;
+ const now = new Date().toISOString();
+ const seed = [
+  { title:'CBSE Curriculum 2026-27 (Classes 9-12)', class:'All', subject:'All', type:'Syllabus', url:'https://cbseacademic.nic.in/curriculum_2026.html', description:'Official CBSE detailed curriculum & scheme of studies for secondary and senior-secondary classes. Download subject-wise syllabus PDFs here.', official:true },
+  { title:'CBSE Academic Portal', class:'All', subject:'All', type:'Reference', url:'https://cbseacademic.nic.in/', description:'CBSE\u2019s official academics site \u2014 curriculum, circulars, skill education, sample papers and support material.', official:true },
+  { title:'NCERT Textbooks (Classes 1-12)', class:'All', subject:'All', type:'Textbook', url:'https://ncert.nic.in/textbook.php', description:'Official NCERT textbook repository. Pick a class and subject to open/download the prescribed book PDFs.', official:true },
+  { title:'CBSE Sample Question Papers', class:'All', subject:'All', type:'Sample Paper', url:'https://cbseacademic.nic.in/', description:'Official sample question papers and marking schemes (see the SQP links on the CBSE Academic portal for the current year).', official:true },
+  { title:'ePathshala (NCERT e-books)', class:'All', subject:'All', type:'Reference', url:'https://epathshala.nic.in/', description:'NCERT\u2019s e-learning platform with textbooks, audio-visual resources and periodicals.', official:true },
+  { title:'DIKSHA (National Teaching-Learning Platform)', class:'All', subject:'All', type:'Reference', url:'https://diksha.gov.in/', description:'Government of India platform with lesson content, courses and QR-linked teaching resources for teachers.', official:true },
+  { title:'CBSE Main Website', class:'All', subject:'All', type:'Link', url:'https://www.cbse.gov.in/', description:'The main CBSE portal \u2014 notifications, results, affiliation and official announcements.', official:true }
+ ];
+ const all = DB.getAll('resources');
+ seed.forEach((s, i) => all.push({ id: Date.now() + i, ...s, addedBy:'System', addedById:0, addedAt:now }));
+ DB.setAll('resources', all);
+}
+let _resFilterClass = 'All', _resFilterSubject = 'All', _resFilterType = 'All', _resSearch = '';
+function renderResourceCatalog(){
+ seedResourceCatalog();
+ const canAdd = _resourceCanAdd();
+ let list = getResources();
+ // Filters
+ if (_resFilterClass !== 'All') list = list.filter(r => r.class === _resFilterClass || r.class === 'All');
+ if (_resFilterSubject !== 'All') list = list.filter(r => r.subject === _resFilterSubject || r.subject === 'All');
+ if (_resFilterType !== 'All') list = list.filter(r => r.type === _resFilterType);
+ if (_resSearch.trim()) { const q = _resSearch.toLowerCase(); list = list.filter(r => (r.title+' '+r.description+' '+r.subject+' '+r.class).toLowerCase().includes(q)); }
+ list = list.slice().sort((a,b) => (b.official?1:0)-(a.official?1:0) || (a.class||'').localeCompare(b.class||'') || (a.subject||'').localeCompare(b.subject||''));
+
+ const typeColor = t => ({Syllabus:'bg-purple-100 text-purple-700',Textbook:'bg-emerald-100 text-emerald-700','Sample Paper':'bg-amber-100 text-amber-700',Reference:'bg-blue-100 text-blue-700',Worksheet:'bg-cyan-100 text-cyan-700','Lesson Plan':'bg-pink-100 text-pink-700',Video:'bg-rose-100 text-rose-700',Link:'bg-gray-100 text-gray-700'})[t]||'bg-gray-100 text-gray-700';
+
+ const cards = list.length === 0 ? `<div class="text-center text-gray-500 py-10 border border-dashed rounded-lg"><i class="fas fa-book-open text-3xl mb-2"></i><div>No resources match your filters.${canAdd?' Use "Add Resource" to add one.':''}</div></div>`
+  : `<div class="grid md:grid-cols-2 gap-3">${list.map(r => {
+   const href = r.fileUrl || r.url || '';
+   return `<div class="border rounded-lg p-3 hover:shadow-sm">
+    <div class="flex items-start justify-between gap-2">
+     <div class="min-w-0">
+      <div class="font-semibold text-sm">${escapeHTML(r.title)}${r.official?' <span class="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full align-middle">Official</span>':''}</div>
+      <div class="flex flex-wrap gap-1 mt-1">
+       <span class="text-[11px] px-2 py-0.5 rounded-full ${typeColor(r.type)}">${escapeHTML(r.type)}</span>
+       <span class="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">${r.class==='All'?'All classes':'Class '+escapeHTML(r.class)}</span>
+       ${r.subject && r.subject!=='All'?`<span class="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">${escapeHTML(r.subject)}</span>`:''}
+      </div>
+     </div>
+     ${_resourceCanEdit(r)?`<div class="flex gap-1 flex-shrink-0">
+       <button class="resEditBtn text-blue-600 hover:text-blue-800 px-1" data-id="${r.id}" title="Edit"><i class="fas fa-edit"></i></button>
+       <button class="resDelBtn text-rose-500 hover:text-rose-700 px-1" data-id="${r.id}" title="Delete"><i class="fas fa-trash"></i></button>
+      </div>`:''}
+    </div>
+    ${r.description?`<p class="text-xs text-gray-600 mt-2">${escapeHTML(r.description)}</p>`:''}
+    ${href?`<a href="${href}" target="_blank" rel="noopener" class="inline-block mt-2 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-${r.fileUrl?'file-arrow-down':'up-right-from-square'} mr-1"></i>${r.fileUrl?'Open file':'Open link'}</a>`:''}
+   </div>`;
+  }).join('')}</div>`;
+
+ return `<div>
+  <div class="flex flex-wrap justify-between items-center gap-2 mb-3">
+   <div>
+    <h2 class="text-lg font-bold"><i class="fas fa-book-open-reader text-indigo-600 mr-1"></i>Syllabus &amp; Resource Catalog</h2>
+    <p class="text-xs text-gray-500">Official CBSE &amp; NCERT syllabus links plus the school\u2019s own resources, organised by class and subject.</p>
+   </div>
+   ${canAdd?`<button id="resAddBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-plus mr-1"></i>Add Resource</button>`:''}
+  </div>
+
+  <div class="bg-gray-50 border rounded-lg p-3 mb-4">
+   <div class="grid md:grid-cols-4 gap-2">
+    <div><label class="text-[11px] text-gray-500 block">Class</label>
+     <select id="resClass" class="text-sm"><option>All</option>${ALL_CLASSES.map(c=>`<option ${_resFilterClass===c?'selected':''}>${c}</option>`).join('')}</select></div>
+    <div><label class="text-[11px] text-gray-500 block">Subject</label>
+     <select id="resSubject" class="text-sm"><option>All</option>${SUBJECTS.filter(s=>s!=='Other').map(s=>`<option ${_resFilterSubject===s?'selected':''}>${s}</option>`).join('')}</select></div>
+    <div><label class="text-[11px] text-gray-500 block">Type</label>
+     <select id="resType" class="text-sm"><option>All</option>${RESOURCE_TYPES.map(t=>`<option ${_resFilterType===t?'selected':''}>${t}</option>`).join('')}</select></div>
+    <div><label class="text-[11px] text-gray-500 block">Search</label>
+     <input id="resSearch" value="${escapeHTML(_resSearch)}" placeholder="title, topic\u2026" class="text-sm w-full"></div>
+   </div>
+   <div class="text-xs text-gray-500 mt-2">${list.length} resource${list.length!==1?'s':''} shown</div>
+  </div>
+
+  ${cards}
+
+  ${canAdd?`<div id="resModal" class="hidden modal"><div class="modal-content" style="max-width:560px">
+   <h3 class="text-lg font-bold mb-3" id="resModalTitle">Add Resource</h3>
+   <input type="hidden" id="resEditId">
+   <div class="space-y-2">
+    <div><label class="text-xs font-medium">Title *</label><input id="resTitle" placeholder="e.g. Class 10 Science Syllabus 2026-27"></div>
+    <div class="grid grid-cols-3 gap-2">
+     <div><label class="text-xs font-medium">Class</label><select id="resFClass"><option>All</option>${ALL_CLASSES.map(c=>`<option>${c}</option>`).join('')}</select></div>
+     <div><label class="text-xs font-medium">Subject</label><select id="resFSubject"><option>All</option>${SUBJECTS.filter(s=>s!=='Other').map(s=>`<option>${s}</option>`).join('')}</select></div>
+     <div><label class="text-xs font-medium">Type</label><select id="resFType">${RESOURCE_TYPES.map(t=>`<option>${t}</option>`).join('')}</select></div>
+    </div>
+    <div><label class="text-xs font-medium">Link URL <span class="text-gray-400">(official CBSE/NCERT page, video, etc.)</span></label><input id="resUrl" placeholder="https://..." type="url"></div>
+    <div class="text-center text-xs text-gray-400">— and / or —</div>
+    <div><label class="text-xs font-medium">Upload a file <span class="text-gray-400">(PDF/image, saved to cloud)</span></label>
+     <input type="file" id="resFile" accept="application/pdf,image/*,.doc,.docx" class="text-sm">
+     <div id="resFileStatus" class="text-xs mt-1"></div>
+    </div>
+    <div><label class="text-xs font-medium">Description</label><textarea id="resDesc" rows="2" placeholder="What is this resource?"></textarea></div>
+   </div>
+   <div class="flex justify-end gap-2 mt-4"><button class="closeModal bg-gray-300 px-4 py-2 rounded-lg text-sm">Cancel</button><button id="resSaveBtn" class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm">Save</button></div>
+  </div></div>`:''}
+ </div>`;
+}
+var _resPendingFile = null, _resPendingName = null;
+function attachResourceCatalogEvents(){
+ document.getElementById('resClass')?.addEventListener('change', e=>{_resFilterClass=e.target.value; renderApp();});
+ document.getElementById('resSubject')?.addEventListener('change', e=>{_resFilterSubject=e.target.value; renderApp();});
+ document.getElementById('resType')?.addEventListener('change', e=>{_resFilterType=e.target.value; renderApp();});
+ let searchT; document.getElementById('resSearch')?.addEventListener('input', e=>{ _resSearch=e.target.value; clearTimeout(searchT); searchT=setTimeout(()=>renderApp(), 350); });
+ document.querySelectorAll('.closeModal').forEach(b=>b.addEventListener('click',()=>document.getElementById('resModal')?.classList.add('hidden')));
+
+ const openModal = (r) => {
+  _resPendingFile = null; _resPendingName = null;
+  document.getElementById('resModalTitle').innerText = r?'Edit Resource':'Add Resource';
+  document.getElementById('resEditId').value = r?r.id:'';
+  document.getElementById('resTitle').value = r?(r.title||''):'';
+  document.getElementById('resFClass').value = r?(r.class||'All'):(_resFilterClass!=='All'?_resFilterClass:'All');
+  document.getElementById('resFSubject').value = r?(r.subject||'All'):(_resFilterSubject!=='All'?_resFilterSubject:'All');
+  document.getElementById('resFType').value = r?(r.type||'Reference'):'Reference';
+  document.getElementById('resUrl').value = r?(r.url||''):'';
+  document.getElementById('resDesc').value = r?(r.description||''):'';
+  const st=document.getElementById('resFileStatus'); if(st) st.innerHTML = (r&&r.fileUrl)?`<span class="text-emerald-600">Current file attached ✓ (upload a new one to replace)</span>`:'';
+  document.getElementById('resFile').value='';
+  document.getElementById('resModal').classList.remove('hidden');
+ };
+ document.getElementById('resAddBtn')?.addEventListener('click', ()=>openModal(null));
+ document.querySelectorAll('.resEditBtn').forEach(b=>b.addEventListener('click',()=>{ const r=getResources().find(x=>x.id===parseInt(b.dataset.id)); if(r)openModal(r); }));
+ document.querySelectorAll('.resDelBtn').forEach(b=>b.addEventListener('click',()=>{
+  if(!confirm('Delete this resource?')) return;
+  const all=DB.getAll('resources'); const i=all.findIndex(x=>x.id===parseInt(b.dataset.id));
+  if(i>-1){ all[i]._deleted=true; DB.setAll('resources',all); showToast('Resource deleted'); renderApp(); }
+ }));
+ // File selection — hold for cloud upload on save
+ document.getElementById('resFile')?.addEventListener('change', e=>{
+  const f=e.target.files[0]; const st=document.getElementById('resFileStatus');
+  if(!f){_resPendingFile=null;_resPendingName=null; if(st)st.innerHTML=''; return;}
+  if(f.size > 10*1024*1024){ alert('File too large. Please keep it under 10 MB.'); e.target.value=''; return; }
+  _resPendingFile=f; _resPendingName=f.name;
+  if(st) st.innerHTML=`<span class="text-emerald-600"><i class="fas fa-cloud-arrow-up mr-1"></i>Ready (${Math.round(f.size/1024)} KB) — saves to cloud on Save.</span>`;
+ });
+ document.getElementById('resSaveBtn')?.addEventListener('click', async ()=>{
+  const title=document.getElementById('resTitle').value.trim();
+  const url=document.getElementById('resUrl').value.trim();
+  if(!title){alert('Please enter a title.'); return;}
+  if(!url && !_resPendingFile && !document.getElementById('resEditId').value){ alert('Add a link URL or upload a file.'); return; }
+  const editId=document.getElementById('resEditId').value;
+  const rec={
+   title,
+   class: document.getElementById('resFClass').value,
+   subject: document.getElementById('resFSubject').value,
+   type: document.getElementById('resFType').value,
+   url: url || undefined,
+   description: document.getElementById('resDesc').value.trim()
+  };
+  const btn=document.getElementById('resSaveBtn');
+  if(_resPendingFile && DB.storageAvailable()){
+   const orig=btn.innerHTML; btn.disabled=true; btn.innerHTML='Uploading…';
+   try{ const {url:furl,path}=await DB.uploadFile(_resPendingFile,'resources'); rec.fileUrl=furl; rec.filePath=path; rec.fileName=_resPendingName; }
+   catch(err){ btn.disabled=false; btn.innerHTML=orig;
+    if(err&&err.message==='STORAGE_BUCKET_MISSING') alert('Cloud storage isn\u2019t set up yet, so the file can\u2019t be uploaded. You can still save a link, or set up storage first.');
+    else alert('Could not upload the file: '+((err&&err.message)||'unknown'));
+    return; }
+   btn.disabled=false; btn.innerHTML=orig;
+  } else if(_resPendingFile && !DB.storageAvailable()){
+   alert('Cloud storage is needed to upload files. Please connect to the internet, or save a link instead.'); return;
+  }
+  const all=DB.getAll('resources');
+  if(editId){ const i=all.findIndex(x=>x.id===parseInt(editId)); if(i>-1) all[i]={...all[i], ...rec}; showToast('Resource updated'); }
+  else { rec.id=Date.now(); rec.addedBy=currentUser?.name||''; rec.addedById=currentUser?.id||0; rec.addedAt=new Date().toISOString(); all.push(rec); showToast('Resource added'); }
+  DB.setAll('resources',all);
+  _resPendingFile=null;_resPendingName=null;
+  renderApp();
+ });
+}
+
 // ===== SCHOOL ACTIVITIES PAGE (photos + write-ups of events) =====
-function getActivities(){ return DB.getAll('activities').filter(a => !a._deleted); }
-function saveActivities(d){ DB.setAll('activities', d); }
+function getActivities(){ return DB.getAll('activities').filter(a => !a._deleted); }function saveActivities(d){ DB.setAll('activities', d); }
 function renderActivitiesPage(){
  const canEdit = isAdminLevel() || isPrincipalLevel() || isActivityIncharge();
  const acts = getActivities().sort((a,b) => (b.date||'').localeCompare(a.date||''));
@@ -7056,6 +7269,7 @@ function renderTeacherPanel(){
   {id:'homework',   label:'Homework',   icon:'book-open'},
   {id:'marks',      label:'Marks',      icon:'pen-to-square'},
   {id:'curriculum', label:'Curriculum', icon:'calendar-days'},
+  {id:'resources',  label:'Resources',  icon:'book-open-reader'},
   {id:'class',      label:'My Class',   icon:'users'},
   {id:'audit',      label:'Audit Log',  icon:'clipboard-list'}
  ];
@@ -7084,6 +7298,7 @@ function renderTeacherTabContent(){
   case 'homework':   return renderTchHomework();
   case 'marks':      return renderTchMarks();
   case 'curriculum': return renderTchCurriculum();
+  case 'resources':  return renderResourceCatalog();
   case 'class':      return renderTchClass();
   case 'audit':      return renderTchAudit();
   default: return renderTchDashboard();
@@ -7951,6 +8166,7 @@ function attachTeacherEvents(){
  else if (activeTeacherTab === 'homework') _attachHomeworkEvents();
  else if (activeTeacherTab === 'marks') _attachMarksEvents();
  else if (activeTeacherTab === 'curriculum') _attachCurriculumEvents();
+ else if (activeTeacherTab === 'resources') attachResourceCatalogEvents();
  else if (activeTeacherTab === 'class') _attachClassEvents();
 }
 
@@ -13039,6 +13255,11 @@ function attachOwnerEvents(){
   _hwOverClass=''; _hwOverTeacher=''; _hwOverSearch='';
   renderApp();
  });
+ // Resource catalog navigation
+ document.getElementById('ownerOpenResourcesBtn')?.addEventListener('click', () => {
+  ownerView = 'resources';
+  renderApp();
+ });
  // Report cards navigation
  document.getElementById('ownerOpenReportCardsBtn')?.addEventListener('click', () => {
   ownerView = 'reportcards';
@@ -13129,6 +13350,11 @@ function attachOwnerEvents(){
  // When on the Homework view, attach homework oversight handlers (filters, image preview)
  if (ownerView === 'homework') {
   _attachHomeworkOversightEvents();
+  return;
+ }
+ // When on the Resources view, attach resource catalog handlers
+ if (ownerView === 'resources') {
+  attachResourceCatalogEvents();
   return;
  }
  // When on the Report Cards view, attach report card handlers
@@ -13336,6 +13562,7 @@ function attachActiveAdminTabEvents(){
  else if(activeAdminTab==='activities')attachActivitiesEvents();
  else if(activeAdminTab==='attendance')_attachAdminAttendanceEvents();
  else if(activeAdminTab==='staffattendance')_attachStaffAttendanceEvents();
+ else if(activeAdminTab==='resources')attachResourceCatalogEvents();
  else if(activeAdminTab==='disclosureDocs')attachDisclosureDocsEvents();
  else if(activeAdminTab==='users')attachUsersTabEvents();
  else if(activeAdminTab==='backup')attachBackupEvents();
