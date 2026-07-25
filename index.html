@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1784746358 - AUTOMATIC file-to-cloud migration (runs on startup + after photo uploads; silent, no teacher action needed) -->
+<!-- BUILD: v-1784963932 - homework tracker: added By Student view (per-student on-time/late/missed record + rate, class filter, drill-down history) -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -3365,6 +3365,23 @@ async function _freeUpBrowserStorage(progressCb){
  }
  if (actChanged) DB.setAll('activities', acts);
 
+ // 4) Student homework submissions (fileData) — students uploading worksheets can fill storage.
+ const subs = DB.getAll('homeworkSubmissions');
+ let subChanged = false;
+ for (const su of subs) {
+  if (su.fileData && !su.fileUrl && String(su.fileData).startsWith('data:')) {
+   try {
+    const blob = _dataURLtoBlob(su.fileData);
+    if (!blob) { failed++; continue; }
+    const { url, path } = await DB.uploadFile(mkFile(blob, su.fileName || ('submission_' + su.id)), 'submissions');
+    freedBytes += su.fileData.length * 2;
+    su.fileUrl = url; su.filePath = path; delete su.fileData;
+    subChanged = true; moved++; report();
+   } catch (e) { if (e.message === 'STORAGE_BUCKET_MISSING') throw e; failed++; }
+  }
+ }
+ if (subChanged) DB.setAll('homeworkSubmissions', subs);
+
  return { moved, failed, freedMB: freedBytes / (1024 * 1024) };
 }
 
@@ -3374,6 +3391,7 @@ function _hasInlineFiles(){
   if (getHomeworks().some(h => h.attachmentData && !h.attachmentUrl && String(h.attachmentData).startsWith('data:'))) return true;
   if (DB.getAll('gallery').some(p => p.src && String(p.src).startsWith('data:'))) return true;
   if (DB.getAll('activities').some(a => Array.isArray(a.photos) && a.photos.some(ph => ph && String(ph).startsWith('data:')))) return true;
+  if (DB.getAll('homeworkSubmissions').some(su => su.fileData && String(su.fileData).startsWith('data:'))) return true;
  } catch (_) {}
  return false;
 }
@@ -6993,11 +7011,59 @@ function renderTchDashboard(){
 function renderTchAttendance(){
  if (_teacherAssignedClasses().length === 0) return _noClassAssignedNotice();
  return `<div>
+  ${_renderAttendanceGlance()}
   <div class="flex flex-wrap gap-2 mb-4">
    <button class="att-mode px-4 py-2 rounded-lg text-sm font-medium ${attendanceMode==='mark'?'bg-emerald-600 text-white':'bg-gray-100 hover:bg-gray-200'}" data-mode="mark"><i class="fas fa-pen-to-square mr-1"></i>Mark Attendance</button>
    <button class="att-mode px-4 py-2 rounded-lg text-sm font-medium ${attendanceMode==='view'?'bg-blue-600 text-white':'bg-gray-100 hover:bg-gray-200'}" data-mode="view"><i class="fas fa-chart-bar mr-1"></i>View / Reports</button>
   </div>
   ${attendanceMode === 'mark' ? renderTchAttendanceMark() : renderTchAttendanceView()}
+ </div>`;
+}
+
+// A quick "at a glance" snapshot of TODAY's attendance for each of the teacher's classes —
+// shown at the top of the Attendance tab so no clicks are needed to see the day's status.
+function _renderAttendanceGlance(){
+ const today = new Date().toISOString().slice(0,10);
+ const prettyToday = fmtDate(today);
+ const ar = getAttendanceRecords();
+ const students = getStudents();
+ const cards = _teacherAssignedClasses().map(cls => {
+  const sts = students.filter(s => s.class === cls);
+  const total = sts.length;
+  let present = 0, absent = 0, late = 0, marked = 0;
+  const absentees = [];
+  sts.forEach(s => {
+   const v = (ar[s.id] || {})[today];
+   if (v) { marked++; }
+   if (v === 'P') present++;
+   else if (v === 'A') { absent++; absentees.push(s.name); }
+   else if (v === 'L') { late++; absentees.push(s.name + ' (late)'); }
+  });
+  const notMarked = marked === 0;
+  const pct = total > 0 ? Math.round(((present + late * 0.5) / total) * 100) : 0;
+  return `<div class="border rounded-lg p-3 ${notMarked ? 'bg-gray-50' : 'bg-white'}">
+   <div class="flex items-center justify-between mb-1">
+    <div class="font-semibold text-sm">Class ${escapeHTML(cls)}</div>
+    ${notMarked
+      ? `<span class="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">Not marked today</span>`
+      : `<span class="text-xs px-2 py-0.5 rounded-full ${pct>=75?'bg-emerald-100 text-emerald-800':pct>=50?'bg-amber-100 text-amber-800':'bg-rose-100 text-rose-800'}">${pct}% present</span>`}
+   </div>
+   ${notMarked
+     ? `<div class="text-xs text-gray-500">${total} students · attendance not taken yet.</div>`
+     : `<div class="flex gap-3 text-xs mb-1">
+         <span class="text-emerald-700 font-semibold">${present} Present</span>
+         <span class="text-rose-700 font-semibold">${absent} Absent</span>
+         ${late ? `<span class="text-amber-700 font-semibold">${late} Late</span>` : ''}
+         <span class="text-gray-500">of ${total}</span>
+        </div>
+        ${absentees.length ? `<div class="text-xs text-gray-600"><b>Absent/Late:</b> ${absentees.map(escapeHTML).join(', ')}</div>` : `<div class="text-xs text-emerald-700">Everyone present 🎉</div>`}`}
+  </div>`;
+ }).join('');
+ return `<div class="bg-white border rounded-lg p-4 mb-4">
+  <div class="flex items-center justify-between mb-2">
+   <h3 class="font-semibold text-sm"><i class="fas fa-calendar-day text-blue-600 mr-1"></i>Today at a glance <span class="text-gray-400 font-normal">· ${prettyToday}</span></h3>
+  </div>
+  <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-3">${cards}</div>
  </div>`;
 }
 
@@ -7066,8 +7132,189 @@ function renderTchHomework(){
   <div class="flex flex-wrap gap-2 mb-4">
    <button class="hwModeBtn px-4 py-2 rounded-lg text-sm font-medium ${_hwMode==='diary'?'bg-amber-600 text-white':'bg-gray-100 hover:bg-gray-200'}" data-mode="diary"><i class="fas fa-table-list mr-1"></i>Daily Diary</button>
    <button class="hwModeBtn px-4 py-2 rounded-lg text-sm font-medium ${_hwMode==='quick'?'bg-amber-600 text-white':'bg-gray-100 hover:bg-gray-200'}" data-mode="quick"><i class="fas fa-bolt mr-1"></i>Quick Homework</button>
+   <button class="hwModeBtn px-4 py-2 rounded-lg text-sm font-medium ${_hwMode==='tracker'?'bg-amber-600 text-white':'bg-gray-100 hover:bg-gray-200'}" data-mode="tracker"><i class="fas fa-list-check mr-1"></i>Posted &amp; Submissions</button>
   </div>
-  ${_hwMode==='diary' ? _renderDiaryEditor(myClasses) : _renderQuickHomework()}
+  ${_hwMode==='diary' ? _renderDiaryEditor(myClasses) : (_hwMode==='tracker' ? _renderHomeworkTracker() : _renderQuickHomework())}
+ </div>`;
+}
+
+// ===== HOMEWORK TRACKER: all homework this teacher posted + who submitted (on time/late/not) =====
+// Submission status is stored compactly on each homework as hw.tracker = { studentId: 'O'|'L'|'N' }
+// (O = on time, L = late, N = not submitted). Tiny data — no files kept here.
+let _hwTrackerOpen = null;   // id of the homework whose checklist is expanded
+let _hwTrackerBy = 'homework';   // 'homework' | 'student'
+let _hwStudentOpen = null;   // id of the student whose history is expanded
+let _hwTrackerClass = '';    // optional class filter (when teacher has several classes)
+function _hwTrackerStatus(hw, studentId){
+ // Manual status set by the teacher wins; otherwise auto-detect from a student's upload.
+ const manual = (hw.tracker || {})[studentId];
+ if (manual) return manual;
+ const sub = DB.getAll('homeworkSubmissions').find(s => s.homeworkId === hw.id && s.studentId === studentId);
+ if (sub) {
+  if (hw.dueDate && sub.submittedAt) return (sub.submittedAt.slice(0,10) <= hw.dueDate) ? 'O' : 'L';
+  return 'O';
+ }
+ return '';   // unmarked
+}
+function _renderHomeworkTracker(){
+ // This teacher's homework, newest first
+ const mine = getHomeworks()
+  .filter(h => (h.teacherId === currentUser.id || h.teacher === currentUser.name))
+  .sort((a,b) => (b.date||'').localeCompare(a.date||'') || (b.id-a.id));
+ if (mine.length === 0) {
+  return `<div class="bg-white border rounded-lg p-6 text-center text-gray-500"><i class="fas fa-clipboard-list text-3xl mb-2"></i><div>You haven't posted any homework yet. Use <b>Quick Homework</b> to post one.</div></div>`;
+ }
+ // Sub-toggle: by homework or by student
+ const subToggle = `<div class="flex gap-2 mb-3">
+  <button class="hwByBtn text-xs px-3 py-1.5 rounded-lg font-medium ${_hwTrackerBy==='homework'?'bg-amber-600 text-white':'bg-gray-100 hover:bg-gray-200'}" data-by="homework"><i class="fas fa-book mr-1"></i>By Homework</button>
+  <button class="hwByBtn text-xs px-3 py-1.5 rounded-lg font-medium ${_hwTrackerBy==='student'?'bg-amber-600 text-white':'bg-gray-100 hover:bg-gray-200'}" data-by="student"><i class="fas fa-user-graduate mr-1"></i>By Student</button>
+ </div>`;
+ if (_hwTrackerBy === 'student') {
+  return `<div class="bg-white border rounded-lg p-4">${subToggle}${_renderHomeworkByStudent(mine)}</div>`;
+ }
+ const students = getStudents();
+ const today = new Date().toISOString().slice(0,10);
+ const rows = mine.map(hw => {
+  const sts = students.filter(s => s.class === hw.className);
+  let on = 0, late = 0, no = 0, pending = 0;
+  sts.forEach(s => { const st = _hwTrackerStatus(hw, s.id); if (st==='O') on++; else if (st==='L') late++; else if (st==='N') no++; else pending++; });
+  const overdue = hw.dueDate && hw.dueDate < today;
+  const open = _hwTrackerOpen === hw.id;
+  return `<div class="border rounded-lg ${open?'ring-2 ring-amber-300':''}">
+   <div class="p-3 cursor-pointer hover:bg-amber-50 hwTrackRow" data-id="${hw.id}">
+    <div class="flex items-start justify-between gap-2">
+     <div class="min-w-0">
+      <div class="font-semibold text-sm">${escapeHTML(hw.subject||'Homework')} <span class="text-gray-400 font-normal">· Class ${escapeHTML(hw.className||'')}</span></div>
+      <div class="text-xs text-gray-600 truncate">${escapeHTML(hw.description||'')}</div>
+      <div class="text-xs text-gray-500 mt-0.5">
+       <i class="fas fa-paper-plane mr-1"></i>Posted ${hw.date?fmtDate(hw.date):'—'}
+       ${hw.dueDate?`&nbsp;·&nbsp;<i class="fas fa-hourglass-end mr-1"></i>Due <span class="${overdue?'text-rose-600 font-semibold':''}">${fmtDate(hw.dueDate)}</span>`:''}
+       ${_hwHasFile(hw)?`&nbsp;·&nbsp;<a href="${_hwFileHref(hw)}" target="_blank" class="text-blue-600" onclick="event.stopPropagation()"><i class="fas fa-paperclip"></i> file</a>`:''}
+      </div>
+     </div>
+     <div class="text-right flex-shrink-0"><i class="fas fa-chevron-${open?'up':'down'} text-gray-400"></i></div>
+    </div>
+    <div class="flex flex-wrap gap-2 mt-2 text-xs">
+     <span class="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">${on} on time</span>
+     <span class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">${late} late</span>
+     <span class="bg-rose-100 text-rose-800 px-2 py-0.5 rounded-full">${no} not submitted</span>
+     ${pending?`<span class="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">${pending} pending</span>`:''}
+    </div>
+   </div>
+   ${open ? _renderHwChecklist(hw, sts) : ''}
+  </div>`;
+ }).join('');
+ return `<div class="bg-white border rounded-lg p-4">
+  ${subToggle}
+  <div class="flex items-center justify-between mb-3">
+   <h3 class="font-semibold text-sm"><i class="fas fa-list-check text-amber-600 mr-1"></i>Homework you've posted <span class="text-gray-400 font-normal">(${mine.length})</span></h3>
+  </div>
+  <p class="text-xs text-gray-500 mb-3">Tap a homework to mark which student submitted <b>on time</b>, <b>late</b>, or <b>did not submit</b>. If a student uploaded through the app, it's detected automatically.</p>
+  <div class="space-y-2">${rows}</div>
+ </div>`;
+}
+
+// ===== PER-STUDENT VIEW: each student's full homework record (on time / late / missed) =====
+function _renderHomeworkByStudent(mine){
+ const teacherClasses = _teacherAssignedClasses();
+ // Class filter (only shown if the teacher has more than one class)
+ const activeClass = (_hwTrackerClass && teacherClasses.includes(_hwTrackerClass)) ? _hwTrackerClass : teacherClasses[0];
+ const classFilter = teacherClasses.length > 1 ? `<div class="mb-3">
+   <label class="text-xs font-medium mr-2">Class</label>
+   <select id="hwStudentClass" class="text-sm">${teacherClasses.map(c => `<option ${c===activeClass?'selected':''}>${c}</option>`).join('')}</select>
+  </div>` : '';
+ const clsHomework = mine.filter(h => h.className === activeClass);
+ const students = getStudents().filter(s => s.class === activeClass).sort((a,b)=>(a.rollNo||0)-(b.rollNo||0));
+ if (students.length === 0) return `${classFilter}<div class="text-sm text-gray-500 py-4 text-center">No students in Class ${escapeHTML(activeClass||'')}.</div>`;
+ if (clsHomework.length === 0) return `${classFilter}<div class="text-sm text-gray-500 py-4 text-center">No homework posted for Class ${escapeHTML(activeClass||'')} yet.</div>`;
+
+ const cards = students.map(s => {
+  let on = 0, late = 0, no = 0, pending = 0;
+  clsHomework.forEach(hw => { const st = _hwTrackerStatus(hw, s.id); if (st==='O') on++; else if (st==='L') late++; else if (st==='N') no++; else pending++; });
+  const total = clsHomework.length;
+  const submitted = on + late;
+  const rate = total > 0 ? Math.round((submitted / total) * 100) : 0;
+  const open = _hwStudentOpen === s.id;
+  // Colour the student by how much is missing
+  const flag = no >= 3 ? 'border-l-4 border-rose-400' : (no >= 1 ? 'border-l-4 border-amber-300' : 'border-l-4 border-emerald-300');
+  return `<div class="border rounded-lg ${flag} ${open?'ring-2 ring-amber-300':''}">
+   <div class="p-3 cursor-pointer hover:bg-amber-50 hwStuRow" data-sid="${s.id}">
+    <div class="flex items-center justify-between gap-2">
+     <div class="min-w-0">
+      <div class="font-semibold text-sm"><span class="text-gray-400 text-xs mr-1">${s.rollNo||'-'}</span>${escapeHTML(s.name)}</div>
+      <div class="flex flex-wrap gap-2 mt-1 text-xs">
+       <span class="text-emerald-700 font-semibold">${on} on time</span>
+       <span class="text-amber-700 font-semibold">${late} late</span>
+       <span class="text-rose-700 font-semibold">${no} missed</span>
+       ${pending?`<span class="text-gray-500">${pending} pending</span>`:''}
+      </div>
+     </div>
+     <div class="text-right flex-shrink-0">
+      <div class="text-sm font-bold ${rate>=75?'text-emerald-700':rate>=50?'text-amber-700':'text-rose-700'}">${rate}%</div>
+      <div class="text-[10px] text-gray-400">${submitted}/${total} done</div>
+      <i class="fas fa-chevron-${open?'up':'down'} text-gray-400 text-xs"></i>
+     </div>
+    </div>
+   </div>
+   ${open ? _renderStudentHwHistory(s, clsHomework) : ''}
+  </div>`;
+ }).join('');
+
+ // Class-level quick stats
+ const totalHw = clsHomework.length;
+ const flagged = students.filter(s => clsHomework.filter(hw => _hwTrackerStatus(hw, s.id)==='N').length >= 3).length;
+ return `${classFilter}
+  <div class="flex flex-wrap items-center gap-3 mb-3 text-xs text-gray-600">
+   <span><b>${students.length}</b> students</span>
+   <span><b>${totalHw}</b> homework${totalHw!==1?'s':''}</span>
+   ${flagged?`<span class="text-rose-700"><i class="fas fa-triangle-exclamation mr-1"></i><b>${flagged}</b> with 3+ missed</span>`:''}
+  </div>
+  <p class="text-xs text-gray-500 mb-3">Tap a student to see their full homework record. The bar on the left flags students with missed work (<span class="text-rose-600">red</span> = 3+ missed).</p>
+  <div class="space-y-2">${cards}</div>`;
+}
+// One student's homework-by-homework history.
+function _renderStudentHwHistory(student, clsHomework){
+ const today = new Date().toISOString().slice(0,10);
+ const items = clsHomework.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(hw => {
+  const st = _hwTrackerStatus(hw, student.id);
+  const badge = st==='O' ? '<span class="text-xs bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">On time</span>'
+    : st==='L' ? '<span class="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">Late</span>'
+    : st==='N' ? '<span class="text-xs bg-rose-100 text-rose-800 px-2 py-0.5 rounded-full">Not submitted</span>'
+    : '<span class="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Pending</span>';
+  const overdue = hw.dueDate && hw.dueDate < today;
+  return `<div class="flex items-center justify-between gap-2 py-1.5 border-b last:border-0">
+   <div class="text-sm min-w-0">
+    <div class="font-medium">${escapeHTML(hw.subject||'Homework')}</div>
+    <div class="text-xs text-gray-500 truncate">${escapeHTML(hw.description||'')}</div>
+    <div class="text-xs text-gray-400">${hw.dueDate?`Due ${fmtDate(hw.dueDate)}`:''}</div>
+   </div>
+   <div class="flex-shrink-0">${badge}</div>
+  </div>`;
+ }).join('');
+ return `<div class="border-t bg-gray-50 p-3"><div>${items}</div></div>`;
+}
+// The per-student checklist for one homework.
+function _renderHwChecklist(hw, sts){
+ if (sts.length === 0) return `<div class="border-t p-3 text-xs text-gray-500">No students in Class ${escapeHTML(hw.className||'')}.</div>`;
+ const roster = sts.slice().sort((a,b)=>(a.rollNo||0)-(b.rollNo||0)).map(s => {
+  const st = _hwTrackerStatus(hw, s.id);
+  const btn = (code, label, onCls) => `<button class="hwSubBtn text-xs px-2 py-1 rounded ${st===code?onCls:'bg-gray-100 text-gray-600 hover:bg-gray-200'}" data-hw="${hw.id}" data-sid="${s.id}" data-st="${code}">${label}</button>`;
+  return `<div class="flex items-center justify-between gap-2 py-1.5 border-b last:border-0">
+   <div class="text-sm min-w-0"><span class="text-gray-400 text-xs mr-1">${s.rollNo||'-'}</span>${escapeHTML(s.name)}</div>
+   <div class="flex gap-1 flex-shrink-0">
+    ${btn('O','On time','bg-emerald-600 text-white')}
+    ${btn('L','Late','bg-amber-500 text-white')}
+    ${btn('N','Not submitted','bg-rose-600 text-white')}
+   </div>
+  </div>`;
+ }).join('');
+ return `<div class="border-t bg-gray-50 p-3">
+  <div class="flex flex-wrap gap-2 mb-2">
+   <button class="hwMarkAll text-xs bg-emerald-100 text-emerald-800 hover:bg-emerald-200 px-2 py-1 rounded" data-hw="${hw.id}" data-st="O"><i class="fas fa-check-double mr-1"></i>All on time</button>
+   <button class="hwMarkAll text-xs bg-rose-100 text-rose-800 hover:bg-rose-200 px-2 py-1 rounded" data-hw="${hw.id}" data-st="N">Mark remaining "not submitted"</button>
+   <button class="hwMarkAll text-xs bg-gray-200 text-gray-700 hover:bg-gray-300 px-2 py-1 rounded" data-hw="${hw.id}" data-st="clear">Clear all</button>
+  </div>
+  <div>${roster}</div>
  </div>`;
 }
 
@@ -7712,6 +7959,13 @@ function _attachAttendanceEvents(){
   classSel?.addEventListener('change', renderView);
   fromSel?.addEventListener('change', renderView);
   toSel?.addEventListener('change', renderView);
+  // At-a-glance: if nothing is picked yet, auto-load the teacher's first class so the
+  // records show immediately without the teacher having to choose.
+  if (classSel && !classSel.value) {
+   const firstClass = _teacherAssignedClasses()[0];
+   if (firstClass) { classSel.value = firstClass; }
+  }
+  if (classSel?.value) renderView();
 
   document.getElementById('attViewExport')?.addEventListener('click', () => {
    const cls = classSel.value;
@@ -7742,9 +7996,60 @@ function _attachAttendanceEvents(){
 }
 
 function _attachHomeworkEvents(){
- // Mode toggle (Daily Diary vs Quick Homework)
+ // Mode toggle (Daily Diary vs Quick Homework vs Tracker)
  document.querySelectorAll('.hwModeBtn').forEach(b => b.addEventListener('click', () => {
   _hwMode = b.dataset.mode;
+  renderApp();
+ }));
+
+ // ---- Homework tracker (Posted & Submissions) ----
+ document.querySelectorAll('.hwByBtn').forEach(b => b.addEventListener('click', () => {
+  _hwTrackerBy = b.dataset.by; _hwTrackerOpen = null; _hwStudentOpen = null; renderApp();
+ }));
+ document.getElementById('hwStudentClass')?.addEventListener('change', e => {
+  _hwTrackerClass = e.target.value; _hwStudentOpen = null; renderApp();
+ });
+ document.querySelectorAll('.hwStuRow').forEach(r => r.addEventListener('click', () => {
+  const id = parseInt(r.dataset.sid);
+  _hwStudentOpen = (_hwStudentOpen === id) ? null : id;
+  renderApp();
+ }));
+ document.querySelectorAll('.hwTrackRow').forEach(r => r.addEventListener('click', () => {
+  const id = parseInt(r.dataset.id);
+  _hwTrackerOpen = (_hwTrackerOpen === id) ? null : id;   // toggle expand
+  renderApp();
+ }));
+ const _setHwStatus = (hwId, sid, code) => {
+  const hws = getHomeworks();
+  const i = hws.findIndex(h => h.id === hwId);
+  if (i < 0) return;
+  if (!hws[i].tracker) hws[i].tracker = {};
+  if (code === 'clear') delete hws[i].tracker[sid];
+  else hws[i].tracker[sid] = code;
+  try { saveHomeworks(hws); } catch (e) { /* quota handled in DB layer */ }
+ };
+ document.querySelectorAll('.hwSubBtn').forEach(b => b.addEventListener('click', (e) => {
+  e.stopPropagation();
+  const hwId = parseInt(b.dataset.hw), sid = parseInt(b.dataset.sid), code = b.dataset.st;
+  // toggle off if the same status is tapped again
+  const hw = getHomeworks().find(h => h.id === hwId);
+  const cur = hw && hw.tracker ? hw.tracker[sid] : '';
+  _setHwStatus(hwId, sid, cur === code ? 'clear' : code);
+  renderApp();
+ }));
+ document.querySelectorAll('.hwMarkAll').forEach(b => b.addEventListener('click', (e) => {
+  e.stopPropagation();
+  const hwId = parseInt(b.dataset.hw), code = b.dataset.st;
+  const hws = getHomeworks();
+  const i = hws.findIndex(h => h.id === hwId);
+  if (i < 0) return;
+  const hw = hws[i];
+  const sts = getStudents().filter(s => s.class === hw.className);
+  if (!hw.tracker) hw.tracker = {};
+  if (code === 'clear') { hw.tracker = {}; }
+  else if (code === 'O') { sts.forEach(s => { hw.tracker[s.id] = 'O'; }); }
+  else if (code === 'N') { sts.forEach(s => { if (!hw.tracker[s.id]) hw.tracker[s.id] = 'N'; }); } // only fill blanks
+  try { saveHomeworks(hws); } catch (err) {}
   renderApp();
  }));
 
@@ -8669,7 +8974,7 @@ function renderStuHomework(s){
       <div class="text-xs text-emerald-800"><b>Your submission:</b> ${sub.fileName || '(no file)'} · ${new Date(sub.submittedAt).toLocaleString('en-IN')}</div>
       ${sub.notes ? `<div class="text-xs text-gray-700 mt-1">${sub.notes}</div>` : ''}
       <div class="mt-1 flex gap-2">
-       ${sub.fileData ? `<a href="${sub.fileData}" download="${sub.fileName}" class="text-xs text-blue-600 hover:underline"><i class="fas fa-download mr-1"></i>Download my submission</a>` : ''}
+       ${(sub.fileUrl || sub.fileData) ? `<a href="${sub.fileUrl || sub.fileData}" target="_blank" download="${sub.fileName}" class="text-xs text-blue-600 hover:underline"><i class="fas fa-download mr-1"></i>Download my submission</a>` : ''}
        <button class="stuDelSubBtn text-xs text-rose-600 hover:underline" data-sub="${sub.id}"><i class="fas fa-trash mr-1"></i>Remove & resubmit</button>
       </div>
      </div>` : ''}
@@ -14248,7 +14553,7 @@ function attachStudentEvents(){
 
  // Homework tab — upload submissions
  if (activeStudentTab === 'homework') {
-  let pendingFileData = null, pendingFileName = null;
+  let pendingFileData = null, pendingFileName = null, pendingFileObj = null;
 
   document.querySelectorAll('.stuUploadBtn').forEach(b => b.addEventListener('click', () => {
    const hwId = parseInt(b.dataset.hw);
@@ -14258,39 +14563,58 @@ function attachStudentEvents(){
    document.getElementById('stuUploadHwTitle').innerHTML = `<b>${hw.subject}</b><br>${(hw.description||'').replace(/</g,'&lt;')}<br><span class="text-xs text-gray-600">Due ${fmtDate(hw.dueDate)}</span>`;
    document.getElementById('stuUploadFile').value = '';
    document.getElementById('stuUploadNotes').value = '';
-   pendingFileData = null; pendingFileName = null;
+   pendingFileData = null; pendingFileName = null; pendingFileObj = null;
    document.getElementById('stuUploadModal').classList.remove('hidden');
   }));
 
   document.getElementById('stuUploadFile')?.addEventListener('change', e => {
    const f = e.target.files[0];
-   if (!f) { pendingFileData = null; pendingFileName = null; return; }
-   if (f.size > 1024*1024) {
-    alert('File too large (' + Math.round(f.size/1024) + ' KB). Max 1 MB.');
-    e.target.value = '';
-    return;
+   if (!f) { pendingFileData = null; pendingFileName = null; pendingFileObj = null; return; }
+   const useCloud = DB.storageAvailable();
+   const max = useCloud ? 10*1024*1024 : 1024*1024;  // 10 MB via cloud, 1 MB offline fallback
+   if (f.size > max) {
+    alert('File too large (' + Math.round(f.size/1024) + ' KB). Max ' + (useCloud?'10 MB':'1 MB') + (useCloud?'':' when offline') + '.');
+    e.target.value = ''; return;
    }
-   const reader = new FileReader();
-   reader.onload = () => { pendingFileData = reader.result; pendingFileName = f.name; };
-   reader.readAsDataURL(f);
+   pendingFileName = f.name;
+   if (useCloud) { pendingFileObj = f; pendingFileData = null; }
+   else { const reader = new FileReader(); reader.onload = () => { pendingFileData = reader.result; }; reader.readAsDataURL(f); pendingFileObj = null; }
   });
 
-  document.getElementById('stuUploadSaveBtn')?.addEventListener('click', () => {
+  document.getElementById('stuUploadSaveBtn')?.addEventListener('click', async () => {
    const hwId = parseInt(document.getElementById('stuUploadHwId').value);
    const notes = document.getElementById('stuUploadNotes').value.trim();
-   if (!pendingFileData && !notes) { alert('Please attach a file or write notes'); return; }
-   const subs = DB.getAll('homeworkSubmissions');
-   subs.push({
+   if (!pendingFileData && !pendingFileObj && !notes) { alert('Please attach a file or write notes'); return; }
+   const sub = {
     id: Date.now(),
     homeworkId: hwId,
     studentId: currentUser.studentId,
     submittedAt: new Date().toISOString(),
     fileName: pendingFileName || null,
-    fileData: pendingFileData || null,
     notes: notes || null,
     status: 'submitted'
-   });
-   DB.setAll('homeworkSubmissions', subs);
+   };
+   const saveBtn = document.getElementById('stuUploadSaveBtn');
+   // Upload the file to the cloud when possible (keeps it out of the browser).
+   if (pendingFileObj && DB.storageAvailable()) {
+    const orig = saveBtn ? saveBtn.innerHTML : '';
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.innerHTML = 'Uploading…'; }
+    try {
+     const { url, path } = await DB.uploadFile(pendingFileObj, 'submissions/' + hwId);
+     sub.fileUrl = url; sub.filePath = path;
+    } catch (err) {
+     if (saveBtn) { saveBtn.disabled = false; saveBtn.innerHTML = orig; }
+     alert('Could not upload the file: ' + ((err && err.message) || 'unknown') + '\nYou can submit with notes only, or try again.');
+     return;
+    }
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.innerHTML = orig; }
+   } else if (pendingFileData) {
+    sub.fileData = pendingFileData;
+   }
+   const subs = DB.getAll('homeworkSubmissions');
+   subs.push(sub);
+   try { DB.setAll('homeworkSubmissions', subs); }
+   catch (e) { return; }  // quota modal already shown by DB layer
    document.getElementById('stuUploadModal').classList.add('hidden');
    showToast('Submission uploaded — your teacher can now view it');
    renderApp();
