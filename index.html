@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1784965384 - fix curriculum/activity row layout: status dropdown was stretching full-width (global select CSS) and crushing the title -->
+<!-- BUILD: v-1784966509 - admin student attendance tracker + NEW staff attendance tracker (mark P/A/L/H + per-staff report/export); confirmed owner/admin user pages share one table -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -2089,6 +2089,7 @@ const DB_SCHEMA = {
  // ---- Singleton objects (one document, not a list) ----
  schoolInfra:         { type: 'object', desc: 'Infrastructure data (toilets, computers, etc.)' },
  attendanceRecords:   { type: 'object', desc: 'Attendance keyed by studentId' },
+ staffAttendance:     { type: 'object', desc: 'Staff attendance keyed by staffId' },
  busTracking:         { type: 'object', desc: 'Live bus location' },
  udiseReport:         { type: 'object', desc: 'UDISE+ submission status' },
 
@@ -2830,6 +2831,8 @@ function _allStaffForSalary(){
 function getSchoolInfra(){ return DB.getObject('schoolInfra'); }
 function getExamMarks(){ return DB.getAll('examMarks'); }
 function getAttendanceRecords(){ return DB.getObject('attendanceRecords'); }
+function getStaffAttendance(){ return DB.getObject('staffAttendance'); }
+function saveStaffAttendance(d){ DB.setObject('staffAttendance', d); }
 function getPayrollSlips(){ return DB.getAll('payrollSlips'); }
 function getChatMessages(){ return DB.getAll('chatMessages'); }
 function getCompliance(){ return DB.getAll('compliance'); }
@@ -4279,7 +4282,9 @@ function renderAdminPanel(){
   {id:'dashboard',label:'Dashboard',icon:'gauge-high'},
   {id:'users',label:'Users',icon:'user-shield'},
   {id:'students',label:'Students',icon:'user-graduate'},
+  {id:'attendance',label:'Attendance',icon:'calendar-check'},
   {id:'teachers',label:'Staff',icon:'users'},
+  {id:'staffattendance',label:'Staff Attendance',icon:'user-clock'},
   {id:'homework',label:'Homework',icon:'book-open'},
   {id:'datamanagement',label:'Data',icon:'database'},
   {id:'compliance',label:'Compliance',icon:'shield-halved'},
@@ -4328,7 +4333,9 @@ function renderAdminTabContent(){
   case 'dashboard':return renderAdminDashboardTab();
   case 'users':return renderUsersTab();
   case 'students':return renderStudentsTab();
+  case 'attendance':return renderAdminAttendance();
   case 'teachers':return renderTeachersTab();
+  case 'staffattendance':return renderStaffAttendance();
   case 'homework':return renderHomeworkOversight();
   case 'datamanagement':return renderDataManagement();
   case 'compliance':return renderComplianceTab();
@@ -6844,6 +6851,202 @@ function _noClassAssignedNotice(){
   <div class="font-semibold mb-1"><i class="fas fa-circle-info mr-1"></i>No class assigned to you yet</div>
   <div class="text-sm">You haven't been assigned to any class. Please ask the school admin to assign your class(es) from <b>Admin → Teachers → Edit → Classes Assigned</b>. Once assigned, your students will appear here.</div>
  </div>`;
+}
+
+// ===== ADMIN STUDENT ATTENDANCE TRACKER (all classes) =====
+let _admAttClass = '';
+let _admAttMode = 'glance';   // 'glance' | 'view'
+function _classesWithStudents(){
+ const set = new Set(getStudents().filter(s=>!s.archived).map(s => s.class));
+ return ALL_CLASSES.filter(c => set.has(c));
+}
+function renderAdminAttendance(){
+ const classes = _classesWithStudents();
+ const today = new Date().toISOString().slice(0,10);
+ const ar = getAttendanceRecords();
+ const students = getStudents().filter(s=>!s.archived);
+ // Whole-school "today" summary
+ let sPresent=0, sAbsent=0, sLate=0, sMarked=0, sTotal=students.length;
+ const perClass = classes.map(cls => {
+  const sts = students.filter(s => s.class===cls);
+  let p=0,a=0,l=0,m=0;
+  sts.forEach(s => { const v=(ar[s.id]||{})[today]; if(v)m++; if(v==='P')p++; else if(v==='A')a++; else if(v==='L')l++; });
+  sPresent+=p; sAbsent+=a; sLate+=l; sMarked+=m;
+  const pct = sts.length? Math.round(((p+l*0.5)/sts.length)*100):0;
+  return {cls, total:sts.length, p, a, l, marked:m, pct, notMarked:m===0};
+ });
+ const glanceCards = perClass.map(c => `<div class="border rounded-lg p-3 ${c.notMarked?'bg-gray-50':'bg-white'}">
+   <div class="flex items-center justify-between mb-1">
+    <div class="font-semibold text-sm">Class ${escapeHTML(c.cls)}</div>
+    ${c.notMarked?`<span class="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">Not marked</span>`:`<span class="text-xs px-2 py-0.5 rounded-full ${c.pct>=75?'bg-emerald-100 text-emerald-800':c.pct>=50?'bg-amber-100 text-amber-800':'bg-rose-100 text-rose-800'}">${c.pct}%</span>`}
+   </div>
+   ${c.notMarked?`<div class="text-xs text-gray-500">${c.total} students · not taken yet</div>`:`<div class="flex gap-3 text-xs"><span class="text-emerald-700 font-semibold">${c.p} P</span><span class="text-rose-700 font-semibold">${c.a} A</span>${c.l?`<span class="text-amber-700 font-semibold">${c.l} L</span>`:''}<span class="text-gray-400">/${c.total}</span></div>`}
+  </div>`).join('');
+
+ return `<div>
+  <h2 class="text-lg font-bold mb-1"><i class="fas fa-calendar-check text-blue-600 mr-1"></i>Student Attendance</h2>
+  <p class="text-xs text-gray-500 mb-3">View attendance for any class. Teachers mark it; here you can monitor and export it school-wide.</p>
+
+  <div class="bg-white border rounded-lg p-4 mb-4">
+   <div class="flex items-center justify-between mb-2">
+    <h3 class="font-semibold text-sm"><i class="fas fa-calendar-day text-blue-600 mr-1"></i>Today · ${fmtDate(today)}</h3>
+    <div class="text-xs text-gray-600">Whole school: <span class="text-emerald-700 font-semibold">${sPresent} present</span> · <span class="text-rose-700 font-semibold">${sAbsent} absent</span>${sLate?` · <span class="text-amber-700 font-semibold">${sLate} late</span>`:''} <span class="text-gray-400">of ${sTotal}</span></div>
+   </div>
+   ${classes.length? `<div class="grid md:grid-cols-2 lg:grid-cols-4 gap-3">${glanceCards}</div>` : '<div class="text-sm text-gray-500 py-3">No students yet.</div>'}
+  </div>
+
+  <div class="bg-white border rounded-lg p-4">
+   <div class="grid md:grid-cols-4 gap-3 mb-4">
+    <div><label class="text-xs font-medium">Class</label>
+     <select id="admAttClass"><option value="">— Select class —</option>${classes.map(c=>`<option ${_admAttClass===c?'selected':''}>${c}</option>`).join('')}</select></div>
+    <div><label class="text-xs font-medium">From</label><input type="date" id="admAttFrom" value="${(()=>{const d=new Date();d.setDate(d.getDate()-30);return d.toISOString().slice(0,10);})()}"></div>
+    <div><label class="text-xs font-medium">To</label><input type="date" id="admAttTo" value="${today}"></div>
+    <div class="flex items-end"><button id="admAttExport" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-xs font-medium w-full"><i class="fas fa-file-excel mr-1"></i>Export</button></div>
+   </div>
+   <div id="admAttResults"><div class="text-sm text-gray-500 py-3 text-center">Pick a class above to view its attendance record.</div></div>
+  </div>
+ </div>`;
+}
+function _admAttGrid(cls, from, to){
+ const ar = getAttendanceRecords();
+ const sts = getStudents().filter(s => s.class===cls && !s.archived).sort((a,b)=>(a.rollNo||0)-(b.rollNo||0));
+ if (sts.length===0) return '<div class="text-sm text-gray-500 py-3">No students in this class.</div>';
+ const dates=[]; if(from&&to){let d=new Date(from);const e=new Date(to);while(d<=e){dates.push(d.toISOString().slice(0,10));d.setDate(d.getDate()+1);}}
+ return `<div class="overflow-x-auto"><table class="text-xs border w-full" style="min-width:600px">
+   <thead class="bg-gray-100"><tr><th class="p-1 sticky left-0 bg-gray-100">Roll</th><th class="p-1 sticky left-0 bg-gray-100 text-left">Name</th>${dates.map(d=>`<th class="p-1">${d.slice(8,10)}/${d.slice(5,7)}</th>`).join('')}<th class="p-1">Present</th><th class="p-1">%</th></tr></thead>
+   <tbody>${sts.map(s=>{const recs=ar[s.id]||{};let p=0,a=0,l=0;const cells=dates.map(d=>{const v=recs[d];if(v==='P'){p++;return '<td class="text-center text-emerald-600 font-bold">P</td>';}if(v==='A'){a++;return '<td class="text-center text-rose-600 font-bold">A</td>';}if(v==='L'){l++;return '<td class="text-center text-amber-600 font-bold">L</td>';}return '<td class="text-center text-gray-300">·</td>';}).join('');const tot=p+a+l;const pct=tot?Math.round((p+l*0.5)/tot*100):0;return `<tr><td class="p-1 text-center sticky left-0 bg-white">${s.rollNo||'-'}</td><td class="p-1 sticky left-0 bg-white font-medium">${escapeHTML(s.name)}</td>${cells}<td class="p-1 text-center font-semibold">${p}/${tot}</td><td class="p-1 text-center font-semibold ${pct>=75?'text-emerald-700':pct>=50?'text-amber-700':'text-rose-700'}">${pct}%</td></tr>`;}).join('')}</tbody>
+  </table></div>
+  <div class="mt-2 text-xs text-gray-500"><b>Legend:</b> <span class="text-emerald-600 font-bold">P</span> Present · <span class="text-rose-600 font-bold">A</span> Absent · <span class="text-amber-600 font-bold">L</span> Late · <span class="text-gray-400">·</span> Not marked.</div>`;
+}
+function _attachAdminAttendanceEvents(){
+ const clsSel=document.getElementById('admAttClass'), fromSel=document.getElementById('admAttFrom'), toSel=document.getElementById('admAttTo'), res=document.getElementById('admAttResults');
+ const render=()=>{ if(!clsSel.value){res.innerHTML='<div class="text-sm text-gray-500 py-3 text-center">Pick a class above to view its attendance record.</div>';return;} _admAttClass=clsSel.value; res.innerHTML=_admAttGrid(clsSel.value, fromSel.value, toSel.value); };
+ clsSel?.addEventListener('change', render); fromSel?.addEventListener('change', render); toSel?.addEventListener('change', render);
+ if (clsSel && !clsSel.value){ const first=_classesWithStudents()[0]; if(first) clsSel.value=first; }
+ if (clsSel?.value) render();
+ document.getElementById('admAttExport')?.addEventListener('click', ()=>{
+  const cls=clsSel.value; if(!cls){alert('Pick a class first');return;}
+  const from=fromSel.value,to=toSel.value; const ar=getAttendanceRecords();
+  const sts=getStudents().filter(s=>s.class===cls&&!s.archived).sort((a,b)=>(a.rollNo||0)-(b.rollNo||0));
+  const dates=[]; if(from&&to){let d=new Date(from);const e=new Date(to);while(d<=e){dates.push(d.toISOString().slice(0,10));d.setDate(d.getDate()+1);}}
+  let h=`<table border="1"><tr><th>Roll</th><th>Name</th>${dates.map(d=>`<th>${d}</th>`).join('')}<th>Present</th><th>Absent</th><th>%</th></tr>`;
+  sts.forEach(s=>{const recs=ar[s.id]||{};let p=0,a=0,l=0;const cells=dates.map(d=>{const v=recs[d]||'';if(v==='P')p++;if(v==='A')a++;if(v==='L')l++;return `<td>${v}</td>`;}).join('');const tot=p+a+l;const pct=tot?Math.round((p+l*0.5)/tot*100):0;h+=`<tr><td>${s.rollNo||''}</td><td>${s.name}</td>${cells}<td>${p}</td><td>${a}</td><td>${pct}%</td></tr>`;});
+  h+='</table>'; downloadExcel(h, SCHOOL_INFO.shortName+'_Attendance_Class'+cls+'_'+from+'_to_'+to); showToast('Attendance exported');
+ });
+}
+
+// ===== STAFF ATTENDANCE TRACKER =====
+// staffAttendance is keyed by staffId → { 'YYYY-MM-DD': 'P'|'A'|'L'|'H' } (Present/Absent/Leave/Half-day)
+let _staffAttMode = 'mark';   // 'mark' | 'report'
+let _staffAttDate = null;
+let _staffReportId = '';       // selected staff for per-staff report ('' = all)
+const STAFF_ATT_LABELS = { P:'Present', A:'Absent', L:'Leave', H:'Half-day' };
+function renderStaffAttendance(){
+ const staff = getTeachers().filter(t => !t.archived);
+ const today = new Date().toISOString().slice(0,10);
+ if (!_staffAttDate) _staffAttDate = today;
+ return `<div>
+  <h2 class="text-lg font-bold mb-1"><i class="fas fa-user-clock text-emerald-600 mr-1"></i>Staff Attendance</h2>
+  <p class="text-xs text-gray-500 mb-3">Mark daily staff attendance and review each staff member's record.</p>
+  <div class="flex flex-wrap gap-2 mb-4">
+   <button class="staffAttModeBtn px-4 py-2 rounded-lg text-sm font-medium ${_staffAttMode==='mark'?'bg-emerald-600 text-white':'bg-gray-100 hover:bg-gray-200'}" data-mode="mark"><i class="fas fa-pen-to-square mr-1"></i>Mark Attendance</button>
+   <button class="staffAttModeBtn px-4 py-2 rounded-lg text-sm font-medium ${_staffAttMode==='report'?'bg-blue-600 text-white':'bg-gray-100 hover:bg-gray-200'}" data-mode="report"><i class="fas fa-chart-bar mr-1"></i>Reports / Per-Staff</button>
+  </div>
+  ${staff.length===0 ? '<div class="bg-white border rounded-lg p-6 text-center text-gray-500">No staff added yet. Add staff in the <b>Staff</b> tab first.</div>' : (_staffAttMode==='mark' ? _renderStaffAttMark(staff) : _renderStaffAttReport(staff))}
+ </div>`;
+}
+function _renderStaffAttMark(staff){
+ const sa = getStaffAttendance();
+ const d = _staffAttDate;
+ let p=0,a=0,l=0,h=0,unm=0;
+ staff.forEach(t => { const v=(sa[t.id]||{})[d]; if(v==='P')p++; else if(v==='A')a++; else if(v==='L')l++; else if(v==='H')h++; else unm++; });
+ const rows = staff.slice().sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(t => {
+  const cur = (sa[t.id]||{})[d] || '';
+  const btn = (code,label,onCls)=>`<button class="staffAttBtn text-xs px-2 py-1 rounded ${cur===code?onCls:'bg-gray-100 text-gray-600 hover:bg-gray-200'}" data-id="${t.id}" data-st="${code}">${label}</button>`;
+  return `<div class="flex items-center justify-between gap-2 py-1.5 border-b last:border-0">
+    <div class="text-sm min-w-0"><span class="font-medium">${escapeHTML(t.name)}</span> <span class="text-xs text-gray-400">${escapeHTML(t.subject||t.staffType||'')}</span></div>
+    <div class="flex gap-1 flex-shrink-0">
+     ${btn('P','Present','bg-emerald-600 text-white')}
+     ${btn('A','Absent','bg-rose-600 text-white')}
+     ${btn('L','Leave','bg-amber-500 text-white')}
+     ${btn('H','Half','bg-blue-500 text-white')}
+    </div>
+   </div>`;
+ }).join('');
+ return `<div class="bg-white border rounded-lg p-4">
+   <div class="flex flex-wrap items-end justify-between gap-3 mb-3">
+    <div><label class="text-xs font-medium">Date</label><input type="date" id="staffAttDate" value="${d}" style="width:auto;min-width:150px"></div>
+    <div class="flex gap-2">
+     <button id="staffAllPresent" class="bg-emerald-100 hover:bg-emerald-200 text-emerald-800 px-3 py-2 rounded-lg text-xs font-medium"><i class="fas fa-check mr-1"></i>All Present</button>
+    </div>
+   </div>
+   <div class="flex flex-wrap gap-2 mb-3 text-xs">
+    <span class="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">${p} present</span>
+    <span class="bg-rose-100 text-rose-800 px-2 py-0.5 rounded-full">${a} absent</span>
+    <span class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">${l} leave</span>
+    <span class="bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">${h} half-day</span>
+    ${unm?`<span class="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">${unm} unmarked</span>`:''}
+   </div>
+   <div>${rows}</div>
+  </div>`;
+}
+function _renderStaffAttReport(staff){
+ const today=new Date().toISOString().slice(0,10);
+ const monthAgo=new Date(); monthAgo.setDate(monthAgo.getDate()-30);
+ const sa=getStaffAttendance();
+ // per-staff summary cards
+ const cards = staff.slice().sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(t=>{
+  const recs=sa[t.id]||{};
+  let p=0,a=0,l=0,h=0; Object.values(recs).forEach(v=>{if(v==='P')p++;else if(v==='A')a++;else if(v==='L')l++;else if(v==='H')h++;});
+  const worked=p+h*0.5; const totalDays=p+a+l+h; const pct=totalDays?Math.round((worked/totalDays)*100):0;
+  const open=_staffReportId===String(t.id);
+  return `<div class="border rounded-lg ${a>=3?'border-l-4 border-rose-400':''} ${open?'ring-2 ring-emerald-300':''}">
+    <div class="p-3 cursor-pointer hover:bg-emerald-50 staffRepRow" data-id="${t.id}">
+     <div class="flex items-center justify-between gap-2">
+      <div class="min-w-0"><div class="font-semibold text-sm">${escapeHTML(t.name)}</div><div class="text-xs text-gray-400">${escapeHTML(t.subject||t.staffType||'')}</div>
+       <div class="flex flex-wrap gap-2 mt-1 text-xs"><span class="text-emerald-700 font-semibold">${p} present</span><span class="text-rose-700 font-semibold">${a} absent</span><span class="text-amber-700 font-semibold">${l} leave</span>${h?`<span class="text-blue-700 font-semibold">${h} half</span>`:''}</div>
+      </div>
+      <div class="text-right flex-shrink-0"><div class="text-sm font-bold ${pct>=90?'text-emerald-700':pct>=75?'text-amber-700':'text-rose-700'}">${pct}%</div><div class="text-[10px] text-gray-400">${totalDays} days</div><i class="fas fa-chevron-${open?'up':'down'} text-gray-400 text-xs"></i></div>
+     </div>
+    </div>
+    ${open?_renderStaffDetail(t, recs):''}
+   </div>`;
+ }).join('');
+ return `<div class="bg-white border rounded-lg p-4">
+   <div class="flex items-center justify-between mb-3"><h3 class="font-semibold text-sm">Per-Staff Attendance <span class="text-gray-400 font-normal">(${staff.length})</span></h3>
+    <button id="staffAttExport" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-file-excel mr-1"></i>Export month</button></div>
+   <p class="text-xs text-gray-500 mb-3">Tap a staff member for their day-by-day record. % counts half-days as 0.5. Red bar flags 3+ absences.</p>
+   <div class="space-y-2">${cards}</div>
+  </div>`;
+}
+function _renderStaffDetail(t, recs){
+ const entries = Object.keys(recs).sort((a,b)=>b.localeCompare(a));
+ if (entries.length===0) return '<div class="border-t bg-gray-50 p-3 text-xs text-gray-500">No attendance recorded yet.</div>';
+ const badge=(v)=>({P:'bg-emerald-100 text-emerald-800',A:'bg-rose-100 text-rose-800',L:'bg-amber-100 text-amber-800',H:'bg-blue-100 text-blue-800'})[v]||'bg-gray-100 text-gray-600';
+ return `<div class="border-t bg-gray-50 p-3"><div class="grid sm:grid-cols-2 gap-x-4 gap-y-1">${entries.map(d=>`<div class="flex items-center justify-between text-xs py-0.5"><span>${fmtDate(d)}</span><span class="px-2 py-0.5 rounded-full ${badge(recs[d])}">${STAFF_ATT_LABELS[recs[d]]||recs[d]}</span></div>`).join('')}</div></div>`;
+}
+function _attachStaffAttendanceEvents(){
+ document.querySelectorAll('.staffAttModeBtn').forEach(b=>b.addEventListener('click',()=>{_staffAttMode=b.dataset.mode; renderApp();}));
+ document.getElementById('staffAttDate')?.addEventListener('change',e=>{_staffAttDate=e.target.value; renderApp();});
+ const setStatus=(id,code)=>{ const sa=getStaffAttendance(); if(!sa[id])sa[id]={}; if(code==='clear')delete sa[id][_staffAttDate]; else sa[id][_staffAttDate]=code; try{saveStaffAttendance(sa);}catch(e){} };
+ document.querySelectorAll('.staffAttBtn').forEach(b=>b.addEventListener('click',()=>{
+  const id=parseInt(b.dataset.id), code=b.dataset.st; const sa=getStaffAttendance(); const cur=(sa[id]||{})[_staffAttDate]||'';
+  setStatus(id, cur===code?'clear':code); renderApp();
+ }));
+ document.getElementById('staffAllPresent')?.addEventListener('click',()=>{
+  const sa=getStaffAttendance(); getTeachers().filter(t=>!t.archived).forEach(t=>{ if(!sa[t.id])sa[t.id]={}; sa[t.id][_staffAttDate]='P'; }); try{saveStaffAttendance(sa);}catch(e){} renderApp();
+ });
+ document.querySelectorAll('.staffRepRow').forEach(r=>r.addEventListener('click',()=>{
+  const id=r.dataset.id; _staffReportId=(_staffReportId===id)?'':id; renderApp();
+ }));
+ document.getElementById('staffAttExport')?.addEventListener('click',()=>{
+  const sa=getStaffAttendance(); const staff=getTeachers().filter(t=>!t.archived);
+  // last 31 days
+  const dates=[]; for(let i=30;i>=0;i--){const d=new Date();d.setDate(d.getDate()-i);dates.push(d.toISOString().slice(0,10));}
+  let h=`<table border="1"><tr><th>Staff</th><th>Role</th>${dates.map(d=>`<th>${d.slice(5)}</th>`).join('')}<th>P</th><th>A</th><th>L</th><th>H</th><th>%</th></tr>`;
+  staff.forEach(t=>{const recs=sa[t.id]||{};let p=0,a=0,l=0,hd=0;const cells=dates.map(d=>{const v=recs[d]||'';if(v==='P')p++;if(v==='A')a++;if(v==='L')l++;if(v==='H')hd++;return `<td>${v}</td>`;}).join('');const tot=p+a+l+hd;const pct=tot?Math.round(((p+hd*0.5)/tot)*100):0;h+=`<tr><td>${t.name}</td><td>${t.subject||t.staffType||''}</td>${cells}<td>${p}</td><td>${a}</td><td>${l}</td><td>${hd}</td><td>${pct}%</td></tr>`;});
+  h+='</table>'; downloadExcel(h, SCHOOL_INFO.shortName+'_StaffAttendance_'+new Date().toISOString().slice(0,10)); showToast('Staff attendance exported');
+ });
 }
 
 function renderTeacherPanel(){
@@ -13131,6 +13334,8 @@ function attachActiveAdminTabEvents(){
  else if(activeAdminTab==='datamanagement')attachDataManagementEvents();
  else if(activeAdminTab==='gallery')attachGalleryAdminEvents();
  else if(activeAdminTab==='activities')attachActivitiesEvents();
+ else if(activeAdminTab==='attendance')_attachAdminAttendanceEvents();
+ else if(activeAdminTab==='staffattendance')_attachStaffAttendanceEvents();
  else if(activeAdminTab==='disclosureDocs')attachDisclosureDocsEvents();
  else if(activeAdminTab==='users')attachUsersTabEvents();
  else if(activeAdminTab==='backup')attachBackupEvents();
