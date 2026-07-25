@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1784968328 - curriculum: tap-to-add standard CBSE/NCERT topic picker per class+subject (seeded + school-editable topic bank); subject tag on items -->
+<!-- BUILD: v-1784978135 - receipts: added Other to fee heads + editable bank/account (Other=type manually) and Transaction Ref/UTR field for online payments, shown on receipt -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -1988,6 +1988,7 @@ function initDB(){
 
  // Attendance: keyed by studentId, defaults to empty per-student map
  if (DB.getScalar('syllabusTopics') === null) DB.setObject('syllabusTopics', {});
+  if (DB.getScalar('ptmAttendance') === null) DB.setObject('ptmAttendance', {});
   if (DB.getScalar('attendanceRecords') === null) {
   const ar = {};
   DB.getAll('students').forEach(s => { ar[s.id] = {}; });
@@ -2093,6 +2094,7 @@ const DB_SCHEMA = {
  attendanceRecords:   { type: 'object', desc: 'Attendance keyed by studentId' },
  staffAttendance:     { type: 'object', desc: 'Staff attendance keyed by staffId' },
  syllabusTopics:      { type: 'object', desc: 'School-added CBSE topic bank per class|subject' },
+ ptmAttendance:       { type: 'object', desc: 'PTM parent attendance + notes keyed by eventId' },
  busTracking:         { type: 'object', desc: 'Live bus location' },
  udiseReport:         { type: 'object', desc: 'UDISE+ submission status' },
 
@@ -3913,6 +3915,48 @@ function renderOwnerDashboard(){
   </div>`;
  }
 
+ if (ownerView === 'staffattendance') {
+  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+    <div>
+     <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
+     <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-crown text-amber-500 mr-2"></i>${currentUser.role==='managing_director'?'Managing Director':currentUser.role==='trustee'?'Trustee':'Owner'} · Staff Attendance</h1>
+     <p class="text-gray-600 text-xs">${currentUser.name} · mark &amp; review staff attendance</p>
+    </div>
+    <button id="logoutBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
+   </div>
+   ${renderStaffAttendance()}
+  </div>`;
+ }
+
+ if (ownerView === 'studentattendance') {
+  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+    <div>
+     <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
+     <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-crown text-amber-500 mr-2"></i>${currentUser.role==='managing_director'?'Managing Director':currentUser.role==='trustee'?'Trustee':'Owner'} · Student Attendance</h1>
+     <p class="text-gray-600 text-xs">${currentUser.name} · school-wide student attendance</p>
+    </div>
+    <button id="logoutBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
+   </div>
+   ${renderAdminAttendance()}
+  </div>`;
+ }
+
+ if (ownerView === 'ptm') {
+  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+    <div>
+     <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
+     <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-crown text-amber-500 mr-2"></i>${currentUser.role==='managing_director'?'Managing Director':currentUser.role==='trustee'?'Trustee':'Owner'} · Parent-Teacher Meetings</h1>
+     <p class="text-gray-600 text-xs">${currentUser.name} · schedule &amp; oversee PTMs</p>
+    </div>
+    <button id="logoutBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
+   </div>
+   ${renderPtmManagement()}
+  </div>`;
+ }
+
  if (ownerView === 'ledger') {
   return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
@@ -4177,6 +4221,38 @@ function renderOwnerDashboard(){
      <i class="fas fa-arrow-right-to-bracket mr-1"></i>Open Catalog
     </button>
    </div>
+   <div class="bg-gradient-to-r from-emerald-50 to-teal-50 border-2 border-emerald-200 rounded-xl p-5">
+    <h2 class="font-semibold mb-1"><i class="fas fa-user-clock text-emerald-600 mr-2"></i>Staff Attendance</h2>
+    <p class="text-sm text-gray-700">Mark daily staff attendance and review each staff member's record and percentage.</p>
+    ${(() => { const today=new Date().toISOString().slice(0,10); const sa=getStaffAttendance(); const staff=getTeachers().filter(t=>!t.archived); let p=0,a=0; staff.forEach(t=>{const v=(sa[t.id]||{})[today]; if(v==='P')p++; else if(v==='A')a++;}); return `<div class="flex flex-wrap gap-2 mt-2 text-xs">
+     <span class="text-emerald-700"><i class="fas fa-check mr-1"></i>${p} present today</span>
+     <span class="text-rose-700"><i class="fas fa-xmark mr-1"></i>${a} absent today</span>
+     <span class="text-gray-500">of ${staff.length}</span>
+    </div>`; })()}
+    <button id="ownerOpenStaffAttBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
+     <i class="fas fa-arrow-right-to-bracket mr-1"></i>Open Staff Attendance
+    </button>
+   </div>
+   <div class="bg-gradient-to-r from-blue-50 to-sky-50 border-2 border-blue-200 rounded-xl p-5">
+    <h2 class="font-semibold mb-1"><i class="fas fa-calendar-check text-blue-600 mr-2"></i>Student Attendance</h2>
+    <p class="text-sm text-gray-700">School-wide student attendance by class, with today's summary and exportable records.</p>
+    ${(() => { const today=new Date().toISOString().slice(0,10); const ar=getAttendanceRecords(); const sts=getStudents().filter(s=>!s.archived); let p=0,a=0; sts.forEach(s=>{const v=(ar[s.id]||{})[today]; if(v==='P')p++; else if(v==='A')a++;}); return `<div class="flex flex-wrap gap-2 mt-2 text-xs">
+     <span class="text-emerald-700"><i class="fas fa-check mr-1"></i>${p} present today</span>
+     <span class="text-rose-700"><i class="fas fa-xmark mr-1"></i>${a} absent today</span>
+     <span class="text-gray-500">of ${sts.length}</span>
+    </div>`; })()}
+    <button id="ownerOpenStudentAttBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
+     <i class="fas fa-arrow-right-to-bracket mr-1"></i>Open Student Attendance
+    </button>
+   </div>
+   <div class="bg-gradient-to-r from-purple-50 to-fuchsia-50 border-2 border-purple-200 rounded-xl p-5">
+    <h2 class="font-semibold mb-1"><i class="fas fa-people-arrows text-purple-600 mr-2"></i>Parent-Teacher Meetings</h2>
+    <p class="text-sm text-gray-700">Schedule PTMs for the school; teachers record which parents attended.</p>
+    ${(() => { const today=new Date().toISOString().slice(0,10); const up=DB.getAll('ptmEvents').filter(e=>e.date>=today).length; return `<div class="flex flex-wrap gap-2 mt-2 text-xs"><span class="text-purple-700"><i class="fas fa-calendar-day mr-1"></i>${up} upcoming meeting${up!==1?'s':''}</span></div>`; })()}
+    <button id="ownerOpenPtmBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
+     <i class="fas fa-arrow-right-to-bracket mr-1"></i>Open PTM
+    </button>
+   </div>
    <div class="bg-gradient-to-r from-purple-50 to-fuchsia-50 border-2 border-purple-200 rounded-xl p-5">
     <h2 class="font-semibold mb-1"><i class="fas fa-file-lines text-purple-600 mr-2"></i>Report Cards</h2>
     <p class="text-sm text-gray-700">Generate and print term report cards for any class.</p>
@@ -4313,6 +4389,7 @@ function renderAdminPanel(){
   {id:'teachers',label:'Staff',icon:'users'},
   {id:'staffattendance',label:'Staff Attendance',icon:'user-clock'},
   {id:'homework',label:'Homework',icon:'book-open'},
+  {id:'ptm',label:'PTM',icon:'people-arrows'},
   {id:'resources',label:'Resources',icon:'book-open-reader'},
   {id:'datamanagement',label:'Data',icon:'database'},
   {id:'compliance',label:'Compliance',icon:'shield-halved'},
@@ -4365,6 +4442,7 @@ function renderAdminTabContent(){
   case 'teachers':return renderTeachersTab();
   case 'staffattendance':return renderStaffAttendance();
   case 'homework':return renderHomeworkOversight();
+  case 'ptm':return renderPtmManagement();
   case 'resources':return renderResourceCatalog();
   case 'datamanagement':return renderDataManagement();
   case 'compliance':return renderComplianceTab();
@@ -5084,6 +5162,7 @@ function renderStudentProfile(id){
 }
 
 /* ---------- COMPLIANCE MODULE ---------- */
+var _cmpPendingFile = null;
 function renderComplianceTab(){
  const items=getCompliance();
  const cats=[...new Set(items.map(i=>i.category))];
@@ -5118,6 +5197,7 @@ function renderComplianceTab(){
         ${canEdit?`<select class="complianceStatus" data-cid="${c.id}" style="width:auto;padding:3px 8px"><option value="compliant" ${c.status==='compliant'?'selected':''}>Compliant</option><option value="pending" ${c.status==='pending'?'selected':''}>Pending</option><option value="expired" ${c.status==='expired'?'selected':''}>Expired</option><option value="na" ${c.status==='na'?'selected':''}>N/A</option></select>`:`<span class="pill pill-${c.status==='compliant'?'green':c.status==='pending'?'amber':'red'}">${c.status}</span>`}
         ${c.validUntil?`<span class="pill ${exp?'pill-red':'pill-blue'}"><i class="fas fa-calendar mr-1"></i>${fmtDate(c.validUntil)}${exp?' - '+d+'d left':''}</span>`:''}
         ${c.docRef?`<span class="text-gray-500"><i class="fas fa-file mr-1"></i>${c.docRef}</span>`:''}
+        ${c.fileUrl?`<a href="${c.fileUrl}" target="_blank" rel="noopener" class="pill pill-blue" title="${escapeHTML(c.fileName||'document')}"><i class="fas fa-file-arrow-down mr-1"></i>View document</a>`:''}
        `:`<span class="text-gray-500 italic">Disabled</span>`}
        ${canEdit&&c.enabled?`<button class="editComplianceBtn text-indigo-600 hover:underline ml-auto" data-cid="${c.id}"><i class="fas fa-edit"></i> Edit</button>`:''}
       </div>
@@ -5136,6 +5216,10 @@ function renderComplianceTab(){
     <div><label class="text-xs">Status</label><select id="cmpStatus"><option value="compliant">Compliant</option><option value="pending">Pending</option><option value="expired">Expired</option><option value="na">N/A</option></select></div>
     <div><label class="text-xs">Valid Until</label><input type="date" id="cmpValidUntil"></div>
     <div><label class="text-xs">Document Reference</label><input id="cmpDocRef"></div>
+    <div class="col-span-2"><label class="text-xs">Upload document <span class="text-gray-400">(PDF/image, saved to cloud — set status to Compliant after uploading)</span></label>
+     <input type="file" id="cmpFile" accept="application/pdf,image/*,.doc,.docx" class="text-sm">
+     <div id="cmpFileStatus" class="text-xs mt-1"></div>
+    </div>
     <div class="col-span-2"><label class="text-xs">Notes</label><textarea id="cmpNotes" rows="2"></textarea></div>
    </div>
    <div class="flex justify-end gap-2 mt-4"><button class="closeModal bg-gray-300 px-4 py-2 rounded-lg">Cancel</button><button id="saveComplianceBtn" class="bg-emerald-600 text-white px-4 py-2 rounded-lg">Save</button></div>
@@ -6970,7 +7054,10 @@ function renderPrincipalPanel(){
  const tabs=[
   {id:'dashboard',label:'Dashboard',icon:'gauge-high'},
   {id:'students',label:'Students',icon:'user-graduate'},
+  {id:'studentattendance',label:'Student Attendance',icon:'calendar-check'},
   {id:'teachers',label:'Staff',icon:'users'},
+  {id:'staffattendance',label:'Staff Attendance',icon:'user-clock'},
+  {id:'ptm',label:'PTM',icon:'people-arrows'},
   {id:'compliance',label:'Compliance',icon:'shield-halved'},
   {id:'notices',label:'Notice Board',icon:'thumbtack'},
   {id:'reportcards',label:'Report Cards',icon:'file-lines'},
@@ -7009,7 +7096,10 @@ function renderPrincipalTabContent(){
    </div>
   </div>`;
  } else if(activePrincipalTab==='students')return renderStudentsTab();
+ else if(activePrincipalTab==='studentattendance')return renderAdminAttendance();
  else if(activePrincipalTab==='teachers')return renderTeachersTab();
+ else if(activePrincipalTab==='staffattendance')return renderStaffAttendance();
+ else if(activePrincipalTab==='ptm')return renderPtmManagement();
  else if(activePrincipalTab==='compliance')return renderComplianceTab();
  else if(activePrincipalTab==='notices')return renderNoticesTab();
  else if(activePrincipalTab==='reportcards')return renderReportCardsTab();
@@ -7272,6 +7362,7 @@ function renderTeacherPanel(){
   {id:'marks',      label:'Marks',      icon:'pen-to-square'},
   {id:'curriculum', label:'Curriculum', icon:'calendar-days'},
   {id:'resources',  label:'Resources',  icon:'book-open-reader'},
+  {id:'ptm',        label:'PTM',        icon:'people-arrows'},
   {id:'class',      label:'My Class',   icon:'users'},
   {id:'audit',      label:'Audit Log',  icon:'clipboard-list'}
  ];
@@ -7301,6 +7392,7 @@ function renderTeacherTabContent(){
   case 'marks':      return renderTchMarks();
   case 'curriculum': return renderTchCurriculum();
   case 'resources':  return renderResourceCatalog();
+  case 'ptm':        return renderTchPTM();
   case 'class':      return renderTchClass();
   case 'audit':      return renderTchAudit();
   default: return renderTchDashboard();
@@ -7922,11 +8014,143 @@ function _renderQuickHomework(){
 }
 
 /* ---------- TAB 4: MARKS ---------- */
+let _marksMode = 'entry';       // 'entry' | 'tracker'
+let _marksTrackerClass = '';
+let _marksTrackerFilter = 'all'; // 'all' | 'low' | 'good'
+
+// Performance tracker: per-student averages, trend, and flags, with a "Notify parent" action.
+function renderMarksTracker(classes){
+ const activeClass = (_marksTrackerClass && classes.includes(_marksTrackerClass)) ? _marksTrackerClass : classes[0];
+ const classFilter = classes.length > 1 ? `<div class="mb-3"><label class="text-xs font-medium mr-2">Class</label>
+   <select id="mkTrackClass" class="text-sm" style="width:auto;min-width:120px">${classes.map(c=>`<option ${c===activeClass?'selected':''}>${c}</option>`).join('')}</select></div>` : '';
+ let students = getStudents().filter(s => s.class === activeClass && !s.archived).sort((a,b)=>(a.rollNo||0)-(b.rollNo||0));
+ // Attach performance to each
+ const withPerf = students.map(s => ({ s, perf: _studentMarksPerformance(s.id) }));
+ const lowCount = withPerf.filter(x => x.perf.band === 'low').length;
+ const goodCount = withPerf.filter(x => x.perf.band === 'good').length;
+ let shown = withPerf;
+ if (_marksTrackerFilter === 'low') shown = withPerf.filter(x => x.perf.band === 'low');
+ else if (_marksTrackerFilter === 'good') shown = withPerf.filter(x => x.perf.band === 'good');
+
+ const trendIcon = t => t==='up'?'<i class="fas fa-arrow-trend-up text-emerald-600" title="Improving"></i>':t==='down'?'<i class="fas fa-arrow-trend-down text-rose-600" title="Declining"></i>':'<i class="fas fa-minus text-gray-400" title="Steady"></i>';
+ const bandPill = b => ({low:'<span class="text-[11px] bg-rose-100 text-rose-700 px-2 py-0.5 rounded-full">Needs attention</span>',good:'<span class="text-[11px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">Excellent</span>',watch:'<span class="text-[11px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Watch</span>',mid:'<span class="text-[11px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">On track</span>',none:'<span class="text-[11px] bg-gray-100 text-gray-400 px-2 py-0.5 rounded-full">No marks</span>'})[b];
+
+ const rows = shown.map(({s, perf}) => {
+  const flagged = perf.band==='low' || perf.band==='good';
+  return `<div class="border rounded-lg p-3 ${perf.band==='low'?'border-l-4 border-rose-400':perf.band==='good'?'border-l-4 border-emerald-400':''}">
+   <div class="flex items-center justify-between gap-2">
+    <div class="min-w-0">
+     <div class="font-semibold text-sm"><span class="text-gray-400 text-xs mr-1">${s.rollNo||'-'}</span>${escapeHTML(s.name)} ${bandPill(perf.band)}</div>
+     <div class="text-xs text-gray-500 mt-0.5">${perf.count===0?'No marks recorded':`Avg <b class="${perf.avg>=75?'text-emerald-700':perf.avg>=40?'text-amber-700':'text-rose-700'}">${perf.avg}%</b> over ${perf.count} exam${perf.count!==1?'s':''} ${trendIcon(perf.trend)}`}</div>
+     ${perf.recent&&perf.recent.length?`<div class="text-[11px] text-gray-400 mt-0.5">Recent: ${perf.recent.map(m=>`${escapeHTML(m.subject||'')} ${Math.round((m.marks/m.maxMarks)*100)}%`).join(' · ')}</div>`:''}
+    </div>
+    ${flagged?`<button class="mkNotifyBtn flex-shrink-0 ${perf.band==='low'?'bg-rose-500 hover:bg-rose-600':'bg-emerald-500 hover:bg-emerald-600'} text-white px-3 py-1.5 rounded text-xs font-medium" data-sid="${s.id}" data-band="${perf.band}"><i class="fab fa-whatsapp mr-1"></i>Inform parent</button>`:''}
+   </div>
+  </div>`;
+ }).join('');
+
+ return `<div class="bg-white border rounded-lg p-4">
+  ${classFilter}
+  <div class="flex flex-wrap gap-2 mb-3">
+   <button class="mkTrackFilter text-xs px-3 py-1.5 rounded-full ${_marksTrackerFilter==='all'?'bg-purple-600 text-white':'bg-gray-100 hover:bg-gray-200'}" data-f="all">All (${withPerf.length})</button>
+   <button class="mkTrackFilter text-xs px-3 py-1.5 rounded-full ${_marksTrackerFilter==='low'?'bg-rose-600 text-white':'bg-rose-50 text-rose-700 hover:bg-rose-100'}" data-f="low"><i class="fas fa-triangle-exclamation mr-1"></i>Low scorers (${lowCount})</button>
+   <button class="mkTrackFilter text-xs px-3 py-1.5 rounded-full ${_marksTrackerFilter==='good'?'bg-emerald-600 text-white':'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}" data-f="good"><i class="fas fa-star mr-1"></i>Top scorers (${goodCount})</button>
+  </div>
+  <p class="text-xs text-gray-500 mb-3">Students consistently below 40% are flagged for attention; those at 85%+ as excellent. Tap <b>Inform parent</b> to send a ready-made WhatsApp/SMS message.</p>
+  ${shown.length?`<div class="space-y-2">${rows}</div>`:'<div class="text-sm text-gray-500 py-4 text-center">No students in this group.</div>'}
+ </div>`;
+}
+// Build the message and open the notify modal for one student.
+function _notifyParentAboutMarks(studentId, band){
+ const s = getStudents().find(x => x.id === studentId); if (!s) return;
+ const perf = _studentMarksPerformance(studentId);
+ const school = (SCHOOL_INFO && SCHOOL_INFO.shortName) || 'School';
+ const child = s.name || 'your child';
+ let msg;
+ if (band === 'good') {
+  msg = `Dear Parent, we are happy to share that ${child} (Class ${s.class}) has been performing excellently, with an average of ${perf.avg}% in recent assessments. Congratulations and keep encouraging ${child}! — ${school}`;
+ } else {
+  msg = `Dear Parent, we would like to discuss ${child}'s (Class ${s.class}) recent academic performance (average ${perf.avg}%). Kindly give some extra attention to studies at home, and feel free to meet the class teacher. — ${school}`;
+ }
+ showParentNotifyModal([{ name: s.parentName || s.fatherName || 'Parent', studentName: child, phone: s.parentPhone || s.phone }], msg, band==='good'?'Congratulate Parent':'Inform Parent');
+}
+
+
+// Opens a modal listing the recipient(s) with a pre-filled message and WhatsApp + SMS buttons.
+function showParentNotifyModal(recipients, message, title){
+ // recipients: [{name, studentName, phone}]
+ const existing = document.getElementById('notifyParentModal'); if (existing) existing.remove();
+ const el = document.createElement('div'); el.id='notifyParentModal'; el.className='modal';
+ const rows = recipients.filter(r=>r.phone).map(r => {
+  const wa = 'https://wa.me/' + _cleanPhone(r.phone) + '?text=' + encodeURIComponent(message);
+  const sms = 'sms:' + (r.phone||'').replace(/[^\d+]/g,'') + '?&body=' + encodeURIComponent(message);
+  return `<div class="flex items-center justify-between gap-2 py-2 border-b last:border-0">
+    <div class="text-sm min-w-0"><div class="font-medium">${escapeHTML(r.studentName||'')}</div><div class="text-xs text-gray-500">${escapeHTML(r.name||'Parent')} · ${escapeHTML(r.phone)}</div></div>
+    <div class="flex gap-1 flex-shrink-0">
+     <a href="${wa}" target="_blank" rel="noopener" class="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1.5 rounded text-xs font-medium"><i class="fab fa-whatsapp mr-1"></i>WhatsApp</a>
+     <a href="${sms}" class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 rounded text-xs font-medium"><i class="fas fa-comment-sms mr-1"></i>SMS</a>
+    </div>
+   </div>`;
+ }).join('');
+ const noPhone = recipients.filter(r=>!r.phone);
+ el.innerHTML = `<div class="modal-content" style="max-width:560px">
+   <h3 class="text-lg font-bold mb-1"><i class="fab fa-whatsapp text-emerald-600 mr-1"></i>${escapeHTML(title||'Notify Parent')}</h3>
+   <p class="text-xs text-gray-500 mb-2">The message below is ready to send. Tap WhatsApp or SMS for each parent — it opens with the message pre-filled; just press send.</p>
+   <textarea id="notifyMsgBox" rows="4" class="text-sm w-full mb-3">${escapeHTML(message)}</textarea>
+   <div class="text-xs text-gray-400 mb-1">Recipients</div>
+   <div class="max-h-64 overflow-y-auto border rounded-lg px-3">${rows || '<div class="text-sm text-gray-500 py-3">No parent phone numbers on file.</div>'}</div>
+   ${noPhone.length?`<div class="text-xs text-amber-600 mt-2">${noPhone.length} student(s) have no parent phone number saved.</div>`:''}
+   <div class="flex justify-end gap-2 mt-4"><button class="closeModal bg-gray-700 text-white px-4 py-2 rounded-lg text-sm">Close</button></div>
+  </div>`;
+ document.body.appendChild(el);
+ // Live-edit: update links when the message is edited
+ const box = el.querySelector('#notifyMsgBox');
+ box?.addEventListener('input', () => {
+  const m = box.value;
+  el.querySelectorAll('a[href^="https://wa.me"]').forEach((a,i)=>{ const r=recipients.filter(x=>x.phone)[i]; if(r) a.href='https://wa.me/'+_cleanPhone(r.phone)+'?text='+encodeURIComponent(m); });
+  el.querySelectorAll('a[href^="sms:"]').forEach((a,i)=>{ const r=recipients.filter(x=>x.phone)[i]; if(r) a.href='sms:'+(r.phone||'').replace(/[^\d+]/g,'')+'?&body='+encodeURIComponent(m); });
+ });
+ el.querySelectorAll('.closeModal').forEach(b=>b.addEventListener('click',()=>el.remove()));
+}
+
+// Compute a student's marks performance across exams. Returns {pct avg, count, band, trend, recent[]}.
+function _studentMarksPerformance(studentId){
+ const marks = getExamMarks().filter(m => m.studentId === studentId && (m.maxMarks||0) > 0)
+   .sort((a,b) => (a.date||'').localeCompare(b.date||''));
+ if (marks.length === 0) return { count:0, avg:0, band:'none', trend:'flat', recent:[] };
+ const pcts = marks.map(m => Math.round((m.marks / m.maxMarks) * 100));
+ const avg = Math.round(pcts.reduce((a,b)=>a+b,0) / pcts.length);
+ // Recent = last up-to-3 results
+ const recent = marks.slice(-3);
+ const recentPcts = pcts.slice(-3);
+ // Band: low if avg<40 or last 2 all <40; good if avg>=85 or last 2 all >=85
+ const last2 = pcts.slice(-2);
+ let band = 'mid';
+ if (avg < 40 || (last2.length>=2 && last2.every(p=>p<40))) band = 'low';
+ else if (avg >= 85 || (last2.length>=2 && last2.every(p=>p>=85))) band = 'good';
+ else if (avg < 50) band = 'watch';
+ // Trend: compare first half avg to second half avg
+ let trend = 'flat';
+ if (pcts.length >= 2) {
+  const mid = Math.floor(pcts.length/2);
+  const early = pcts.slice(0,mid); const late = pcts.slice(mid);
+  const ea = early.reduce((a,b)=>a+b,0)/(early.length||1);
+  const la = late.reduce((a,b)=>a+b,0)/(late.length||1);
+  if (la - ea >= 8) trend = 'up'; else if (ea - la >= 8) trend = 'down';
+ }
+ return { count:marks.length, avg, band, trend, recent, marks };
+}
+
 function renderTchMarks(){
  if (_teacherAssignedClasses().length === 0) return _noClassAssignedNotice();
  const myMarks = getExamMarks().filter(m => m.teacherId === currentUser.id || m.teacher === currentUser.name);
  const exams = [...new Set(myMarks.map(m => m.examName))];
- return `<div>
+ const toggle = `<div class="flex flex-wrap gap-2 mb-4">
+   <button class="mkModeBtn px-4 py-2 rounded-lg text-sm font-medium ${_marksMode==='entry'?'bg-purple-600 text-white':'bg-gray-100 hover:bg-gray-200'}" data-mode="entry"><i class="fas fa-pen-to-square mr-1"></i>Enter Marks</button>
+   <button class="mkModeBtn px-4 py-2 rounded-lg text-sm font-medium ${_marksMode==='tracker'?'bg-purple-600 text-white':'bg-gray-100 hover:bg-gray-200'}" data-mode="tracker"><i class="fas fa-chart-line mr-1"></i>Performance Tracker</button>
+  </div>`;
+ if (_marksMode === 'tracker') return `<div>${toggle}${renderMarksTracker(_teacherAssignedClasses())}</div>`;
+ return `<div>${toggle}<div>
   <div class="bg-white border rounded-lg p-4 mb-4">
    <h3 class="font-semibold mb-3"><i class="fas fa-pen-to-square text-purple-600 mr-1"></i>Exam Marks Entry</h3>
    <div class="grid md:grid-cols-2 gap-3 mb-3">
@@ -7972,7 +8196,7 @@ function renderTchMarks(){
     ${myMarks.length === 0 ? '<div class="text-sm text-gray-500 py-3">No marks entered yet</div>' : ''}
    </div>
   </div>
- </div>`;
+ </div></div>`;
 }
 
 /* ---------- CURRICULUM PLANNER (teacher) ---------- */
@@ -8198,6 +8422,7 @@ function attachTeacherEvents(){
  else if (activeTeacherTab === 'marks') _attachMarksEvents();
  else if (activeTeacherTab === 'curriculum') _attachCurriculumEvents();
  else if (activeTeacherTab === 'resources') attachResourceCatalogEvents();
+ else if (activeTeacherTab === 'ptm') _attachTchPtmEvents();
  else if (activeTeacherTab === 'class') _attachClassEvents();
 }
 
@@ -8771,6 +8996,11 @@ function _generateHomeworkBroadcast(hw){
 }
 
 function _attachMarksEvents(){
+ // Marks mode toggle + performance tracker
+ document.querySelectorAll('.mkModeBtn').forEach(b=>b.addEventListener('click',()=>{ _marksMode=b.dataset.mode; renderApp(); }));
+ document.getElementById('mkTrackClass')?.addEventListener('change',e=>{ _marksTrackerClass=e.target.value; renderApp(); });
+ document.querySelectorAll('.mkTrackFilter').forEach(b=>b.addEventListener('click',()=>{ _marksTrackerFilter=b.dataset.f; renderApp(); }));
+ document.querySelectorAll('.mkNotifyBtn').forEach(b=>b.addEventListener('click',()=>{ _notifyParentAboutMarks(parseInt(b.dataset.sid), b.dataset.band); }));
  const classSel = document.getElementById('mkClass');
  const roster = document.getElementById('mkRoster');
  const saveBtn = document.getElementById('mkSaveBtn');
@@ -9282,6 +9512,216 @@ function renderParMessages(students){
  </div>`;
 }
 
+// ===== TEACHER PTM PORTAL =====
+// Teachers view scheduled PTMs, mark which students' parents attended (+ notes/remarks),
+// and notify parents about the next meeting. Parent attendance is stored compactly in
+// ptmAttendance: { eventId: { studentId: { a: true/false, n: 'notes' } } }.
+let _ptmOpenEvent = null;   // which event's roster is expanded
+let _ptmTab = 'meetings';   // 'meetings' | 'schedule'
+function _getPtmAttendance(){ return DB.getObject('ptmAttendance'); }
+
+// ===== PTM MANAGEMENT (admin / principal / owner / MD) — schedule & oversee meetings =====
+function renderPtmManagement(){
+ const today = new Date().toISOString().slice(0,10);
+ const events = DB.getAll('ptmEvents').sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+ const att = _getPtmAttendance();
+ const upcoming = events.filter(e => e.date >= today);
+ const classChecks = ALL_CLASSES.map(c=>`<label class="text-xs flex items-center gap-1 border rounded px-2 py-1"><input type="checkbox" class="pmPtmClassChk" value="${c}" checked> ${c}</label>`).join('');
+ const list = events.length === 0 ? '<div class="text-sm text-gray-500 py-3">No PTMs scheduled yet.</div>'
+  : events.map(e => {
+   const roster = getStudents().filter(s => (!e.classes||!e.classes.length||e.classes.includes(s.class)) && !s.archived);
+   const evAtt = att[e.id]||{};
+   const came = roster.filter(s => evAtt[s.id] && evAtt[s.id].a).length;
+   const isPast = e.date < today;
+   return `<div class="border rounded-lg p-3">
+     <div class="flex items-start justify-between gap-2">
+      <div class="min-w-0">
+       <div class="font-semibold text-sm">${escapeHTML(e.title||'PTM')} ${isPast?'<span class="text-[11px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Past</span>':'<span class="text-[11px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">Upcoming</span>'}</div>
+       <div class="text-xs text-gray-600"><i class="fas fa-calendar-day mr-1"></i>${fmtDate(e.date)}${e.time?' · '+escapeHTML(e.time):''}</div>
+       ${e.classes&&e.classes.length?`<div class="text-xs text-gray-500 mt-0.5">Classes: ${e.classes.join(', ')}</div>`:'<div class="text-xs text-gray-500 mt-0.5">All classes</div>'}
+       ${e.description?`<div class="text-xs text-gray-500 mt-0.5 italic">${escapeHTML(e.description)}</div>`:''}
+       <div class="text-xs text-indigo-700 mt-1"><i class="fas fa-user-check mr-1"></i>${came}/${roster.length} families attended</div>
+      </div>
+      <div class="flex gap-1 flex-shrink-0">
+       <button class="pmPtmNotifyBtn bg-emerald-500 hover:bg-emerald-600 text-white px-2 py-1 rounded text-xs" data-id="${e.id}" title="Notify parents"><i class="fab fa-whatsapp"></i></button>
+       <button class="pmPtmDelBtn text-rose-500 hover:text-rose-700 px-1" data-id="${e.id}" title="Delete"><i class="fas fa-trash"></i></button>
+      </div>
+     </div>
+    </div>`;
+  }).join('');
+ return `<div>
+  <h2 class="text-lg font-bold mb-1"><i class="fas fa-people-arrows text-indigo-600 mr-1"></i>Parent-Teacher Meetings</h2>
+  <p class="text-xs text-gray-500 mb-4">Schedule PTMs for the school. Parents see them in their portal, and class teachers record attendance &amp; notes.</p>
+  <div class="grid lg:grid-cols-2 gap-4">
+   <div class="bg-white border rounded-lg p-4">
+    <h3 class="font-semibold text-sm mb-3"><i class="fas fa-calendar-plus text-indigo-600 mr-1"></i>Schedule a Meeting</h3>
+    <div class="space-y-2">
+     <div><label class="text-xs font-medium">Title</label><input id="pmPtmTitle" placeholder="e.g. Term 1 Parent-Teacher Meeting" value="Parent-Teacher Meeting"></div>
+     <div class="grid grid-cols-2 gap-2">
+      <div><label class="text-xs font-medium">Date *</label><input type="date" id="pmPtmDate" value="${today}"></div>
+      <div><label class="text-xs font-medium">Time</label><input id="pmPtmTime" placeholder="e.g. 10:00 AM"></div>
+     </div>
+     <div><label class="text-xs font-medium">For classes</label>
+      <div class="flex items-center gap-2 mb-1"><button type="button" id="pmPtmAllCls" class="text-[11px] text-indigo-600 hover:underline">Select all</button><button type="button" id="pmPtmNoneCls" class="text-[11px] text-gray-500 hover:underline">Clear</button></div>
+      <div class="flex flex-wrap gap-1 max-h-32 overflow-y-auto border rounded p-2">${classChecks}</div>
+     </div>
+     <div><label class="text-xs font-medium">Note for parents (optional)</label><textarea id="pmPtmDesc" rows="2" placeholder="agenda / instructions"></textarea></div>
+    </div>
+    <button id="pmPtmSaveBtn" class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm mt-3 w-full"><i class="fas fa-plus mr-1"></i>Schedule Meeting</button>
+   </div>
+   <div class="bg-white border rounded-lg p-4">
+    <h3 class="font-semibold text-sm mb-3"><i class="fas fa-list mr-1"></i>Scheduled Meetings ${upcoming.length?`<span class="text-xs text-emerald-600 font-normal">(${upcoming.length} upcoming)</span>`:''}</h3>
+    <div class="space-y-2">${list}</div>
+   </div>
+  </div>
+ </div>`;
+}
+function _attachPtmManagementEvents(){
+ document.getElementById('pmPtmAllCls')?.addEventListener('click',()=>{ document.querySelectorAll('.pmPtmClassChk').forEach(c=>c.checked=true); });
+ document.getElementById('pmPtmNoneCls')?.addEventListener('click',()=>{ document.querySelectorAll('.pmPtmClassChk').forEach(c=>c.checked=false); });
+ document.getElementById('pmPtmSaveBtn')?.addEventListener('click',()=>{
+  const date=document.getElementById('pmPtmDate').value;
+  if(!date){alert('Pick a date for the meeting.');return;}
+  const classes=Array.from(document.querySelectorAll('.pmPtmClassChk')).filter(c=>c.checked).map(c=>c.value);
+  const evs=DB.getAll('ptmEvents');
+  evs.push({ id:Date.now(), title:document.getElementById('pmPtmTitle').value.trim()||'Parent-Teacher Meeting', date, time:document.getElementById('pmPtmTime').value.trim(), description:document.getElementById('pmPtmDesc').value.trim(), classes, createdBy:currentUser?.name||'' });
+  try { DB.setAll('ptmEvents', evs); } catch(e){ return; }
+  showToast('PTM scheduled'); renderApp();
+ });
+ document.querySelectorAll('.pmPtmDelBtn').forEach(b=>b.addEventListener('click',()=>{
+  if(!confirm('Delete this PTM? Attendance records for it will remain but be hidden.'))return;
+  const evs=DB.getAll('ptmEvents').filter(x=>x.id!==parseInt(b.dataset.id));
+  try { DB.setAll('ptmEvents', evs); } catch(e){}
+  showToast('PTM deleted'); renderApp();
+ }));
+ document.querySelectorAll('.pmPtmNotifyBtn').forEach(b=>b.addEventListener('click',()=>{
+  const ev=DB.getAll('ptmEvents').find(x=>x.id===parseInt(b.dataset.id)); if(!ev) return;
+  const roster=getStudents().filter(s=>(!ev.classes||!ev.classes.length||ev.classes.includes(s.class))&&!s.archived);
+  const school=(SCHOOL_INFO&&SCHOOL_INFO.shortName)||'School';
+  const msg=`Dear Parent, a Parent-Teacher Meeting (${ev.title||'PTM'}) is scheduled on ${fmtDate(ev.date)}${ev.time?' at '+ev.time:''}. Your presence is requested to discuss your child's progress. — ${school}`;
+  const recips=roster.map(s=>({name:s.parentName||s.fatherName||'Parent', studentName:s.name, phone:s.parentPhone||s.phone}));
+  showParentNotifyModal(recips, msg, 'Notify Parents — PTM');
+ }));
+}
+// Events for the teacher PTM portal (tracking only — scheduling is done by management).
+function _attachTchPtmEvents(){
+ document.querySelectorAll('.ptmEvRow').forEach(r=>r.addEventListener('click',()=>{ const id=parseInt(r.dataset.id); _ptmOpenEvent=(_ptmOpenEvent===id)?null:id; renderApp(); }));
+ const setAtt = (ev, sid, attended) => {
+  const all = _getPtmAttendance(); if(!all[ev]) all[ev]={}; if(!all[ev][sid]) all[ev][sid]={};
+  all[ev][sid].a = attended;
+  try { DB.setObject('ptmAttendance', all); } catch(e){}
+ };
+ document.querySelectorAll('.ptmAttBtn').forEach(b=>b.addEventListener('click',(e)=>{
+  e.stopPropagation();
+  const ev=parseInt(b.dataset.ev), sid=parseInt(b.dataset.sid), v=b.dataset.v==='1';
+  const all=_getPtmAttendance(); const cur=(all[ev]&&all[ev][sid])?all[ev][sid].a:undefined;
+  setAtt(ev, sid, cur===v ? undefined : v);
+  renderApp();
+ }));
+ document.querySelectorAll('.ptmNoteInput').forEach(inp=>inp.addEventListener('change',()=>{
+  const ev=parseInt(inp.dataset.ev), sid=parseInt(inp.dataset.sid);
+  const all=_getPtmAttendance(); if(!all[ev]) all[ev]={}; if(!all[ev][sid]) all[ev][sid]={};
+  all[ev][sid].n = inp.value.trim();
+  try { DB.setObject('ptmAttendance', all); } catch(e){}
+  showToast('Note saved');
+ }));
+ document.querySelectorAll('.ptmAllCame').forEach(b=>b.addEventListener('click',()=>{
+  const ev=parseInt(b.dataset.ev);
+  const evObj=DB.getAll('ptmEvents').find(x=>x.id===ev); if(!evObj) return;
+  const classes=_teacherAssignedClasses();
+  const evClasses=(evObj.classes&&evObj.classes.length)?evObj.classes.filter(c=>classes.includes(c)):classes;
+  const roster=getStudents().filter(s=>evClasses.includes(s.class)&&!s.archived);
+  const all=_getPtmAttendance(); if(!all[ev]) all[ev]={};
+  roster.forEach(s=>{ if(!all[ev][s.id]) all[ev][s.id]={}; all[ev][s.id].a=true; });
+  try { DB.setObject('ptmAttendance', all); } catch(e){}
+  renderApp();
+ }));
+ // Notify parents about a PTM
+ document.querySelectorAll('.ptmNotifyBtn').forEach(b=>b.addEventListener('click',()=>{
+  const ev=DB.getAll('ptmEvents').find(x=>x.id===parseInt(b.dataset.id)); if(!ev) return;
+  const classes=_teacherAssignedClasses();
+  const evClasses=(ev.classes&&ev.classes.length)?ev.classes.filter(c=>classes.includes(c)):classes;
+  const roster=getStudents().filter(s=>evClasses.includes(s.class)&&!s.archived);
+  const school=(SCHOOL_INFO&&SCHOOL_INFO.shortName)||'School';
+  const msg=`Dear Parent, a Parent-Teacher Meeting (${ev.title||'PTM'}) is scheduled on ${fmtDate(ev.date)}${ev.time?' at '+ev.time:''}. Your presence is requested to discuss your child's progress. — ${school}`;
+  const recips=roster.map(s=>({name:s.parentName||s.fatherName||'Parent', studentName:s.name, phone:s.parentPhone||s.phone}));
+  showParentNotifyModal(recips, msg, 'Notify Parents — PTM');
+ }));
+}
+function renderTchPTM(){
+ const classes = _teacherAssignedClasses();
+ if (classes.length === 0) return _noClassAssignedNotice();
+ const today = new Date().toISOString().slice(0,10);
+ const events = DB.getAll('ptmEvents')
+   .filter(e => !e.classes || e.classes.length===0 || e.classes.some(c => classes.includes(c)))
+   .sort((a,b) => (b.date||'').localeCompare(a.date||''));
+ const upcoming = events.filter(e => e.date >= today).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+ const nextPtm = upcoming[0];
+
+ const nextBanner = nextPtm ? `<div class="bg-gradient-to-r from-indigo-50 to-blue-50 border-2 border-indigo-200 rounded-xl p-4 mb-4">
+   <div class="flex flex-wrap items-center justify-between gap-2">
+    <div>
+     <div class="text-xs text-indigo-600 font-semibold uppercase">Next PTM</div>
+     <div class="font-bold text-lg">${escapeHTML(nextPtm.title||'Parent-Teacher Meeting')}</div>
+     <div class="text-sm text-gray-700"><i class="fas fa-calendar-day mr-1"></i>${fmtDate(nextPtm.date)}${nextPtm.time?' · '+escapeHTML(nextPtm.time):''}${nextPtm.date===today?' <span class="text-emerald-600 font-semibold">(Today)</span>':''}</div>
+     ${nextPtm.classes&&nextPtm.classes.length?`<div class="text-xs text-gray-500 mt-0.5">For Class ${nextPtm.classes.join(', ')}</div>`:''}
+    </div>
+    <button class="ptmNotifyBtn bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm font-medium" data-id="${nextPtm.id}"><i class="fab fa-whatsapp mr-1"></i>Notify parents</button>
+   </div>
+  </div>` : `<div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-sm text-amber-800"><i class="fas fa-calendar-xmark mr-1"></i>No upcoming PTM scheduled. Meetings are scheduled by the school office/management.</div>`;
+
+ // Meetings & attendance
+ const att = _getPtmAttendance();
+ const cards = events.length === 0 ? `<div class="bg-white border rounded-lg p-6 text-center text-gray-500"><i class="fas fa-calendar-xmark text-3xl mb-2"></i><div>No PTMs scheduled yet. When management schedules a PTM, it will appear here for you to record attendance.</div></div>`
+  : events.map(e => {
+   const evClasses = (e.classes&&e.classes.length)?e.classes.filter(c=>classes.includes(c)):classes;
+   const roster = getStudents().filter(s => evClasses.includes(s.class) && !s.archived);
+   const evAtt = att[e.id] || {};
+   const came = roster.filter(s => evAtt[s.id] && evAtt[s.id].a).length;
+   const open = _ptmOpenEvent === e.id;
+   const isPast = e.date < today;
+   return `<div class="border rounded-lg ${open?'ring-2 ring-indigo-300':''}">
+    <div class="p-3 cursor-pointer hover:bg-indigo-50 ptmEvRow" data-id="${e.id}">
+     <div class="flex items-center justify-between gap-2">
+      <div class="min-w-0">
+       <div class="font-semibold text-sm">${escapeHTML(e.title||'PTM')} ${isPast?'<span class="text-[11px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Past</span>':'<span class="text-[11px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">Upcoming</span>'}</div>
+       <div class="text-xs text-gray-500">${fmtDate(e.date)}${e.time?' · '+escapeHTML(e.time):''} · ${roster.length} families</div>
+      </div>
+      <div class="text-right flex-shrink-0"><div class="text-sm font-bold text-indigo-700">${came}/${roster.length}</div><div class="text-[10px] text-gray-400">attended</div><i class="fas fa-chevron-${open?'up':'down'} text-gray-400 text-xs"></i></div>
+     </div>
+    </div>
+    ${open ? _renderPtmRoster(e, roster, evAtt) : ''}
+   </div>`;
+  }).join('');
+
+ return `<div>
+  <h2 class="text-lg font-bold mb-1"><i class="fas fa-people-arrows text-indigo-600 mr-1"></i>Parent-Teacher Meetings</h2>
+  <p class="text-xs text-gray-500 mb-3">Record which parents attended, add notes per student, and send reminders. Meeting dates are set by the school office.</p>
+  ${nextBanner}
+  <div class="space-y-2">${cards}</div>
+ </div>`;
+}
+function _renderPtmRoster(e, roster, evAtt){
+ if (roster.length===0) return '<div class="border-t p-3 text-xs text-gray-500">No students for your class in this meeting.</div>';
+ const rows = roster.slice().sort((a,b)=>(a.rollNo||0)-(b.rollNo||0)).map(s => {
+  const a = evAtt[s.id] || {};
+  return `<div class="py-2 border-b last:border-0">
+   <div class="flex items-center justify-between gap-2">
+    <div class="text-sm min-w-0"><span class="text-gray-400 text-xs mr-1">${s.rollNo||'-'}</span>${escapeHTML(s.name)} <span class="text-xs text-gray-400">Cl ${escapeHTML(s.class)}</span></div>
+    <div class="flex gap-1 flex-shrink-0">
+     <button class="ptmAttBtn text-xs px-2 py-1 rounded ${a.a===true?'bg-emerald-600 text-white':'bg-gray-100 text-gray-600 hover:bg-gray-200'}" data-ev="${e.id}" data-sid="${s.id}" data-v="1"><i class="fas fa-check mr-1"></i>Came</button>
+     <button class="ptmAttBtn text-xs px-2 py-1 rounded ${a.a===false?'bg-rose-600 text-white':'bg-gray-100 text-gray-600 hover:bg-gray-200'}" data-ev="${e.id}" data-sid="${s.id}" data-v="0"><i class="fas fa-xmark mr-1"></i>No-show</button>
+    </div>
+   </div>
+   <input class="ptmNoteInput text-xs mt-1 w-full" data-ev="${e.id}" data-sid="${s.id}" placeholder="notes / remarks (e.g. discussed maths, needs practice)" value="${escapeHTML(a.n||'')}">
+  </div>`;
+ }).join('');
+ return `<div class="border-t bg-gray-50 p-3">
+   <div class="flex justify-between items-center mb-2"><div class="text-xs font-semibold text-gray-600">Parent attendance &amp; notes</div>
+    <button class="ptmAllCame text-xs bg-emerald-100 text-emerald-800 hover:bg-emerald-200 px-2 py-1 rounded" data-ev="${e.id}"><i class="fas fa-check-double mr-1"></i>All came</button></div>
+   <div>${rows}</div>
+  </div>`;
+}
 function renderParPTM(students){
  const events = DB.getAll('ptmEvents').sort((a,b) => (b.date||'').localeCompare(a.date||''));
  const studentClasses = new Set(students.map(s => s.class));
@@ -9563,7 +10003,7 @@ var _rcptYearFilter = 'all';
 var _rcptHeads = []; // line items being added to the current receipt: [{head, amount}]
 const RECEIPT_FEE_HEADS = [
   'Registration Fees', 'Admission Fee', 'Composite Fee', 'Tuition Fee', 'Book Fee', 'Computer Fee',
-  'Transport Fees', 'Annual Charges', 'Examination Fee', 'Day Boarding (Mess)'
+  'Transport Fees', 'Annual Charges', 'Examination Fee', 'Day Boarding (Mess)', 'Other'
 ];
 // Heads that reduce a student's outstanding fee balance when paid.
 const BALANCE_REDUCING_HEADS = ['Composite Fee','Tuition Fee','Admission Fee','Annual Fee','Annual Charges','Book Fee','Books','Transport','Transport Fees','Late Fee','Registration Fees','Computer Fee','Examination Fee','Day Boarding (Mess)'];
@@ -10265,8 +10705,13 @@ function renderAccReceipts(){
     </div>
     <div id="rcptBankRow" style="display:none">
      <label class="text-xs font-medium">Credit to school A/C *</label>
-     <select id="rcptBankAcc">${banks.map(b => `<option value="${b.id}">${b.bankName} · ${b.accountNo}</option>`).join('')}</select>
-     <div class="text-xs text-gray-500 mt-0.5">Select the school's bank account that received this payment</div>
+     <select id="rcptBankAcc">${banks.map(b => `<option value="${b.id}">${b.bankName} · ${b.accountNo}</option>`).join('')}<option value="__manual__">Other (type manually)…</option></select>
+     <div class="text-xs text-gray-500 mt-0.5">Select the school's bank account that received this payment, or choose "Other" to type it.</div>
+     <input id="rcptBankManual" placeholder="Type bank name / account number" style="display:none" class="mt-2">
+    </div>
+    <div id="rcptRefRow" style="display:none">
+     <label class="text-xs font-medium">Transaction Ref / UTR No. <span class="text-gray-400">(optional)</span></label>
+     <input id="rcptTxnRef" placeholder="e.g. UPI ref / NEFT UTR / txn ID">
     </div>
     <div>
      <label class="text-xs font-medium">Slip / Receipt No <span class="text-gray-400">(from receipt book)</span></label>
@@ -11386,7 +11831,7 @@ function _printSalarySlip(paymentId){
     <tr><td class="lbl">Employee ID</td><td>${escapeHTML(t.employeeId||'-')}</td></tr>
     <tr><td class="lbl">Payment For</td><td>${escapeHTML(p.forMonth||'-')} (Session ${escapeHTML(p.academicYear || currentSession())})</td></tr>
     <tr><td class="lbl">Payment Date</td><td>${fmtDate(p.date)}</td></tr>
-    <tr><td class="lbl">Payment Mode</td><td>${escapeHTML(p.mode||'-')}${p.chequeNo?' (Ref: '+escapeHTML(p.chequeNo)+')':''}</td></tr>
+    <tr><td class="lbl">Payment Mode</td><td>${escapeHTML(p.mode||'-')}${p.chequeNo?' (Ref: '+escapeHTML(p.chequeNo)+')':''}${p.txnRef?' (UTR: '+escapeHTML(p.txnRef)+')':''}${p.bankName?' — '+escapeHTML(p.bankName):''}</td></tr>
     ${p.note?`<tr><td class="lbl">Note</td><td>${escapeHTML(p.note)}</td></tr>`:''}
    </table>
    <div class="amt-box"><div class="l">Amount Paid</div><div class="v">${inr(p.amount)}</div></div>
@@ -11472,6 +11917,8 @@ function _generateReceiptHTML(txn){
 
      ${txn.chequeNo ? `<div class="row"><span class="lbl">Cheque No:</span> <span class="val mono">${txn.chequeNo}</span></div>` : ''}
      ${(bank && txn.mode && txn.mode !== 'Cash') ? `<div class="row"><span class="lbl">Credited to school A/C:</span> <span class="val">${bank.bankName} - A/C ${bank.accountNo}</span></div>` : ''}
+     ${(!bank && txn.bankName && txn.mode && txn.mode !== 'Cash') ? `<div class="row"><span class="lbl">Bank / A/C:</span> <span class="val">${escapeHTML(txn.bankName)}</span></div>` : ''}
+     ${txn.txnRef ? `<div class="row"><span class="lbl">Txn Ref / UTR:</span> <span class="val">${escapeHTML(txn.txnRef)}</span></div>` : ''}
      ${txn.notes ? `<div class="row"><span class="lbl">Notes:</span> <span class="val">${txn.notes}</span></div>` : ''}
 
      <div class="amount-block">
@@ -12658,11 +13105,20 @@ function _attachReceiptEvents(){
  const modeSel = document.getElementById('rcptMode');
  const chequeRow = document.getElementById('rcptChequeRow');
  const bankRow = document.getElementById('rcptBankRow');
+ const refRow = document.getElementById('rcptRefRow');
+ const bankAccSel = document.getElementById('rcptBankAcc');
+ const bankManual = document.getElementById('rcptBankManual');
+ // When "Other (type manually)" is chosen, reveal the free-text bank/account input.
+ const updateBankManual = () => { if (bankManual && bankAccSel) bankManual.style.display = (bankAccSel.value === '__manual__') ? '' : 'none'; };
+ bankAccSel?.addEventListener('change', updateBankManual);
  const updateRcptModeUI = () => {
   if (!modeSel) return;
   const m = modeSel.value;
+  const isOnline = m.includes('Online') || m === 'Bank Transfer';
   chequeRow.style.display = m === 'Cheque' ? '' : 'none';
-  bankRow.style.display = (m === 'Cheque' || m.includes('Online') || m === 'Bank Transfer') ? '' : 'none';
+  bankRow.style.display = (m === 'Cheque' || isOnline) ? '' : 'none';
+  if (refRow) refRow.style.display = isOnline ? '' : 'none';
+  updateBankManual();
  };
  modeSel?.addEventListener('change', updateRcptModeUI);
  updateRcptModeUI();
@@ -12683,7 +13139,11 @@ function _attachReceiptEvents(){
   const date = document.getElementById('rcptDate').value || new Date().toISOString().slice(0,10);
   const academicYear = document.getElementById('rcptYear')?.value || currentSession();
   const chequeNo = document.getElementById('rcptChequeNo')?.value.trim();
-  const bankAccId = (mode !== 'Cash') ? (parseInt(document.getElementById('rcptBankAcc')?.value) || null) : null;
+  const bankAccRaw = document.getElementById('rcptBankAcc')?.value;
+  const bankAccId = (mode !== 'Cash' && bankAccRaw && bankAccRaw !== '__manual__') ? (parseInt(bankAccRaw) || null) : null;
+  // Free-typed bank/account (when "Other" is chosen) and transaction reference/UTR.
+  const bankManualText = (mode !== 'Cash' && bankAccRaw === '__manual__') ? (document.getElementById('rcptBankManual')?.value.trim() || '') : '';
+  const txnRef = (mode.includes('Online') || mode === 'Bank Transfer') ? (document.getElementById('rcptTxnRef')?.value.trim() || '') : '';
   const notes = document.getElementById('rcptNotes').value.trim();
   const slipNo = document.getElementById('rcptSlipNo')?.value.trim();
   const slipPhoto = document.getElementById('rcptSlipPhoto')?.dataset.img || '';
@@ -12702,6 +13162,8 @@ function _attachReceiptEvents(){
    status: 'paid',
    chequeNo: chequeNo || undefined,
    bankAccountId: bankAccId || undefined,
+   bankName: bankManualText || undefined,   // free-typed bank/account when "Other" chosen
+   txnRef: txnRef || undefined,              // UPI/NEFT/IMPS reference or transaction ID
    notes: notes || undefined,
    createdBy: currentUser?.name || 'Accountant',
    createdByRole: currentUser?.role || 'accountant',
@@ -13396,6 +13858,21 @@ function attachOwnerEvents(){
   ownerView = 'resources';
   renderApp();
  });
+ // Staff attendance navigation
+ document.getElementById('ownerOpenStaffAttBtn')?.addEventListener('click', () => {
+  ownerView = 'staffattendance';
+  renderApp();
+ });
+ // Student attendance navigation
+ document.getElementById('ownerOpenStudentAttBtn')?.addEventListener('click', () => {
+  ownerView = 'studentattendance';
+  renderApp();
+ });
+ // PTM navigation
+ document.getElementById('ownerOpenPtmBtn')?.addEventListener('click', () => {
+  ownerView = 'ptm';
+  renderApp();
+ });
  // Report cards navigation
  document.getElementById('ownerOpenReportCardsBtn')?.addEventListener('click', () => {
   ownerView = 'reportcards';
@@ -13491,6 +13968,21 @@ function attachOwnerEvents(){
  // When on the Resources view, attach resource catalog handlers
  if (ownerView === 'resources') {
   attachResourceCatalogEvents();
+  return;
+ }
+ // When on the Staff Attendance view, attach staff attendance handlers
+ if (ownerView === 'staffattendance') {
+  _attachStaffAttendanceEvents();
+  return;
+ }
+ // When on the Student Attendance view, attach student attendance handlers
+ if (ownerView === 'studentattendance') {
+  _attachAdminAttendanceEvents();
+  return;
+ }
+ // When on the PTM view, attach PTM management handlers
+ if (ownerView === 'ptm') {
+  _attachPtmManagementEvents();
   return;
  }
  // When on the Report Cards view, attach report card handlers
@@ -13699,6 +14191,7 @@ function attachActiveAdminTabEvents(){
  else if(activeAdminTab==='attendance')_attachAdminAttendanceEvents();
  else if(activeAdminTab==='staffattendance')_attachStaffAttendanceEvents();
  else if(activeAdminTab==='resources')attachResourceCatalogEvents();
+ else if(activeAdminTab==='ptm')_attachPtmManagementEvents();
  else if(activeAdminTab==='disclosureDocs')attachDisclosureDocsEvents();
  else if(activeAdminTab==='users')attachUsersTabEvents();
  else if(activeAdminTab==='backup')attachBackupEvents();
@@ -13774,7 +14267,10 @@ function attachPrincipalEvents(){
 }
 function attachActivePrincipalTabEvents(){
  if(activePrincipalTab==='students')attachStudentsTabEvents();
+ else if(activePrincipalTab==='studentattendance')_attachAdminAttendanceEvents();
  else if(activePrincipalTab==='teachers')attachTeachersTabEvents();
+ else if(activePrincipalTab==='staffattendance')_attachStaffAttendanceEvents();
+ else if(activePrincipalTab==='ptm')_attachPtmManagementEvents();
  else if(activePrincipalTab==='compliance')attachComplianceEvents();
  else if(activePrincipalTab==='notices')attachNoticesTabEvents();
  else if(activePrincipalTab==='reportcards')attachReportCardsEvents();
@@ -14591,6 +15087,7 @@ function attachComplianceEvents(){
  }));
  document.querySelectorAll('.editComplianceBtn').forEach(b=>b.addEventListener('click',()=>{
   const c=getCompliance().find(x=>x.id===b.dataset.cid);if(!c)return;
+  _cmpPendingFile=null;
   document.getElementById('compModalTitle').innerText='Edit: '+c.name;
   document.getElementById('cmpId').value=c.id;
   document.getElementById('cmpName').value=c.name;
@@ -14600,23 +15097,48 @@ function attachComplianceEvents(){
   document.getElementById('cmpValidUntil').value=c.validUntil||'';
   document.getElementById('cmpDocRef').value=c.docRef||'';
   document.getElementById('cmpNotes').value=c.notes||'';
+  const fEl=document.getElementById('cmpFile'); if(fEl) fEl.value='';
+  const fs=document.getElementById('cmpFileStatus'); if(fs) fs.innerHTML=c.fileUrl?`<span class="text-emerald-600"><i class="fas fa-check mr-1"></i>Document on file (${escapeHTML(c.fileName||'file')}) — upload a new one to replace, or <a href="${c.fileUrl}" target="_blank" class="underline">view</a>.</span>`:'';
   document.getElementById('complianceModal').classList.remove('hidden');
  }));
  document.getElementById('addComplianceBtn')?.addEventListener('click',()=>{
+  _cmpPendingFile=null;
   document.getElementById('compModalTitle').innerText='Add Compliance Item';
   ['cmpId','cmpName','cmpDesc','cmpValidUntil','cmpDocRef','cmpNotes'].forEach(i=>document.getElementById(i).value='');
+  const fEl=document.getElementById('cmpFile'); if(fEl) fEl.value='';
+  const fs=document.getElementById('cmpFileStatus'); if(fs) fs.innerHTML='';
   document.getElementById('cmpCategory').value='Statutory';document.getElementById('cmpStatus').value='pending';
   document.getElementById('complianceModal').classList.remove('hidden');
  });
- document.getElementById('saveComplianceBtn')?.addEventListener('click',()=>{
+ // Capture the chosen document (uploaded to cloud on Save)
+ document.getElementById('cmpFile')?.addEventListener('change',e=>{
+  const f=e.target.files[0]; const st=document.getElementById('cmpFileStatus');
+  if(!f){_cmpPendingFile=null; return;}
+  if(f.size>10*1024*1024){ alert('File too large. Please keep it under 10 MB.'); e.target.value=''; _cmpPendingFile=null; return; }
+  _cmpPendingFile=f;
+  if(st) st.innerHTML=`<span class="text-emerald-600"><i class="fas fa-cloud-arrow-up mr-1"></i>Ready (${Math.round(f.size/1024)} KB) — saves to cloud on Save.</span>`;
+ });
+ document.getElementById('saveComplianceBtn')?.addEventListener('click',async ()=>{
   const name=document.getElementById('cmpName').value.trim();
   if(!name){alert('Name required');return}
   const items=getCompliance();
   const id=document.getElementById('cmpId').value;
   const data={name,desc:document.getElementById('cmpDesc').value,category:document.getElementById('cmpCategory').value,status:document.getElementById('cmpStatus').value,validUntil:document.getElementById('cmpValidUntil').value,docRef:document.getElementById('cmpDocRef').value,notes:document.getElementById('cmpNotes').value,enabled:true};
+  // Upload the document to the cloud if one was chosen
+  if(_cmpPendingFile && DB.storageAvailable()){
+   const btn=document.getElementById('saveComplianceBtn'); const orig=btn.innerHTML; btn.disabled=true; btn.innerHTML='Uploading…';
+   try{ const {url,path}=await DB.uploadFile(_cmpPendingFile,'compliance'); data.fileUrl=url; data.filePath=path; data.fileName=_cmpPendingFile.name; }
+   catch(err){ btn.disabled=false; btn.innerHTML=orig;
+    if(err&&err.message==='STORAGE_BUCKET_MISSING') alert('Cloud storage isn\u2019t set up yet, so the document can\u2019t be uploaded. You can still save the item and add the document later.');
+    else alert('Could not upload the document: '+((err&&err.message)||'unknown'));
+    return; }
+   btn.disabled=false; btn.innerHTML=orig;
+  } else if(_cmpPendingFile && !DB.storageAvailable()){
+   alert('Cloud storage is needed to upload the document. Please connect to the internet and try again.'); return;
+  }
   if(id){const i=items.findIndex(x=>x.id===id);if(i>-1)items[i]={...items[i],...data};showToast('Updated')}
   else{data.id='cmp_'+Date.now();items.push(data);showToast('Added')}
-  saveCompliance(items);document.getElementById('complianceModal').classList.add('hidden');refresh();
+  saveCompliance(items);_cmpPendingFile=null;document.getElementById('complianceModal').classList.add('hidden');refresh();
  });
  document.getElementById('exportComplianceBtn')?.addEventListener('click',exportComplianceReport);
 }
