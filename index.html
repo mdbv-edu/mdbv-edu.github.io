@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1784978135 - receipts: added Other to fee heads + editable bank/account (Other=type manually) and Transaction Ref/UTR field for online payments, shown on receipt -->
+<!-- BUILD: v-1784986437 - receipt fee head: selecting Other reveals a text box to type the actual fee name (stored as the head) -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -10706,8 +10706,8 @@ function renderAccReceipts(){
     <div id="rcptBankRow" style="display:none">
      <label class="text-xs font-medium">Credit to school A/C *</label>
      <select id="rcptBankAcc">${banks.map(b => `<option value="${b.id}">${b.bankName} · ${b.accountNo}</option>`).join('')}<option value="__manual__">Other (type manually)…</option></select>
-     <div class="text-xs text-gray-500 mt-0.5">Select the school's bank account that received this payment, or choose "Other" to type it.</div>
-     <input id="rcptBankManual" placeholder="Type bank name / account number" style="display:none" class="mt-2">
+     <input id="rcptBankManual" placeholder="Or type bank name / account number here" class="mt-2">
+     <div class="text-xs text-gray-500 mt-0.5">Pick the school account that received this, or just type the bank / account here.</div>
     </div>
     <div id="rcptRefRow" style="display:none">
      <label class="text-xs font-medium">Transaction Ref / UTR No. <span class="text-gray-400">(optional)</span></label>
@@ -10742,6 +10742,7 @@ function renderAccReceipts(){
         <option value="">— Select fee head —</option>
         ${RECEIPT_FEE_HEADS.map(h => `<option value="${escapeHTML(h)}">${escapeHTML(h)}</option>`).join('')}
        </select>
+       <input id="rcptHeadOther" placeholder="Type the fee name" class="text-sm w-full mt-1" style="display:none">
       </div>
       <div style="width:130px">
        <label class="text-xs text-gray-500 block mb-0.5">Amount (Rs.)</label>
@@ -11382,7 +11383,13 @@ function renderAccPayments(){
     </div>
     <div id="expBankRow" style="display:none">
      <label class="text-xs font-medium">From Bank Account</label>
-     <select id="expBankAcc">${banks.map(b => `<option value="${b.id}">${b.bankName} · ${b.accountNo}</option>`).join('')}</select>
+     <select id="expBankAcc">${banks.map(b => `<option value="${b.id}">${b.bankName} · ${b.accountNo}</option>`).join('')}<option value="__manual__">Other (type manually)…</option></select>
+     <input id="expBankManual" placeholder="Or type bank name / account number here" class="mt-2">
+     <div class="text-xs text-gray-500 mt-0.5">Pick a saved account above, or just type the bank / account here.</div>
+    </div>
+    <div id="expRefRow" style="display:none">
+     <label class="text-xs font-medium">Transaction Ref / UTR No. <span class="text-gray-400">(optional)</span></label>
+     <input id="expTxnRef" placeholder="e.g. UPI ref / NEFT UTR / txn ID">
     </div>
     <div class="md:col-span-2">
      <label class="text-xs font-medium">Description</label>
@@ -13108,8 +13115,8 @@ function _attachReceiptEvents(){
  const refRow = document.getElementById('rcptRefRow');
  const bankAccSel = document.getElementById('rcptBankAcc');
  const bankManual = document.getElementById('rcptBankManual');
- // When "Other (type manually)" is chosen, reveal the free-text bank/account input.
- const updateBankManual = () => { if (bankManual && bankAccSel) bankManual.style.display = (bankAccSel.value === '__manual__') ? '' : 'none'; };
+ // The typed box is always visible when the bank row shows — no need to pick "Other" first.
+ const updateBankManual = () => {};
  bankAccSel?.addEventListener('change', updateBankManual);
  const updateRcptModeUI = () => {
   if (!modeSel) return;
@@ -13142,7 +13149,7 @@ function _attachReceiptEvents(){
   const bankAccRaw = document.getElementById('rcptBankAcc')?.value;
   const bankAccId = (mode !== 'Cash' && bankAccRaw && bankAccRaw !== '__manual__') ? (parseInt(bankAccRaw) || null) : null;
   // Free-typed bank/account (when "Other" is chosen) and transaction reference/UTR.
-  const bankManualText = (mode !== 'Cash' && bankAccRaw === '__manual__') ? (document.getElementById('rcptBankManual')?.value.trim() || '') : '';
+  const bankManualText = (mode !== 'Cash') ? (document.getElementById('rcptBankManual')?.value.trim() || '') : '';
   const txnRef = (mode.includes('Online') || mode === 'Bank Transfer') ? (document.getElementById('rcptTxnRef')?.value.trim() || '') : '';
   const notes = document.getElementById('rcptNotes').value.trim();
   const slipNo = document.getElementById('rcptSlipNo')?.value.trim();
@@ -13260,7 +13267,14 @@ function _attachReceiptEvents(){
  const _rcptAddHead = () => {
   const sel = document.getElementById('rcptHeadSelect');
   const amtEl = document.getElementById('rcptHeadAmtInput');
-  const head = sel?.value;
+  const otherEl = document.getElementById('rcptHeadOther');
+  let head = sel?.value;
+  // When "Other" is picked, use the typed name instead.
+  if (head === 'Other') {
+   const typed = otherEl?.value.trim();
+   if (!typed) { alert('Type the fee name for "Other".'); otherEl?.focus(); return; }
+   head = typed;
+  }
   const amount = parseFloat(amtEl?.value) || 0;
   if (!head) { alert('Choose a fee head first.'); sel?.focus(); return; }
   if (amount <= 0) { alert('Enter an amount for ' + head + '.'); amtEl?.focus(); return; }
@@ -13269,14 +13283,20 @@ function _attachReceiptEvents(){
   if (existing) existing.amount = amount; else _rcptHeads.push({ head, amount });
   if (sel) sel.value = '';
   if (amtEl) amtEl.value = '';
+  if (otherEl) { otherEl.value = ''; otherEl.style.display = 'none'; }
   _rcptRenderHeads();
   sel?.focus();
  };
  document.getElementById('rcptHeadAddBtn')?.addEventListener('click', _rcptAddHead);
  // Enter in the amount box adds the line item
  document.getElementById('rcptHeadAmtInput')?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); _rcptAddHead(); } });
- // Selecting a head jumps focus to the amount box
- document.getElementById('rcptHeadSelect')?.addEventListener('change', () => { if (document.getElementById('rcptHeadSelect').value) document.getElementById('rcptHeadAmtInput')?.focus(); });
+ // Selecting a head: reveal the "Other" text box if needed, else jump to the amount box
+ document.getElementById('rcptHeadSelect')?.addEventListener('change', () => {
+  const sel = document.getElementById('rcptHeadSelect');
+  const otherEl = document.getElementById('rcptHeadOther');
+  if (sel.value === 'Other') { if (otherEl) { otherEl.style.display = ''; otherEl.focus(); } }
+  else { if (otherEl) { otherEl.style.display = 'none'; otherEl.value = ''; } if (sel.value) document.getElementById('rcptHeadAmtInput')?.focus(); }
+ });
  _rcptRenderHeads(); // initial paint
 
  // Academic-year hint — warn when recording against a past year's dues
@@ -13321,11 +13341,20 @@ function _attachPaymentEvents(){
  const modeSel = document.getElementById('expMode');
  const chequeRow = document.getElementById('expChequeRow');
  const bankRow = document.getElementById('expBankRow');
+ const refRow = document.getElementById('expRefRow');
+ const bankAccSel = document.getElementById('expBankAcc');
+ const bankManual = document.getElementById('expBankManual');
+ // The typed bank/account box is always visible whenever the bank row is shown, so no hidden step.
+ const updateExpBankManual = () => {};
+ bankAccSel?.addEventListener('change', updateExpBankManual);
  const updateExpModeUI = () => {
   if (!modeSel) return;
   const m = modeSel.value;
+  const isOnline = m.includes('Online') || m === 'Bank Transfer';
   chequeRow.style.display = m === 'Cheque' ? '' : 'none';
-  bankRow.style.display = (m === 'Cheque' || m.includes('Online') || m === 'Bank Transfer') ? '' : 'none';
+  bankRow.style.display = (m === 'Cheque' || isOnline) ? '' : 'none';
+  if (refRow) refRow.style.display = isOnline ? '' : 'none';
+  updateExpBankManual();
  };
  modeSel?.addEventListener('change', updateExpModeUI);
  updateExpModeUI();
@@ -13379,8 +13408,13 @@ function _attachPaymentEvents(){
   let vendor = document.getElementById('expVendor').value.trim();
   const description = document.getElementById('expDescription').value.trim();
   const chequeNo = document.getElementById('expChequeNo')?.value.trim();
-  // Only capture bank account for non-cash modes
-  const bankAccId = (mode !== 'Cash') ? (parseInt(document.getElementById('expBankAcc')?.value) || null) : null;
+  // Only capture bank account for non-cash modes; support a typed bank/account + a txn reference.
+  const expBankRaw = document.getElementById('expBankAcc')?.value;
+  // A saved account counts only if it's a real selection (not the "manual" sentinel).
+  const bankAccId = (mode !== 'Cash' && expBankRaw && expBankRaw !== '__manual__') ? (parseInt(expBankRaw) || null) : null;
+  // Whatever is typed in the box is used as the bank/account, regardless of the dropdown.
+  const bankManualText = (mode !== 'Cash') ? (document.getElementById('expBankManual')?.value.trim() || '') : '';
+  const expTxnRef = (mode.includes('Online') || mode === 'Bank Transfer') ? (document.getElementById('expTxnRef')?.value.trim() || '') : '';
 
   // Salary-specific: staff name (from the picker) + which month it's for.
   const isSalary = cat === 'Salary';
@@ -13399,6 +13433,8 @@ function _attachPaymentEvents(){
    amount: amt, mode,
    chequeNo: chequeNo || undefined,
    bankAccountId: bankAccId || undefined,
+   bankName: bankManualText || undefined,   // free-typed bank/account when "Other" chosen
+   txnRef: expTxnRef || undefined,           // UPI/NEFT/IMPS reference or transaction ID
    billData: document.getElementById('expBillData')?.value || undefined,
    billName: document.getElementById('expBillName')?.value || undefined,
    // Link fields so this expense and the salary record stay connected
