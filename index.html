@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1784986437 - receipt fee head: selecting Other reveals a text box to type the actual fee name (stored as the head) -->
+<!-- BUILD: v-1785427095 - accountant gets Students tab (edit fees/details); receipt+payment notes now shown in Ledger; new Manager role (Staff Attendance, Vehicles, Maintenance) -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -10327,9 +10327,49 @@ const PAYMENT_MODES = ['Cash', 'Cheque', 'Online (UPI/NEFT/IMPS)', 'Bank Transfe
 
 let activeAccountantTab = 'overview';
 
+// ===== MANAGER PANEL (Staff Attendance, Vehicles, Maintenance) =====
+let activeManagerTab = 'staffattendance';
+function renderManagerPanel(){
+ const tabs = [
+  {id:'staffattendance', label:'Staff Attendance', icon:'user-clock'},
+  {id:'vehicles',        label:'Vehicles',         icon:'bus'},
+  {id:'maintenance',     label:'Maintenance',      icon:'screwdriver-wrench'}
+ ];
+ const content = (() => {
+  switch(activeManagerTab){
+   case 'staffattendance': return renderStaffAttendance();
+   case 'vehicles':        return renderVehicles();
+   case 'maintenance':     return renderMaintenance();
+   default:                return renderStaffAttendance();
+  }
+ })();
+ return `<div class="min-h-screen bg-gray-50">
+  <div class="bg-white border-b sticky top-0 z-20">
+   <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+    <div>
+     <h1 class="text-lg md:text-xl font-bold"><i class="fas fa-user-gear text-teal-600 mr-2"></i>Manager</h1>
+     <p class="text-xs text-gray-500">${escapeHTML(currentUser.name||'')} · staff attendance, vehicles &amp; maintenance</p>
+    </div>
+    <button id="logoutMgrBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
+   </div>
+   <div class="max-w-7xl mx-auto px-4 flex gap-1 overflow-x-auto">
+    ${tabs.map(t => `<button class="mgr-tab px-3 py-2 rounded-t-lg text-sm font-medium whitespace-nowrap ${activeManagerTab===t.id?'bg-teal-600 text-white':'bg-gray-100 hover:bg-gray-200 text-gray-700'}" data-tab="${t.id}"><i class="fas fa-${t.icon} mr-1"></i>${t.label}</button>`).join('')}
+   </div>
+  </div>
+  <div class="max-w-7xl mx-auto p-4">${content}</div>
+ </div>`;
+}
+function attachManagerEvents(){
+ document.getElementById('logoutMgrBtn')?.addEventListener('click', () => { currentUser=null; activeManagerTab='staffattendance'; renderApp(); });
+ document.querySelectorAll('.mgr-tab').forEach(b => b.addEventListener('click', () => { activeManagerTab=b.dataset.tab; renderApp(); }));
+ if (activeManagerTab === 'staffattendance') _attachStaffAttendanceEvents();
+ else if (activeManagerTab === 'vehicles' || activeManagerTab === 'maintenance') attachGenericModuleEvents();
+}
+
 function renderAccountantPanel(){
  const tabs = [
   {id:'overview', label:'Overview',  icon:'gauge-high'},
+  {id:'students', label:'Students',  icon:'user-graduate'},
   {id:'receipts', label:'Receipts',  icon:'hand-holding-dollar'},
   {id:'payments', label:'Payments',  icon:'money-bill-transfer'},
   {id:'salary',   label:'Salary',    icon:'money-check-dollar'},
@@ -10503,6 +10543,7 @@ function attachFeeRemindersEvents(){
 function renderAccountantTabContent(){
  switch(activeAccountantTab){
   case 'overview': return renderAccOverview();
+  case 'students': return renderStudentsTab();
   case 'receipts': return renderAccReceipts();
   case 'payments': return renderAccPayments();
   case 'salary': return renderAccSalary();
@@ -11739,7 +11780,7 @@ function _renderLedgerResults(){
        <td>${s?.name || r.payerName || '-'}${s ? ' <span class="text-xs text-gray-500">(Class '+s.class+')</span>' : ''}</td>
        <td class="text-xs">${escapeHTML(_ledgerHead(r))}</td>
        <td class="text-xs">${r.mode}</td>
-       <td class="text-xs font-mono">${r.receiptNo || ''}${r.chequeNo ? ' Chq:'+r.chequeNo : ''}${r.slipPhoto ? ` <a href="${r.slipPhoto}" target="_blank" class="text-blue-600 ml-1" title="View receipt slip photo"><i class="fas fa-image"></i></a>` : ''}</td>
+       <td class="text-xs font-mono">${r.receiptNo || ''}${r.chequeNo ? ' Chq:'+r.chequeNo : ''}${r.txnRef ? ' <span class="text-gray-500">UTR:'+escapeHTML(r.txnRef)+'</span>' : ''}${r.slipPhoto ? ` <a href="${r.slipPhoto}" target="_blank" class="text-blue-600 ml-1" title="View receipt slip photo"><i class="fas fa-image"></i></a>` : ''}${r.notes ? `<div class="text-gray-600 italic font-sans mt-0.5" title="Note"><i class="fas fa-note-sticky mr-1 text-amber-500"></i>${escapeHTML(r.notes)}</div>` : ''}</td>
        <td class="text-right font-semibold text-emerald-700">+${fmtINR(r.amount)}</td>
        <td class="whitespace-nowrap">${printBtn} ${actionBtn}</td>
       </tr>`;
@@ -11750,7 +11791,7 @@ function _renderLedgerResults(){
        <td>${r.vendor || '-'}</td>
        <td class="text-xs">${escapeHTML(_ledgerHead(r))}</td>
        <td class="text-xs">${r.mode||'-'}</td>
-       <td class="text-xs">${r.description||''}${r.chequeNo ? ' Chq:'+r.chequeNo : ''}</td>
+       <td class="text-xs">${r.description||''}${r.chequeNo ? ' Chq:'+r.chequeNo : ''}${r.txnRef ? ' <span class="text-gray-500">UTR:'+escapeHTML(r.txnRef)+'</span>' : ''}${r.notes ? `<div class="text-gray-600 italic mt-0.5" title="Note"><i class="fas fa-note-sticky mr-1 text-amber-500"></i>${escapeHTML(r.notes)}</div>` : ''}</td>
        <td class="text-right font-semibold text-rose-700">-${fmtINR(r.amount)}</td>
        <td class="whitespace-nowrap">${actionBtn}</td>
       </tr>`;
@@ -12743,6 +12784,7 @@ function attachAccountantEvents(){
  }));
 
  if (activeAccountantTab === 'receipts') _attachReceiptEvents();
+ else if (activeAccountantTab === 'students') attachStudentsTabEvents();
  else if (activeAccountantTab === 'payments') _attachPaymentEvents();
  else if (activeAccountantTab === 'salary') _attachSalaryEvents();
  else if (activeAccountantTab === 'vehicles') _attachVehicleExpenseEvents();
@@ -13773,6 +13815,7 @@ function renderApp(){
   case 'parent':html=renderParentPanel();break;
   case 'student':html=renderStudentPanel();break;
   case 'accountant':html=renderAccountantPanel();break;
+  case 'manager':html=renderManagerPanel();break;
   case 'activityincharge':html=renderActivityInchargePanel();break;
   case 'admin_teacher':html=_comboSwitcher('admin','teacher')+(comboView==='teacher'?renderTeacherPanel():renderAdminPanel());break;
   case 'accountant_teacher':html=_comboSwitcher('accountant','teacher')+(comboView==='teacher'?renderTeacherPanel():renderAccountantPanel());break;
@@ -13787,6 +13830,7 @@ function renderApp(){
  else if(currentUser.role==='parent')attachParentEvents();
  else if(currentUser.role==='student')attachStudentEvents();
  else if(currentUser.role==='accountant')attachAccountantEvents();
+ else if(currentUser.role==='manager')attachManagerEvents();
  else if(currentUser.role==='activityincharge')attachActivityInchargeEvents();
  else if(currentUser.role==='admin_teacher'){
   _attachComboSwitcher();
@@ -16322,6 +16366,7 @@ function renderUsersTab(){
      <option value="teacher_activityincharge">Teacher + Activity Incharge</option>
      <option value="parent">Parent</option>
      <option value="accountant">Accountant</option>
+     <option value="manager">Manager (Staff Attendance, Vehicles, Maintenance)</option>
      <option value="student">Student</option>
     </select></div>
     <div id="teacherIdRow" style="display:none"><label class="text-xs font-medium">Linked Teacher ID</label><input type="number" id="userModalTeacherId" placeholder="ID from Teachers tab"></div>
