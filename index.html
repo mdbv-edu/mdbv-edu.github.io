@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1785427095 - accountant gets Students tab (edit fees/details); receipt+payment notes now shown in Ledger; new Manager role (Staff Attendance, Vehicles, Maintenance) -->
+<!-- BUILD: v-1786001427 - Accountant Bulk Fee Entry: upload a register, match to existing students by name+class, set Total Fee + Balance (optional opening receipt); touches only students/fees -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -10661,6 +10661,142 @@ function renderAccOverview(){
 }
 
 /* ---------- TAB 2: RECEIPTS (fee + other income) ---------- */
+
+// ===== BULK FEE ENTRY (accountant): set Total Fee + Balance for EXISTING students from a register =====
+var _bulkFeeCandidates = null;
+function _normName(s){ return (s||'').toString().toLowerCase().replace(/\s+/g,' ').trim(); }
+function _generateBulkFeeTemplate(){
+ if (typeof XLSX === 'undefined') { alert('Excel library not loaded. Please reload and try again.'); return; }
+ const headers = ['Student Name *','Class *','Total Fee (Rs.)','Balance Due / Unpaid (Rs.)'];
+ const sample = [
+  ['Aditi','12',30000,30000],
+  ['Esha','12',25000,0],
+  ['Khushi','12',30000,15000]
+ ];
+ const aoa = [headers, ...sample];
+ const ws = XLSX.utils.aoa_to_sheet(aoa);
+ ws['!cols'] = [{wch:22},{wch:8},{wch:16},{wch:22}];
+ const note = XLSX.utils.aoa_to_sheet([
+  ['MDBV — Bulk Fee Entry (for EXISTING students)'],[''],
+  ['HOW TO USE'],
+  ['1. One row per student already in the system. Match is by Student Name + Class.'],
+  ['2. Total Fee = the student\u2019s full/agreed fee. Balance Due = what they still owe (0 = fully paid).'],
+  ['3. Delete the 3 sample rows, fill your students, save as .xlsx.'],
+  ['4. Accountant \u2192 Receipts \u2192 "Upload & Match" \u2192 review \u2192 Apply.'],[''],
+  ['NOTES'],
+  ['\u2022 This only updates fee amount + balance on matched students. It touches nothing else.'],
+  ['\u2022 Names must match how they are spelled in the system (check the Students tab).'],
+  ['\u2022 A name with no match (or two students with the same name+class) is skipped and shown to you.']
+ ]);
+ const wb = XLSX.utils.book_new();
+ XLSX.utils.book_append_sheet(wb, ws, 'Fees');
+ XLSX.utils.book_append_sheet(wb, note, 'READ ME');
+ XLSX.writeFile(wb, 'MDBV_Bulk_Fee_Template.xlsx');
+}
+function _handleBulkFeeUpload(arrayBuffer){
+ let rows;
+ try {
+  const wb = XLSX.read(arrayBuffer, { type:'array' });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  rows = XLSX.utils.sheet_to_json(ws, { header:1, blankrows:false });
+ } catch(e){ alert('Could not read the file: ' + e.message); return; }
+ if (!rows || rows.length < 2) { alert('No data rows found. Use the template and add rows below the header.'); return; }
+ // Map headers
+ const norm = h => (h||'').toString().toLowerCase().replace(/\s*\([^)]*\)/g,'').replace(/\s*\*\s*$/,'').replace(/\s+/g,' ').trim();
+ const header = rows[0].map(norm);
+ const findCol = (aliases) => header.findIndex(h => aliases.includes(h));
+ const ci = {
+  name: findCol(['student name','name','student']),
+  cls:  findCol(['class']),
+  total:findCol(['total fee','fee','annual fee','total']),
+  bal:  findCol(['balance due / unpaid','balance due','balance','unpaid','due'])
+ };
+ if (ci.name === -1 || ci.cls === -1) { alert('Could not find "Student Name" and "Class" columns. Please use the Template.'); return; }
+ const students = getStudents().filter(s => !s.archived);
+ const cand = [];
+ for (let i=1;i<rows.length;i++){
+  const row = rows[i]; if (!row || row.length===0) continue;
+  const name = (row[ci.name]||'').toString().trim();
+  const cls  = (row[ci.cls]!=null?row[ci.cls]:'').toString().trim();
+  if (!name && !cls) continue;
+  const total = ci.total>-1 ? parseInt(String(row[ci.total]).replace(/[^\d]/g,''))||0 : 0;
+  const balRaw = ci.bal>-1 ? String(row[ci.bal]).replace(/[^\d]/g,'') : '';
+  const bal = balRaw==='' ? null : (parseInt(balRaw)||0);
+  // match existing students by name + class
+  const matches = students.filter(s => _normName(s.name)===_normName(name) && String(s.class)===String(cls));
+  let status, student=null;
+  if (matches.length===1){ status='matched'; student=matches[0]; }
+  else if (matches.length===0){ status='nomatch'; }
+  else { status='ambiguous'; }
+  cand.push({ rowNum:i+1, name, cls, total, bal, status, studentId:student?student.id:null,
+              curFee: student?(student.decidedFees||student.annualFees||0):0,
+              curBal: student?(student.feeBalance||0):0 });
+ }
+ _bulkFeeCandidates = cand;
+ _renderBulkFeePreview();
+ document.getElementById('bulkFeeModal').classList.remove('hidden');
+}
+function _renderBulkFeePreview(){
+ const cand = _bulkFeeCandidates || [];
+ const matched = cand.filter(c=>c.status==='matched');
+ const nomatch = cand.filter(c=>c.status==='nomatch');
+ const ambig = cand.filter(c=>c.status==='ambiguous');
+ document.getElementById('bulkFeeSummary').innerHTML =
+  `<div class="flex flex-wrap gap-2 text-sm">
+    <span class="pill pill-green">${matched.length} matched</span>
+    ${nomatch.length?`<span class="pill pill-red">${nomatch.length} no match (skipped)</span>`:''}
+    ${ambig.length?`<span class="pill pill-amber">${ambig.length} duplicate name+class (skipped)</span>`:''}
+   </div>`;
+ const rowHtml = c => {
+  const badge = c.status==='matched'?'<span class="pill pill-green">Match</span>'
+    : c.status==='nomatch'?'<span class="pill pill-red">No match</span>'
+    : '<span class="pill pill-amber">Ambiguous</span>';
+  const change = c.status==='matched'
+    ? `Rs.${(c.curFee||0).toLocaleString('en-IN')} → <b>Rs.${(c.total||0).toLocaleString('en-IN')}</b> · Bal Rs.${(c.curBal||0).toLocaleString('en-IN')} → <b>Rs.${(c.bal==null?c.curBal:c.bal).toLocaleString('en-IN')}</b>`
+    : c.status==='nomatch' ? '<span class="text-rose-600">no student with this name in this class</span>'
+    : '<span class="text-amber-600">more than one student with this name+class — fix manually</span>';
+  return `<tr class="${c.status==='matched'?'':'bg-rose-50'}"><td class="text-xs px-2 py-1">${c.rowNum}</td><td class="px-2 py-1">${escapeHTML(c.name)}</td><td class="text-center px-2 py-1">${escapeHTML(c.cls)}</td><td class="px-2 py-1">${badge}</td><td class="text-xs px-2 py-1">${change}</td></tr>`;
+ };
+ document.getElementById('bulkFeeTable').innerHTML =
+  `<table class="text-sm w-full"><thead class="bg-gray-100 sticky top-0"><tr><th class="px-2 py-1">Row</th><th class="px-2 py-1 text-left">Name</th><th class="px-2 py-1">Class</th><th class="px-2 py-1">Status</th><th class="px-2 py-1 text-left">Change</th></tr></thead><tbody>${cand.map(rowHtml).join('')}</tbody></table>`;
+}
+function _applyBulkFees(){
+ const cand = (_bulkFeeCandidates||[]).filter(c=>c.status==='matched');
+ if (cand.length===0){ alert('No matched students to update.'); return; }
+ const makeReceipt = document.getElementById('bulkFeeMakeReceipt')?.checked;
+ const students = getStudents();
+ const txns = getFeeTransactions();
+ const today = new Date().toISOString().slice(0,10);
+ const year = currentSession();
+ let updated=0, receipts=0;
+ cand.forEach(c => {
+  const s = students.find(x=>x.id===c.studentId); if(!s) return;
+  if (c.total>0){ s.decidedFees = c.total; if(!s.annualFees) s.annualFees = c.total; }
+  const newBal = (c.bal==null) ? (s.feeBalance||0) : c.bal;
+  // optionally record the already-paid portion as an opening receipt
+  if (makeReceipt && c.total>0){
+   const paid = Math.max(0, c.total - newBal);
+   if (paid>0){
+    txns.push({ id:Date.now()+Math.floor(Math.random()*1000)+receipts, studentId:s.id, amount:paid, mode:'Cash',
+      date:today, academicYear:year, feeHead:'Opening Balance', headLabel:'Opening Balance (from register)',
+      heads:[{head:'Opening Balance',amount:paid}], receiptNo:'OPEN'+(Date.now().toString().slice(-6))+receipts,
+      status:'completed', notes:'Bulk opening entry from fee register', createdBy:currentUser?.name||'', createdByRole:currentUser?.role||'accountant', createdAt:new Date().toISOString() });
+    receipts++;
+   }
+  }
+  s.feeBalance = newBal;
+  updated++;
+ });
+ try {
+  saveStudents(students);
+  if (makeReceipt && receipts>0) saveFeeTransactions(txns);
+ } catch(e){ return; }
+ document.getElementById('bulkFeeModal').classList.add('hidden');
+ _bulkFeeCandidates = null;
+ showToast(`Updated ${updated} student${updated!==1?'s':''}${receipts?` · ${receipts} receipt(s) recorded`:''}`);
+ renderApp();
+}
+
 function renderAccReceipts(){
  const students = getStudents();
  const receipts = getFeeTransactions();
@@ -10675,6 +10811,28 @@ function renderAccReceipts(){
  const classOrder = ALL_CLASSES.filter(c => byClass[c]);
 
  return `<div>
+  <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-3 mb-4 flex flex-wrap items-center justify-between gap-2">
+   <div class="text-sm">
+    <span class="font-semibold text-indigo-900"><i class="fas fa-file-import mr-1"></i>Bulk Fee Entry</span>
+    <span class="text-gray-600">— set Total Fee &amp; Balance for many existing students at once (from a register).</span>
+   </div>
+   <div class="flex gap-2">
+    <button id="bulkFeeTemplateBtn" class="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-file-arrow-down mr-1"></i>Template</button>
+    <button id="bulkFeeImportBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-file-arrow-up mr-1"></i>Upload &amp; Match</button>
+    <input type="file" id="bulkFeeFile" class="hidden" accept=".xlsx,.xls,.csv">
+   </div>
+  </div>
+  <div id="bulkFeeModal" class="hidden modal"><div class="modal-content" style="max-width:1000px">
+   <h3 class="text-lg font-bold mb-2"><i class="fas fa-file-import text-indigo-600 mr-1"></i>Bulk Fee Entry — Preview</h3>
+   <p class="text-sm text-gray-600 mb-2">Each row is matched to an <b>existing</b> student by name + class. Green = matched (will update), red = no match (skipped). Nothing else in the system is touched.</p>
+   <label class="text-sm flex items-center gap-2 mb-2"><input type="checkbox" id="bulkFeeMakeReceipt" class="w-auto"> Also record the paid amount (Total − Balance) as an opening receipt dated today</label>
+   <div id="bulkFeeSummary" class="mb-2"></div>
+   <div id="bulkFeeTable" class="overflow-auto max-h-96 border rounded"></div>
+   <div class="flex justify-end gap-2 mt-3">
+    <button class="closeModal bg-gray-300 px-4 py-2 rounded-lg text-sm">Cancel</button>
+    <button id="bulkFeeConfirmBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-check mr-1"></i>Apply to Matched Students</button>
+   </div>
+  </div></div>
   ${(() => {
     // If a receipt was just saved, show a "Print last receipt" banner
     const lastId = DB.getScalar('_lastReceiptId');
@@ -13119,7 +13277,23 @@ function _attachVehicleExpenseEvents(){
 }
 
 function _attachReceiptEvents(){
- // Receipt slip photo — compress and stash on the input's dataset for the save handler.
+ // ---- Bulk Fee Entry (existing students) ----
+ document.getElementById('bulkFeeTemplateBtn')?.addEventListener('click', _generateBulkFeeTemplate);
+ const bulkFeeFile = document.getElementById('bulkFeeFile');
+ document.getElementById('bulkFeeImportBtn')?.addEventListener('click', () => {
+  if (typeof XLSX === 'undefined') { alert('Excel library not loaded. Please reload and try again.'); return; }
+  bulkFeeFile.value=''; bulkFeeFile.click();
+ });
+ bulkFeeFile?.addEventListener('change', e => {
+  const f = e.target.files[0]; if(!f) return;
+  if (f.size > 5*1024*1024){ alert('File too large (max 5 MB)'); return; }
+  const reader = new FileReader();
+  reader.onload = ev => _handleBulkFeeUpload(ev.target.result);
+  reader.readAsArrayBuffer(f);
+ });
+ document.getElementById('bulkFeeConfirmBtn')?.addEventListener('click', _applyBulkFees);
+ document.querySelectorAll('.closeModal').forEach(b=>b.addEventListener('click',()=>document.getElementById('bulkFeeModal')?.classList.add('hidden')));
+
  document.getElementById('rcptSlipPhoto')?.addEventListener('change', function(e){
   const f = e.target.files && e.target.files[0];
   const prev = document.getElementById('rcptSlipPhotoPreview');
