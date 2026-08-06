@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1786001427 - Accountant Bulk Fee Entry: upload a register, match to existing students by name+class, set Total Fee + Balance (optional opening receipt); touches only students/fees -->
+<!-- BUILD: v-1786002207 - restore now accepts BOTH backup formats (flat top-level + wrapped) so older backups remain restorable -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -3738,14 +3738,39 @@ function downloadFullBackup(){
  }
 }
 // Restore from a parsed backup object. Returns {ok, restored, error}.
+// Accepts BOTH formats: the wrapped format ({_backup:true, data:{...}}) and the older/flat
+// format where the tables sit at the top level (e.g. {students:"...", feeTransactions:"..."}).
 function restoreFromBackup(backupObj){
- if (!backupObj || !backupObj._backup || !backupObj.data) {
+ if (!backupObj || typeof backupObj !== 'object') {
+  return { ok:false, error:'This does not look like a valid MDBV backup file.' };
+ }
+ // Figure out where the table map is.
+ let dataMap = null;
+ if (backupObj._backup && backupObj.data && typeof backupObj.data === 'object') {
+  dataMap = backupObj.data;                       // wrapped format
+ } else {
+  // Flat format: treat the object itself as the table map, as long as it carries
+  // recognisable app tables (guards against restoring an unrelated JSON file).
+  const looksLikeBackup = ['students','feeTransactions','users','teachers','schemaVersion']
+    .some(k => Object.prototype.hasOwnProperty.call(backupObj, k));
+  if (looksLikeBackup) dataMap = backupObj;
+ }
+ if (!dataMap) {
   return { ok:false, error:'This does not look like a valid MDBV backup file.' };
  }
  try {
-  const entries = Object.entries(backupObj.data);
-  entries.forEach(([key, value]) => { localStorage.setItem(key, value); });
-  return { ok:true, restored: entries.length };
+  const entries = Object.entries(dataMap);
+  let restored = 0;
+  entries.forEach(([key, value]) => {
+   // Skip any wrapper/meta keys that may be present in the flat format.
+   if (['_backup','_app','_version','_createdAt','_createdBy','_tableCount','data'].includes(key)) return;
+   // Values are stored as raw JSON strings; if a value is an object/array (some exporters
+   // keep it parsed), stringify it before writing to localStorage.
+   const toStore = (typeof value === 'string') ? value : JSON.stringify(value);
+   localStorage.setItem(key, toStore);
+   restored++;
+  });
+  return { ok:true, restored };
  } catch (e) {
   return { ok:false, error: e.message };
  }
