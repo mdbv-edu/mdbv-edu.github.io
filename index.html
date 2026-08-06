@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1786003289 - Bulk Fee Entry expanded: also sets father name, contact, village + builds installment schedule from the register due dates -->
+<!-- BUILD: v-1786009157 - fix: accountant Students tab filters/search/buttons now refresh the accountant view (added accountant branch to refresh + refreshAdminTabContent fallback) -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -14127,6 +14127,12 @@ function _attachComboSwitcher(){
 }
 
 function refreshAdminTabContent(){
+ // If an accountant (who reuses some admin-built views like the Students tab) is active,
+ // there is no adminTabContent on their page — refresh the accountant container instead.
+ if (currentUser && currentUser.role==='accountant' && !document.getElementById('adminTabContent')){
+  const ac=document.getElementById('accTabContent');
+  if(ac){ ac.innerHTML=renderAccountantTabContent(); if(activeAccountantTab==='students') attachStudentsTabEvents(); return; }
+ }
  const el=document.getElementById('adminTabContent');
  if(el){el.innerHTML=renderAdminTabContent();attachActiveAdminTabEvents()}
 }
@@ -14632,6 +14638,11 @@ function attachStudentsTabEvents(){
  if (typeof attachDataManagementEvents === 'function') attachDataManagementEvents();
  const refresh=()=>{
   if (isOwnerLevel()) renderApp();
+  else if (currentUser && currentUser.role==='accountant'){
+   const el=document.getElementById('accTabContent');
+   if(el){ el.innerHTML=renderAccountantTabContent(); attachStudentsTabEvents(); }
+   else renderApp();
+  }
   else if (activeAdminTab==='students') refreshAdminTabContent();
   else refreshPrincipalTabContent();
  };
