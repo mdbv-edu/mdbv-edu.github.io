@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1786011253 - Parent column shows Father name, falls back to Mother, then any parent (header stays Parent) -->
+<!-- BUILD: v-1786194859 - Bulk Fee tool can now RENAME a student to the correct spelling via a Current System Name column (matches by old name, renames to new); conflicts (name already exists) are skipped but fees still apply -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -10761,6 +10761,7 @@ function _handleBulkFeeUpload(arrayBuffer){
  const findCol = (aliases) => header.findIndex(h => aliases.includes(h));
  const ci = {
   name:  findCol(['student name','name','student']),
+  matchName: findCol(['current system name','system name','match name','existing name']),
   cls:   findCol(['class']),
   father:findCol(['father name','father',"father's name"]),
   phone: findCol(['contact number','contact','phone','parent phone','mobile']),
@@ -10780,8 +10781,11 @@ function _handleBulkFeeUpload(arrayBuffer){
   const row = rows[i]; if (!row || row.length===0) continue;
   const name = val(row,ci.name), cls = val(row,ci.cls);
   if (!name && !cls) continue;
+  // If a "System Name" column is present, match on it and treat "Student Name" as the correct (rename) target.
+  const matchName = ci.matchName>-1 ? val(row,ci.matchName) : name;
+  const renameTo = (ci.matchName>-1 && name && _normName(name)!==_normName(matchName)) ? name : '';
   const rec = {
-   name, cls,
+   name, cls, matchName, renameTo,
    father: val(row,ci.father),
    phone: val(row,ci.phone).replace(/[^\d]/g,''),
    village: val(row,ci.village),
@@ -10789,11 +10793,18 @@ function _handleBulkFeeUpload(arrayBuffer){
    bal: ci.bal>-1 ? intOf(val(row,ci.bal)) : null,
    dates: [val(row,ci.i1), val(row,ci.i2), val(row,ci.i3)].filter(x=>x!=='')
   };
-  const matches = students.filter(s => _normName(s.name)===_normName(name) && String(s.class)===String(cls));
+  const matches = students.filter(s => _normName(s.name)===_normName(matchName) && String(s.class)===String(cls));
   let status='nomatch', student=null;
   if (matches.length===1){ status='matched'; student=matches[0]; }
   else if (matches.length>1){ status='ambiguous'; }
-  cand.push({ rowNum:i+1, ...rec, status, studentId:student?student.id:null,
+  // Guard: if a rename target already exists as a DIFFERENT student in the class, flag the conflict.
+  let renameConflict=false;
+  if (renameTo && student){
+   const clash = students.find(s => _normName(s.name)===_normName(renameTo) && String(s.class)===String(cls) && s.id!==student.id);
+   if (clash) renameConflict=true;
+  }
+  cand.push({ rowNum:i+1, ...rec, status, renameConflict, studentId:student?student.id:null,
+              curName: student?student.name:'',
               curFee: student?(student.decidedFees||student.annualFees||0):0,
               curBal: student?(student.feeBalance||0):0 });
  }
@@ -10806,9 +10817,13 @@ function _renderBulkFeePreview(){
  const matched = cand.filter(c=>c.status==='matched');
  const nomatch = cand.filter(c=>c.status==='nomatch');
  const ambig = cand.filter(c=>c.status==='ambiguous');
+ const renames = matched.filter(c=>c.renameTo && !c.renameConflict).length;
+ const rconf = matched.filter(c=>c.renameConflict).length;
  document.getElementById('bulkFeeSummary').innerHTML =
   `<div class="flex flex-wrap gap-2 text-sm">
     <span class="pill pill-green">${matched.length} matched</span>
+    ${renames?`<span class="pill pill-blue">${renames} will be renamed</span>`:''}
+    ${rconf?`<span class="pill pill-amber">${rconf} rename skipped (name exists)</span>`:''}
     ${nomatch.length?`<span class="pill pill-red">${nomatch.length} no match (skipped)</span>`:''}
     ${ambig.length?`<span class="pill pill-amber">${ambig.length} duplicate name+class (skipped)</span>`:''}
    </div>`;
@@ -10818,6 +10833,8 @@ function _renderBulkFeePreview(){
     : '<span class="pill pill-amber">Ambiguous</span>';
   let sets = [];
   if (c.status==='matched'){
+   if (c.renameTo && !c.renameConflict) sets.push(`<span class="text-indigo-700">rename "${escapeHTML(c.curName||c.matchName)}" → "${escapeHTML(c.renameTo)}"</span>`);
+   else if (c.renameConflict) sets.push(`<span class="text-amber-700">rename to "${escapeHTML(c.renameTo)}" SKIPPED — already exists</span>`);
    if (c.total>0) sets.push(`Fee Rs.${c.total.toLocaleString('en-IN')}`);
    if (c.bal!=null) sets.push(`Bal Rs.${c.bal.toLocaleString('en-IN')}`);
    if (c.father) sets.push('Father');
@@ -10827,7 +10844,7 @@ function _renderBulkFeePreview(){
    if (nd) sets.push(nd+' installment'+(nd>1?'s':''));
   } else if (c.status==='nomatch'){ sets=['<span class="text-rose-600">no student with this name in this class</span>']; }
   else { sets=['<span class="text-amber-600">two students share this name+class — fix manually</span>']; }
-  return `<tr class="${c.status==='matched'?'':'bg-rose-50'}"><td class="text-xs px-2 py-1">${c.rowNum}</td><td class="px-2 py-1">${escapeHTML(c.name)}</td><td class="text-center px-2 py-1">${escapeHTML(c.cls)}</td><td class="px-2 py-1">${badge}</td><td class="text-xs px-2 py-1">${sets.join(' · ')}</td></tr>`;
+  return `<tr class="${c.status==='matched'?'':'bg-rose-50'}"><td class="text-xs px-2 py-1">${c.rowNum}</td><td class="px-2 py-1">${escapeHTML(c.renameTo||c.name)}</td><td class="text-center px-2 py-1">${escapeHTML(c.cls)}</td><td class="px-2 py-1">${badge}</td><td class="text-xs px-2 py-1">${sets.join(' · ')}</td></tr>`;
  };
  document.getElementById('bulkFeeTable').innerHTML =
   `<table class="text-sm w-full"><thead class="bg-gray-100 sticky top-0"><tr><th class="px-2 py-1">Row</th><th class="px-2 py-1 text-left">Name</th><th class="px-2 py-1">Class</th><th class="px-2 py-1">Status</th><th class="px-2 py-1 text-left">Will set</th></tr></thead><tbody>${cand.map(rowHtml).join('')}</tbody></table>`;
@@ -10840,9 +10857,11 @@ function _applyBulkFees(){
  const txns = getFeeTransactions();
  const today = new Date().toISOString().slice(0,10);
  const year = currentSession();
- let updated=0, receipts=0;
+ let updated=0, receipts=0, renamed=0;
  cand.forEach(c => {
   const s = students.find(x=>x.id===c.studentId); if(!s) return;
+  // Rename the student to the correct spelling (unless it would collide with another student)
+  if (c.renameTo && !c.renameConflict && _normName(s.name)!==_normName(c.renameTo)){ s.name = c.renameTo; renamed++; }
   // Details
   if (c.father){ s.fatherName = c.father; if(!s.parentName) s.parentName = c.father; }
   if (c.phone){ s.parentPhone = c.phone; }
@@ -10873,7 +10892,58 @@ function _applyBulkFees(){
  } catch(e){ return; }
  document.getElementById('bulkFeeModal').classList.add('hidden');
  _bulkFeeCandidates = null;
- showToast(`Updated ${updated} student${updated!==1?'s':''}${receipts?` · ${receipts} receipt(s)`:''}`);
+ showToast(`Updated ${updated} student${updated!==1?'s':''}${renamed?` · ${renamed} renamed`:''}${receipts?` · ${receipts} receipt(s)`:''}`);
+ renderApp();
+}
+
+// ===== CREATE OPENING RECEIPTS: put already-paid amounts (fee - balance) into the ledger, =====
+// skipping whatever existing receipts already cover, so nothing is double-counted.
+function _openingReceiptCandidates(){
+ const students = getStudents().filter(s => !s.archived);
+ const txns = getFeeTransactions();
+ const out = [];
+ students.forEach(s => {
+  const fee = s.decidedFees || s.annualFees || 0;
+  if (!fee) return;
+  const bal = s.feeBalance || 0;
+  const paid = Math.max(0, fee - bal);
+  if (paid <= 0) return;
+  const already = txns.filter(t => t.studentId === s.id && t.status !== 'cancelled')
+                      .reduce((a,t) => a + (t.amount||0), 0);
+  const shortfall = paid - already;
+  if (shortfall > 0) out.push({ id:s.id, name:s.name, cls:s.class, fee, bal, paid, already, shortfall });
+ });
+ return out;
+}
+function _renderOpeningReceiptsPreview(){
+ const cand = _openingReceiptCandidates();
+ const total = cand.reduce((a,c)=>a+c.shortfall,0);
+ document.getElementById('openingRcptSummary').innerHTML = cand.length
+  ? `<div class="text-sm"><span class="pill pill-green">${cand.length} receipt(s) to create</span> <span class="pill pill-blue">Total Rs.${total.toLocaleString('en-IN')}</span></div>`
+  : `<div class="text-sm text-gray-600">Nothing to create — every student's paid amount is already covered by receipts in the ledger.</div>`;
+ document.getElementById('openingRcptTable').innerHTML = cand.length
+  ? `<table class="text-sm w-full"><thead class="bg-gray-100 sticky top-0"><tr><th class="px-2 py-1 text-left">Student</th><th class="px-2 py-1">Class</th><th class="px-2 py-1 text-right">Fee</th><th class="px-2 py-1 text-right">Balance</th><th class="px-2 py-1 text-right">Paid</th><th class="px-2 py-1 text-right">Already in ledger</th><th class="px-2 py-1 text-right">New receipt</th></tr></thead><tbody>${cand.map(c=>`<tr><td class="px-2 py-1">${escapeHTML(c.name)}</td><td class="text-center px-2 py-1">${escapeHTML(c.cls||'')}</td><td class="text-right px-2 py-1">${c.fee.toLocaleString('en-IN')}</td><td class="text-right px-2 py-1">${c.bal.toLocaleString('en-IN')}</td><td class="text-right px-2 py-1">${c.paid.toLocaleString('en-IN')}</td><td class="text-right px-2 py-1 text-gray-500">${c.already.toLocaleString('en-IN')}</td><td class="text-right px-2 py-1 font-semibold text-emerald-700">${c.shortfall.toLocaleString('en-IN')}</td></tr>`).join('')}</tbody></table>`
+  : '';
+}
+function _createOpeningReceipts(){
+ const cand = _openingReceiptCandidates();
+ if (cand.length === 0){ alert('Nothing to create — paid amounts are already covered by receipts.'); return; }
+ const date = document.getElementById('openingRcptDate')?.value || new Date().toISOString().slice(0,10);
+ const mode = document.getElementById('openingRcptMode')?.value || 'Cash';
+ const txns = getFeeTransactions();
+ const year = currentSession();
+ let n = 0;
+ cand.forEach(c => {
+  txns.push({ id:Date.now()+Math.floor(Math.random()*100000)+n, studentId:c.id, amount:c.shortfall, mode:mode,
+    date:date, academicYear:year, feeHead:'Opening Balance', headLabel:'Opening Balance (fees paid before system)',
+    heads:[{head:'Opening Balance',amount:c.shortfall}], receiptNo:'OPEN'+String(Date.now()).slice(-6)+n,
+    status:'completed', notes:'Opening entry — fee paid before going digital',
+    createdBy:currentUser?.name||'', createdByRole:currentUser?.role||'accountant', createdAt:new Date().toISOString() });
+  n++;
+ });
+ try { saveFeeTransactions(txns); } catch(e){ return; }
+ document.getElementById('openingRcptModal').classList.add('hidden');
+ showToast(`Created ${n} opening receipt(s)`);
  renderApp();
 }
 
@@ -10899,9 +10969,26 @@ function renderAccReceipts(){
    <div class="flex gap-2">
     <button id="bulkFeeTemplateBtn" class="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-file-arrow-down mr-1"></i>Template</button>
     <button id="bulkFeeImportBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-file-arrow-up mr-1"></i>Upload &amp; Match</button>
+    <button id="openingReceiptsBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium" title="Create receipts in the ledger for amounts already paid (fee − balance)"><i class="fas fa-receipt mr-1"></i>Create Opening Receipts</button>
     <input type="file" id="bulkFeeFile" class="hidden" accept=".xlsx,.xls,.csv">
    </div>
   </div>
+  <div id="openingRcptModal" class="hidden modal"><div class="modal-content" style="max-width:900px">
+   <h3 class="text-lg font-bold mb-1"><i class="fas fa-receipt text-emerald-600 mr-1"></i>Create Opening Receipts</h3>
+   <p class="text-sm text-gray-600 mb-2">This makes a receipt in the ledger for each student's already-paid amount (<b>fee − balance</b>), so past payments show up. It <b>skips whatever is already covered by existing receipts</b>, so nothing is counted twice.</p>
+   <div class="flex flex-wrap items-center gap-3 mb-2">
+    <label class="text-sm">Receipt date <input type="date" id="openingRcptDate" class="text-sm ml-1" style="width:auto"></label>
+    <label class="text-sm">Mode
+     <select id="openingRcptMode" class="text-sm ml-1" style="width:auto"><option>Cash</option><option>Online (UPI/NEFT/IMPS)</option><option>Cheque</option><option>Bank Transfer</option></select>
+    </label>
+   </div>
+   <div id="openingRcptSummary" class="mb-2"></div>
+   <div id="openingRcptTable" class="overflow-auto max-h-80 border rounded"></div>
+   <div class="flex justify-end gap-2 mt-3">
+    <button class="closeOpeningRcpt bg-gray-300 px-4 py-2 rounded-lg text-sm">Cancel</button>
+    <button id="openingRcptConfirmBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-check mr-1"></i>Create Receipts</button>
+   </div>
+  </div></div>
   <div id="bulkFeeModal" class="hidden modal"><div class="modal-content" style="max-width:1000px">
    <h3 class="text-lg font-bold mb-2"><i class="fas fa-file-import text-indigo-600 mr-1"></i>Bulk Fee Entry — Preview</h3>
    <p class="text-sm text-gray-600 mb-2">Each row is matched to an <b>existing</b> student by name + class. Green = matched (will update), red = no match (skipped). Nothing else in the system is touched.</p>
@@ -13372,6 +13459,18 @@ function _attachReceiptEvents(){
   reader.readAsArrayBuffer(f);
  });
  document.getElementById('bulkFeeConfirmBtn')?.addEventListener('click', _applyBulkFees);
+ // Opening receipts tool
+ document.getElementById('openingReceiptsBtn')?.addEventListener('click', () => {
+  const d = document.getElementById('openingRcptDate');
+  if (d && !d.value){ // default to start of session (April 1) so it doesn't inflate today's collection
+   const y = (currentSession()||'').split(/[-/]/)[0] || String(new Date().getFullYear());
+   d.value = `${y}-04-01`;
+  }
+  _renderOpeningReceiptsPreview();
+  document.getElementById('openingRcptModal').classList.remove('hidden');
+ });
+ document.getElementById('openingRcptConfirmBtn')?.addEventListener('click', _createOpeningReceipts);
+ document.querySelectorAll('.closeOpeningRcpt').forEach(b=>b.addEventListener('click',()=>document.getElementById('openingRcptModal')?.classList.add('hidden')));
  document.querySelectorAll('.closeModal').forEach(b=>b.addEventListener('click',()=>document.getElementById('bulkFeeModal')?.classList.add('hidden')));
 
  document.getElementById('rcptSlipPhoto')?.addEventListener('change', function(e){
