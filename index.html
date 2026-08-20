@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1786194859 - Bulk Fee tool can now RENAME a student to the correct spelling via a Current System Name column (matches by old name, renames to new); conflicts (name already exists) are skipped but fees still apply -->
+<!-- BUILD: v-1787244210 - accountant can now edit receipt details (receipt no, slip, date, mode, UTR, note) directly; amount stays owner-approved. Receipt-no field added to edit modal. Users<->Staff sync: teaching-role logins auto-create a Staff record + new Sync button -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -12093,6 +12093,8 @@ function _renderLedgerResults(){
      // Accountant must Request Fix; Admin sees Request Fix as well (read-only via Owner panel).
      const actionBtn = (currentUser?.role === 'owner')
       ? `<button class="ledEditBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${r.id}" data-kind="${r._kind}" title="Edit"><i class="fas fa-edit"></i></button> <button class="ledDelBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${r.id}" data-kind="${r._kind}" title="Delete"><i class="fas fa-trash"></i></button>`
+      : (isAccountantLevel() && !isAdminLevel())
+       ? `<button class="ledEditBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${r.id}" data-kind="${r._kind}" title="Edit details (receipt no, date, mode, notes)"><i class="fas fa-edit"></i></button> ${pending?'<span class="pill pill-amber text-xs ml-1" title="Amount correction requested"><i class="fas fa-hourglass-half"></i></span>':`<button class="ledRequestBtn bg-amber-500 hover:bg-amber-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${r.id}" data-kind="${r._kind}" title="Request an amount correction (needs owner approval)"><i class="fas fa-flag"></i></button>`}`
       : pending
        ? `<span class="pill pill-amber text-xs" title="Correction requested — awaiting owner review"><i class="fas fa-hourglass-half mr-1"></i>Requested</span>`
        : `<button class="ledRequestBtn bg-amber-500 hover:bg-amber-600 text-white px-2 py-1 rounded text-xs" data-id="${r.id}" data-kind="${r._kind}" title="Request correction"><i class="fas fa-flag mr-1"></i>Request Fix</button>`;
@@ -12797,6 +12799,8 @@ function _openCorrectionRequestModal(txnId, txnKind){
 }
 
 // Open the transaction edit modal (admin only)
+// Accountant edits are allowed for clerical fields but the amount is locked (amount changes need owner approval).
+function _txnEditAmountLocked(){ return isAccountantLevel() && !isAdminLevel() && (currentUser && currentUser.role!=='owner'); }
 function _openTxnEditModal(txnId, txnKind){
  const id = parseInt(txnId);
  const arr = txnKind === 'receipt' ? getFeeTransactions() : get('expenses');
@@ -12834,9 +12838,13 @@ function _openTxnEditModal(txnId, txnKind){
    <div><label class="text-xs font-medium">Vendor</label><input id="txeVendor" value="${(t.vendor||'').replace(/"/g,'&quot;')}"></div>
    <div class="md:col-span-2"><label class="text-xs font-medium">Description</label><input id="txeDesc" value="${(t.description||'').replace(/"/g,'&quot;')}"></div>
    `}
-   <div><label class="text-xs font-medium">Amount (Rs.)</label><input type="number" id="txeAmount" value="${t.amount||0}"></div>
+   ${txnKind === 'receipt' ? `<div><label class="text-xs font-medium">Receipt No.</label><input id="txeReceiptNo" value="${(t.receiptNo||'').replace(/"/g,'&quot;')}"></div>
+   <div><label class="text-xs font-medium">Slip No. (optional)</label><input id="txeSlipNo" value="${(t.slipNo||'').replace(/"/g,'&quot;')}"></div>` : ''}
+   <div><label class="text-xs font-medium">Amount (Rs.)${_txnEditAmountLocked()?' <span class="text-gray-400">(locked — request a fix to change)</span>':''}</label><input type="number" id="txeAmount" value="${t.amount||0}" ${_txnEditAmountLocked()?'readonly class="bg-gray-100 text-gray-500"':''}></div>
    <div><label class="text-xs font-medium">Mode</label><select id="txeMode">${PAYMENT_MODES.map(m=>`<option ${t.mode===m?'selected':''}>${m}</option>`).join('')}</select></div>
    <div><label class="text-xs font-medium">Date</label><input type="date" id="txeDate" value="${t.date||''}"></div>
+   <div><label class="text-xs font-medium">Transaction Ref / UTR</label><input id="txeTxnRef" value="${(t.txnRef||'').replace(/"/g,'&quot;')}"></div>
+   <div class="md:col-span-2"><label class="text-xs font-medium">Note</label><input id="txeNotes" value="${(t.notes||'').replace(/"/g,'&quot;')}"></div>
    <div><label class="text-xs font-medium">Bank Account (if non-cash)</label><select id="txeBank"><option value="">— None —</option>${banks.map(b=>`<option value="${b.id}" ${t.bankAccountId===b.id?'selected':''}>${b.bankName}</option>`).join('')}</select></div>
    <div class="md:col-span-2">
     <label class="text-xs font-medium">Reason for change *</label>
@@ -12858,10 +12866,12 @@ function _openTxnEditModal(txnId, txnKind){
   _reverseTxnEffect(before, txnKind);
 
   // Build updated record
-  const newAmount = parseInt(document.getElementById('txeAmount').value) || 0;
+  const newAmount = _txnEditAmountLocked() ? (t.amount||0) : (parseInt(document.getElementById('txeAmount').value) || 0);
   const newMode = document.getElementById('txeMode').value;
   const newDate = document.getElementById('txeDate').value;
   const newBankId = parseInt(document.getElementById('txeBank').value) || null;
+  const newTxnRef = document.getElementById('txeTxnRef') ? document.getElementById('txeTxnRef').value.trim() : t.txnRef;
+  const newNotes = document.getElementById('txeNotes') ? document.getElementById('txeNotes').value.trim() : t.notes;
   let updated;
   if (txnKind === 'receipt') {
    const newSid = parseInt(document.getElementById('txeStudent').value) || 0;
@@ -12870,6 +12880,10 @@ function _openTxnEditModal(txnId, txnKind){
     payerName: newSid === 0 ? document.getElementById('txePayerName').value.trim() : undefined,
     feeHead: document.getElementById('txeHead').value,
     academicYear: document.getElementById('txeYear')?.value || t.academicYear,
+    receiptNo: (document.getElementById('txeReceiptNo')?.value.trim()) || t.receiptNo,
+    slipNo: (document.getElementById('txeSlipNo')?.value.trim()) || undefined,
+    txnRef: newTxnRef || undefined,
+    notes: newNotes || undefined,
     amount: newAmount, mode: newMode, date: newDate,
     bankAccountId: newBankId || undefined };
   } else {
@@ -12877,6 +12891,8 @@ function _openTxnEditModal(txnId, txnKind){
     category: document.getElementById('txeCat').value,
     vendor: document.getElementById('txeVendor').value.trim() || undefined,
     description: document.getElementById('txeDesc').value.trim() || undefined,
+    txnRef: newTxnRef || undefined,
+    notes: newNotes || undefined,
     amount: newAmount, mode: newMode, date: newDate,
     bankAccountId: newBankId || undefined };
   }
@@ -16654,6 +16670,7 @@ function renderUsersTab(){
    <h2 class="text-lg font-bold"><i class="fas fa-user-shield text-indigo-600 mr-1"></i>User Accounts</h2>
    <div class="flex flex-wrap gap-2">
     <button id="addUserBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-plus mr-1"></i>Add User</button>
+    <button id="syncStaffBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium ml-2" title="Create a Staff record for every login that has a teaching role, so they appear on the Staff page and can be assigned classes"><i class="fas fa-people-arrows mr-1"></i>Sync Staff ↔ Logins</button>
     <button id="bulkGenBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-bolt mr-1"></i>Bulk Generate</button>
     <button id="exportLoginsBtn" class="bg-saffron-600 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium" style="background:#c8860d"><i class="fas fa-print mr-1"></i>Print Login Sheet</button>
    </div>
@@ -16849,6 +16866,25 @@ function attachUsersTabEvents(){
   document.getElementById('userModal').classList.remove('hidden');
  };
  document.getElementById('addUserBtn')?.addEventListener('click', () => openUserModal(null));
+ // Reconcile logins with staff: every teaching-role login gets a Staff record (if missing).
+ document.getElementById('syncStaffBtn')?.addEventListener('click', () => {
+  const users = getUsers();
+  const teachers = getTeachers();
+  let created = 0, linked = 0;
+  users.forEach(u => {
+   if (!isTeacherRole(u.role)) return;
+   let t = u.teacherId ? teachers.find(x => x.id === u.teacherId) : null;
+   if (!t) t = teachers.find(x => (x.name||'').trim().toLowerCase() === (u.name||'').trim().toLowerCase());
+   if (!t) {
+    t = { id: Math.max(0, ...teachers.map(x=>x.id||0)) + 1, name: u.name, staffType:'Teaching', subject:'', assignedClasses:[], salary:0, phone:'', createdFrom:'user' };
+    teachers.push(t); created++;
+   }
+   if (u.teacherId !== t.id) { u.teacherId = t.id; linked++; }
+  });
+  saveTeachers(teachers); set('users', users);
+  showToast(`Sync done — ${created} staff record(s) created, ${linked} linked`);
+  refresh();
+ });
  document.querySelectorAll('.editUserBtn').forEach(b => b.addEventListener('click', () => openUserModal(b.dataset.id)));
  document.querySelectorAll('.delUserBtn').forEach(b => b.addEventListener('click', () => {
   const u = getUsers().find(x => x.id === parseInt(b.dataset.id));
@@ -16897,6 +16933,20 @@ function attachUsersTabEvents(){
   if (role === 'student' && studentId) data.studentId = studentId;
   // Hash the password if one was entered; otherwise keep the existing one (edit mode)
   if (password) { data.password = await hashPassword(password); data.defaultPw = false; }
+  // ==== Keep Users and Staff in sync ====
+  // A user with any teaching role must have a matching Staff (teacher) record so they appear on
+  // the Staff page and can be assigned classes. If none is linked, create or reuse one by name.
+  if (isTeacherRole(role)) {
+   const teachers = getTeachers();
+   let tRec = data.teacherId ? teachers.find(t => t.id === data.teacherId) : null;
+   if (!tRec) tRec = teachers.find(t => (t.name||'').trim().toLowerCase() === name.toLowerCase());
+   if (!tRec) {
+    tRec = { id: Math.max(0, ...teachers.map(t=>t.id||0)) + 1, name, staffType:'Teaching', subject:'', assignedClasses:[], salary:0, phone:'', createdFrom:'user' };
+    teachers.push(tRec);
+    saveTeachers(teachers);
+   }
+   data.teacherId = tRec.id;
+  }
   if (id) {
    const i = users.findIndex(x => x.id === parseInt(id));
    if (i > -1) users[i] = { ...users[i], ...data };
