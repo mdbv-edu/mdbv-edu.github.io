@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1787244210 - accountant can now edit receipt details (receipt no, slip, date, mode, UTR, note) directly; amount stays owner-approved. Receipt-no field added to edit modal. Users<->Staff sync: teaching-role logins auto-create a Staff record + new Sync button -->
+<!-- BUILD: v-1787245784 - fix: dynamically-created modals (receipt/txn edit etc) now render as proper centered popups (added body-level modal CSS) instead of dumping unstyled at page bottom; Cancel/close now works reliably via delegated handler (fixes intermittent broken Cancel on student edit popups) -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -291,6 +291,12 @@
   #portal .modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 1rem; }
   #portal .modal.hidden { display: none; }
   #portal .modal-content { background: #fff; padding: 1.5rem; border-radius: 1rem; max-width: 720px; width: 100%; max-height: 88vh; overflow-y: auto; box-shadow: 0 20px 50px rgba(0,0,0,.3); }
+  /* Modals created dynamically and appended to <body> (outside #portal) need the same overlay styling. */
+  body > .modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 1rem; }
+  body > .modal.hidden { display: none; }
+  body > .modal .modal-content { background: #fff; padding: 1.5rem; border-radius: 1rem; max-width: 720px; width: 100%; max-height: 88vh; overflow-y: auto; box-shadow: 0 20px 50px rgba(0,0,0,.3); }
+  body > .modal input, body > .modal select, body > .modal textarea { border: 1px solid #d1d5db; border-radius: 0.5rem; padding: 0.5rem; width: 100%; }
+  body > .modal label { display:block; margin-bottom: 0.15rem; }
   #portal .switch { position: relative; display: inline-block; width: 46px; height: 26px; flex-shrink: 0; }
   #portal .switch input { opacity: 0; width: 0; height: 0; }
   #portal .slider { position: absolute; cursor: pointer; inset: 0; background: #d1d5db; transition: .3s; border-radius: 26px; }
@@ -16195,6 +16201,26 @@ function attachStudentEvents(){
 
 /* ---------- UNIVERSAL MODAL CLOSE ---------- */
 function attachUniversalCloseEvents(){
+ // Delegated close: one listener on document catches EVERY .closeModal click and backdrop click,
+ // including on modals created dynamically later (e.g. the receipt/txn edit modal). This is what
+ // makes Cancel reliable everywhere — per-button wiring misses modals added after render.
+ if (!window._modalCloseDelegated){
+  window._modalCloseDelegated = true;
+  document.addEventListener('click', e => {
+   const btn = e.target.closest && e.target.closest('.closeModal');
+   if (btn){
+    e.preventDefault();
+    const m = btn.closest('.modal');
+    if (m){ m.classList.add('hidden'); if (m.parentElement === document.body) setTimeout(()=>{ try{m.remove();}catch(_){} },0); }
+    return;
+   }
+   // Click on the dark backdrop itself (not the content) closes the modal.
+   if (e.target.classList && e.target.classList.contains('modal')){
+    e.target.classList.add('hidden');
+    if (e.target.parentElement === document.body) setTimeout(()=>{ try{e.target.remove();}catch(_){} },0);
+   }
+  });
+ }
  // Wire every Cancel/close (.closeModal) button. Mark each so repeated calls don't stack handlers.
  document.querySelectorAll('.closeModal').forEach(b=>{
   if (b.dataset._closeWired === '1') return;
