@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1787337104 - Financial Model redesigned: salaries split teaching/non-teaching + add-staff rows (principal goes here), transport split into fuel/maintenance/permits/misc, separate school-maintenance & expenses, per-year editable growth table, Now+projection view -->
+<!-- BUILD: v-1787338405 - owner dashboard decluttered: 18 feature cards replaced with 5 category tiles (Finance, Academics, Students & Staff, Attendance, Administration), each opening a dedicated section page -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -3826,6 +3826,7 @@ function enterPortal() {
 
 /* ---------- OWNER DASHBOARD ---------- */
 let ownerView = 'dashboard'; // 'dashboard' | 'accounts' | 'users'
+let ownerSection = null; // null = category tiles; 'finance'|'academics'|'people'|'attendance'|'admin' = that category's page
 
 function renderOwnerDashboard(){
  // If owner is viewing the Accounts section, render the full admin Accounts UI
@@ -4100,6 +4101,7 @@ function renderOwnerDashboard(){
   </div>`;
  }
 
+ if (ownerSection) return _ownerSectionPage(ownerSection);
  const st=getStudents(),tc=getTeachers(),c=getComplaints(),inf=getSchoolInfra();
  const tot=st.reduce((a,x)=>a+(x.feeBalance||0),0);
  const pend=c.filter(x=>x.status==='open').length;
@@ -4166,210 +4168,7 @@ function renderOwnerDashboard(){
    </div>
   </div>
 
-  <!-- Accounts & Audit (Owner-only authority) + User Management -->
-  <div class="grid md:grid-cols-2 gap-4 mt-6">
-   <div class="bg-gradient-to-r from-purple-50 to-indigo-50 border-2 border-purple-200 rounded-xl p-5">
-    <div class="flex flex-wrap items-start justify-between gap-3">
-     <div class="flex-1 min-w-0">
-      <h2 class="font-semibold mb-1"><i class="fas fa-book-open-reader text-purple-600 mr-2"></i>Accounts & Audit</h2>
-      <p class="text-sm text-gray-700">Review correction requests, edit/delete transactions, view audit log.</p>
-      <div class="flex flex-wrap gap-3 mt-2 text-sm">
-       ${pendingRequests > 0 ? `<span class="pill pill-amber"><i class="fas fa-flag mr-1"></i>${pendingRequests} pending</span>` : '<span class="text-emerald-700 text-xs"><i class="fas fa-circle-check mr-1"></i>No pending</span>'}
-       <span class="text-gray-600 text-xs">${auditCount} audit ${auditCount===1?'entry':'entries'}</span>
-      </div>
-     </div>
-    </div>
-    <button id="ownerOpenAccountsBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3 ${pendingRequests>0?'animate-pulse':''}">
-     <i class="fas fa-arrow-right-to-bracket mr-1"></i>Open Accounts & Audit
-    </button>
-   </div>
-
-   <div class="bg-gradient-to-r from-indigo-50 to-sky-50 border-2 border-indigo-200 rounded-xl p-5">
-    <div class="flex flex-wrap items-start justify-between gap-3">
-     <div class="flex-1 min-w-0">
-      <h2 class="font-semibold mb-1"><i class="fas fa-user-shield text-indigo-600 mr-2"></i>User Accounts</h2>
-      <p class="text-sm text-gray-700">Add staff, parents, students; change passwords; print login slips.</p>
-      <div class="flex flex-wrap gap-3 mt-2 text-sm">
-       <span class="text-gray-700 text-xs"><i class="fas fa-users mr-1"></i>${getUsers().length} login${getUsers().length===1?'':'s'}</span>
-       ${(() => { const placeholders = getUsers().filter(u => u.defaultPw || u.password === 'CHANGE_ME').length; return placeholders > 0 ? `<span class="pill pill-red"><i class="fas fa-key mr-1"></i>${placeholders} default password${placeholders===1?'':'s'}</span>` : '<span class="text-emerald-700 text-xs"><i class="fas fa-circle-check mr-1"></i>All passwords set</span>'; })()}
-      </div>
-     </div>
-    </div>
-    <button id="ownerOpenUsersBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3 ${getUsers().filter(u=>u.defaultPw||u.password==='CHANGE_ME').length>0?'animate-pulse':''}">
-     <i class="fas fa-arrow-right-to-bracket mr-1"></i>Manage Users
-    </button>
-   </div>
-  </div>
-  <!-- Second row: Fee Structure + Notices quick-access -->
-  <div class="grid md:grid-cols-2 gap-4 mt-4">
-   <div class="bg-gradient-to-r from-amber-50 to-yellow-50 border-2 border-amber-200 rounded-xl p-5">
-    <h2 class="font-semibold mb-1"><i class="fas fa-indian-rupee-sign text-amber-600 mr-2"></i>Fee Structure</h2>
-    <p class="text-sm text-gray-700">Define annual fees per class. Students auto-inherit their class plan on enrolment.</p>
-    <div class="flex flex-wrap gap-2 mt-2 text-xs">
-     <span class="text-gray-700"><i class="fas fa-file-invoice-dollar mr-1"></i>${getFeeStructures().length} class plan${getFeeStructures().length===1?'':'s'} set</span>
-     ${getFeeStructures().length < ALL_CLASSES.length ? `<span class="pill pill-amber">${ALL_CLASSES.length - getFeeStructures().length} classes without fees</span>` : '<span class="text-emerald-700"><i class="fas fa-circle-check mr-1"></i>All classes configured</span>'}
-    </div>
-    <button id="ownerOpenFeeStructBtn" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
-     <i class="fas fa-arrow-right-to-bracket mr-1"></i>Manage Fee Structure
-    </button>
-   </div>
-   <div class="bg-gradient-to-r from-rose-50 to-orange-50 border-2 border-orange-200 rounded-xl p-5">
-    <h2 class="font-semibold mb-1"><i class="fas fa-thumbtack text-orange-600 mr-2"></i>Notice Board</h2>
-    <p class="text-sm text-gray-700">Post announcements to students, parents, teachers or the whole school.</p>
-    <div class="flex flex-wrap gap-2 mt-2 text-xs">
-     <span class="text-gray-700"><i class="fas fa-bell mr-1"></i>${getNotices().filter(n=>!n.expiry||n.expiry>=new Date().toISOString().slice(0,10)).length} active notice${getNotices().filter(n=>!n.expiry||n.expiry>=new Date().toISOString().slice(0,10)).length===1?'':'s'}</span>
-    </div>
-    <button id="ownerOpenNoticesBtn" class="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
-     <i class="fas fa-arrow-right-to-bracket mr-1"></i>Manage Notices
-    </button>
-   </div>
-  </div>
-
-  <!-- Third row: Students + Report Cards quick-access for the Owner -->
-  <div class="grid md:grid-cols-2 gap-4 mt-4">
-   <div class="bg-gradient-to-r from-indigo-50 to-blue-50 border-2 border-indigo-200 rounded-xl p-5">
-    <h2 class="font-semibold mb-1"><i class="fas fa-user-graduate text-indigo-600 mr-2"></i>Students</h2>
-    <p class="text-sm text-gray-700">View all student details, photos, ID cards, fees and profiles.</p>
-    <div class="flex flex-wrap gap-2 mt-2 text-xs">
-     <span class="text-gray-700"><i class="fas fa-users mr-1"></i>${getStudents().filter(s=>!s.archived).length} students enrolled</span>
-    </div>
-    <button id="ownerOpenStudentsBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
-     <i class="fas fa-arrow-right-to-bracket mr-1"></i>View Students
-    </button>
-   </div>
-   <div class="bg-gradient-to-r from-purple-50 to-violet-50 border-2 border-purple-200 rounded-xl p-5">
-    <h2 class="font-semibold mb-1"><i class="fas fa-users text-purple-600 mr-2"></i>Staff</h2>
-    <p class="text-sm text-gray-700">Add and edit staff — teaching and non-teaching (drivers, guards, office). Set salaries and details.</p>
-    ${(() => { const ts=getTeachers(); const nt=ts.filter(t=>(t.staffType||'Teaching')==='Non-Teaching').length; return `<div class="flex flex-wrap gap-2 mt-2 text-xs">
-     <span class="text-gray-700"><i class="fas fa-chalkboard-teacher mr-1"></i>${ts.length-nt} teaching</span>
-     <span class="text-gray-700"><i class="fas fa-user-tie mr-1"></i>${nt} non-teaching</span>
-    </div>`; })()}
-    <button id="ownerOpenStaffBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
-     <i class="fas fa-arrow-right-to-bracket mr-1"></i>Manage Staff
-    </button>
-   </div>
-   <div class="bg-gradient-to-r from-slate-50 to-gray-100 border-2 border-slate-300 rounded-xl p-5">
-    <h2 class="font-semibold mb-1"><i class="fas fa-book text-slate-700 mr-2"></i>Ledger</h2>
-    <p class="text-sm text-gray-700">Every rupee in and out — search, sort by head, filter by date. Receipts and payments together.</p>
-    <div class="flex flex-wrap gap-2 mt-2 text-xs">
-     <span class="text-gray-700"><i class="fas fa-magnifying-glass mr-1"></i>Searchable</span>
-     <span class="text-gray-700"><i class="fas fa-arrow-down-a-z mr-1"></i>Head-wise sorting</span>
-    </div>
-    <button id="ownerOpenLedgerBtn" class="bg-slate-700 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
-     <i class="fas fa-arrow-right-to-bracket mr-1"></i>Open Ledger
-    </button>
-   </div>
-   <div class="bg-gradient-to-r from-emerald-50 to-green-50 border-2 border-emerald-200 rounded-xl p-5">
-    <h2 class="font-semibold mb-1"><i class="fas fa-chart-column text-emerald-600 mr-2"></i>Fee Dashboard</h2>
-    <p class="text-sm text-gray-700">Class-wise fees expected, collected, and outstanding — with collection rates and a grand total.</p>
-    <button id="ownerOpenFeeDashBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
-     <i class="fas fa-arrow-right-to-bracket mr-1"></i>Open Fee Dashboard
-    </button>
-   </div>
-   <div class="bg-gradient-to-r from-indigo-50 to-blue-50 border-2 border-indigo-200 rounded-xl p-5">
-    <h2 class="font-semibold mb-1"><i class="fas fa-chart-line text-indigo-600 mr-2"></i>Financial Model</h2>
-    <p class="text-sm text-gray-700">Live projection of revenue, cost & surplus. Adjust fees, salaries, hire teachers, add the new principal — see break-even instantly.</p>
-    <button id="ownerOpenFinModelBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
-     <i class="fas fa-arrow-right-to-bracket mr-1"></i>Open Financial Model
-    </button>
-   </div>
-   <div class="bg-gradient-to-r from-amber-50 to-yellow-50 border-2 border-amber-200 rounded-xl p-5">
-    <h2 class="font-semibold mb-1"><i class="fas fa-book-open text-amber-600 mr-2"></i>Homework</h2>
-    <p class="text-sm text-gray-700">See what every teacher has posted — with attachments. Filter by class or teacher.</p>
-    ${(() => { const hw=getHomeworks(); const wf=hw.filter(h=>_hwHasFile(h)).length; return `<div class="flex flex-wrap gap-2 mt-2 text-xs">
-     <span class="text-gray-700"><i class="fas fa-list mr-1"></i>${hw.length} posted</span>
-     <span class="text-gray-700"><i class="fas fa-paperclip mr-1"></i>${wf} with files</span>
-    </div>`; })()}
-    <button id="ownerOpenHomeworkBtn" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
-     <i class="fas fa-arrow-right-to-bracket mr-1"></i>Review Homework
-    </button>
-   </div>
-   <div class="bg-gradient-to-r from-indigo-50 to-blue-50 border-2 border-indigo-200 rounded-xl p-5">
-    <h2 class="font-semibold mb-1"><i class="fas fa-book-open-reader text-indigo-600 mr-2"></i>Syllabus &amp; Resources</h2>
-    <p class="text-sm text-gray-700">CBSE &amp; NCERT syllabus links plus the school's own resource library, by class and subject.</p>
-    <div class="flex flex-wrap gap-2 mt-2 text-xs">
-     <span class="text-gray-700"><i class="fas fa-book mr-1"></i>${getResources().length} resources</span>
-    </div>
-    <button id="ownerOpenResourcesBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
-     <i class="fas fa-arrow-right-to-bracket mr-1"></i>Open Catalog
-    </button>
-   </div>
-   <div class="bg-gradient-to-r from-emerald-50 to-teal-50 border-2 border-emerald-200 rounded-xl p-5">
-    <h2 class="font-semibold mb-1"><i class="fas fa-user-clock text-emerald-600 mr-2"></i>Staff Attendance</h2>
-    <p class="text-sm text-gray-700">Mark daily staff attendance and review each staff member's record and percentage.</p>
-    ${(() => { const today=new Date().toISOString().slice(0,10); const sa=getStaffAttendance(); const staff=getTeachers().filter(t=>!t.archived); let p=0,a=0; staff.forEach(t=>{const v=(sa[t.id]||{})[today]; if(v==='P')p++; else if(v==='A')a++;}); return `<div class="flex flex-wrap gap-2 mt-2 text-xs">
-     <span class="text-emerald-700"><i class="fas fa-check mr-1"></i>${p} present today</span>
-     <span class="text-rose-700"><i class="fas fa-xmark mr-1"></i>${a} absent today</span>
-     <span class="text-gray-500">of ${staff.length}</span>
-    </div>`; })()}
-    <button id="ownerOpenStaffAttBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
-     <i class="fas fa-arrow-right-to-bracket mr-1"></i>Open Staff Attendance
-    </button>
-   </div>
-   <div class="bg-gradient-to-r from-blue-50 to-sky-50 border-2 border-blue-200 rounded-xl p-5">
-    <h2 class="font-semibold mb-1"><i class="fas fa-calendar-check text-blue-600 mr-2"></i>Student Attendance</h2>
-    <p class="text-sm text-gray-700">School-wide student attendance by class, with today's summary and exportable records.</p>
-    ${(() => { const today=new Date().toISOString().slice(0,10); const ar=getAttendanceRecords(); const sts=getStudents().filter(s=>!s.archived); let p=0,a=0; sts.forEach(s=>{const v=(ar[s.id]||{})[today]; if(v==='P')p++; else if(v==='A')a++;}); return `<div class="flex flex-wrap gap-2 mt-2 text-xs">
-     <span class="text-emerald-700"><i class="fas fa-check mr-1"></i>${p} present today</span>
-     <span class="text-rose-700"><i class="fas fa-xmark mr-1"></i>${a} absent today</span>
-     <span class="text-gray-500">of ${sts.length}</span>
-    </div>`; })()}
-    <button id="ownerOpenStudentAttBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
-     <i class="fas fa-arrow-right-to-bracket mr-1"></i>Open Student Attendance
-    </button>
-   </div>
-   <div class="bg-gradient-to-r from-purple-50 to-fuchsia-50 border-2 border-purple-200 rounded-xl p-5">
-    <h2 class="font-semibold mb-1"><i class="fas fa-people-arrows text-purple-600 mr-2"></i>Parent-Teacher Meetings</h2>
-    <p class="text-sm text-gray-700">Schedule PTMs for the school; teachers record which parents attended.</p>
-    ${(() => { const today=new Date().toISOString().slice(0,10); const up=DB.getAll('ptmEvents').filter(e=>e.date>=today).length; return `<div class="flex flex-wrap gap-2 mt-2 text-xs"><span class="text-purple-700"><i class="fas fa-calendar-day mr-1"></i>${up} upcoming meeting${up!==1?'s':''}</span></div>`; })()}
-    <button id="ownerOpenPtmBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
-     <i class="fas fa-arrow-right-to-bracket mr-1"></i>Open PTM
-    </button>
-   </div>
-   <div class="bg-gradient-to-r from-purple-50 to-fuchsia-50 border-2 border-purple-200 rounded-xl p-5">
-    <h2 class="font-semibold mb-1"><i class="fas fa-file-lines text-purple-600 mr-2"></i>Report Cards</h2>
-    <p class="text-sm text-gray-700">Generate and print term report cards for any class.</p>
-    <div class="flex flex-wrap gap-2 mt-2 text-xs">
-     <span class="text-gray-700"><i class="fas fa-chart-line mr-1"></i>${getExamMarks().length} marks recorded</span>
-    </div>
-    <button id="ownerOpenReportCardsBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
-     <i class="fas fa-arrow-right-to-bracket mr-1"></i>Report Cards
-    </button>
-   </div>
-   <div class="bg-gradient-to-r from-teal-50 to-cyan-50 border-2 border-teal-200 rounded-xl p-5">
-    <h2 class="font-semibold mb-1"><i class="fas fa-clipboard-user text-teal-600 mr-2"></i>Teacher Appraisal</h2>
-    <p class="text-sm text-gray-700">Review teachers by curriculum completion + your assessment.</p>
-    <div class="flex flex-wrap gap-2 mt-2 text-xs">
-     <span class="text-gray-700"><i class="fas fa-calendar-days mr-1"></i>${getCurriculum().length} curriculum items planned</span>
-    </div>
-    <button id="ownerOpenAppraisalBtn" class="bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
-     <i class="fas fa-arrow-right-to-bracket mr-1"></i>Teacher Appraisal
-    </button>
-   </div>
-   <div class="bg-gradient-to-r from-blue-50 to-sky-50 border-2 border-blue-200 rounded-xl p-5">
-    <h2 class="font-semibold mb-1"><i class="fas fa-chart-line text-blue-600 mr-2"></i>Financial Summary</h2>
-    <p class="text-sm text-gray-700">Income, expenses, and net position — month by month.</p>
-    ${(() => { const f = computeFinancialSummary(); const net = f.net; return `<div class="flex flex-wrap gap-2 mt-2 text-xs">
-     <span class="text-emerald-700"><i class="fas fa-arrow-down mr-1"></i>In: Rs.${f.totalIncome.toLocaleString('en-IN')}</span>
-     <span class="text-rose-700"><i class="fas fa-arrow-up mr-1"></i>Out: Rs.${f.totalExpense.toLocaleString('en-IN')}</span>
-     <span class="${net>=0?'text-blue-700':'text-amber-700'}"><i class="fas fa-scale-balanced mr-1"></i>Net: ${net>=0?'+':'−'}Rs.${Math.abs(net).toLocaleString('en-IN')}</span>
-    </div>`; })()}
-    <button id="ownerOpenFinanceBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
-     <i class="fas fa-arrow-right-to-bracket mr-1"></i>Financial Summary
-    </button>
-   </div>
-   <div class="bg-gradient-to-r from-emerald-50 to-green-50 border-2 border-emerald-200 rounded-xl p-5">
-    <h2 class="font-semibold mb-1"><i class="fas fa-calendar-check text-emerald-600 mr-2"></i>Attendance Insights</h2>
-    <p class="text-sm text-gray-700">Overall %, monthly trend, and students needing attention.</p>
-    ${(() => { const sess=currentSession(); const sy=parseInt(sess.slice(0,4)); const rows=_attendanceInsights(`${sy}-04-01`, new Date().toISOString().slice(0,10)).filter(r=>r.total>0); const low=rows.filter(r=>r.pct!==null&&r.pct<75).length; return `<div class="flex flex-wrap gap-2 mt-2 text-xs">
-     <span class="text-emerald-700"><i class="fas fa-users mr-1"></i>${rows.length} tracked</span>
-     ${low>0?`<span class="text-rose-700"><i class="fas fa-triangle-exclamation mr-1"></i>${low} below 75%</span>`:'<span class="text-emerald-700"><i class="fas fa-circle-check mr-1"></i>all above 75%</span>'}
-    </div>`; })()}
-    <button id="ownerOpenAttendanceBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
-     <i class="fas fa-arrow-right-to-bracket mr-1"></i>Attendance Insights
-    </button>
-   </div>
-  </div>
+  ${_ownerCategoryTiles()}
 
   <div class="bg-white rounded-xl shadow-sm p-5 mt-6">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-3">
@@ -10584,6 +10383,92 @@ function _finResultsHTML(){
 }
 function _finNum(id,label,val,opts){opts=opts||{};const sfx=opts.suffix?`<span class="text-gray-400 text-xs ml-1">${opts.suffix}</span>`:'';
  return `<label class="block"><span class="text-xs font-medium text-gray-700">${label}${sfx}</span><input type="number" id="${id}" value="${val}" ${opts.step?`step="${opts.step}"`:''} ${opts.min!=null?`min="${opts.min}"`:''} class="finInput mt-0.5 w-full border rounded-lg px-2 py-1 text-sm" data-key="${opts.key||id}"></label>`;}
+// ===== OWNER DASHBOARD CATEGORISATION =====
+var OWNER_SECTIONS = {
+ finance:    { label:'Finance',        icon:'sack-dollar',     color:'#1f8f4e', desc:'Ledger, fee dashboard, projections, fee structure & audit' },
+ academics:  { label:'Academics',      icon:'graduation-cap',  color:'#7a1e2e', desc:'Homework, syllabus & resources, report cards, PTM' },
+ people:     { label:'Students & Staff',icon:'users',          color:'#4f46e5', desc:'Student records, staff management, teacher appraisal' },
+ attendance: { label:'Attendance',     icon:'calendar-check',  color:'#0891b2', desc:'Student & staff attendance, insights and trends' },
+ admin:      { label:'Administration', icon:'gear',            color:'#b45309', desc:'User logins, compliance, notice board' }
+};
+function _ownerCategoryTiles(){
+ const counts = { finance:6, academics:4, people:3, attendance:3, admin:3 };
+ const tile = (key) => { const s=OWNER_SECTIONS[key];
+  return `<button class="ownerSecTile text-left bg-white border-2 rounded-2xl p-5 hover:shadow-md transition group" style="border-color:${s.color}33" data-sec="${key}">
+    <div class="flex items-center gap-3">
+     <div class="w-12 h-12 rounded-xl flex items-center justify-center text-white text-xl" style="background:${s.color}"><i class="fas fa-${s.icon}"></i></div>
+     <div><div class="font-bold text-gray-900">${s.label}</div><div class="text-[11px] text-gray-500">${counts[key]} tools</div></div>
+     <i class="fas fa-arrow-right ml-auto text-gray-300 group-hover:text-gray-500"></i>
+    </div>
+    <p class="text-xs text-gray-600 mt-3">${s.desc}</p>
+   </button>`; };
+ return `<div class="my-6">
+   <h2 class="font-semibold text-gray-800 mb-3"><i class="fas fa-layer-group text-gray-500 mr-2"></i>Manage your school</h2>
+   <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">${Object.keys(OWNER_SECTIONS).map(tile).join('')}</div>
+  </div>`;
+}
+function _ownerCard(o){
+ return `<div class="bg-white border-2 rounded-xl p-5 flex flex-col" style="border-color:${o.color}33">
+   <h2 class="font-semibold mb-1"><i class="fas fa-${o.icon} mr-2" style="color:${o.color}"></i>${o.title}</h2>
+   <p class="text-sm text-gray-700 flex-1">${o.desc}</p>
+   ${o.meta?`<div class="text-xs text-gray-600 mt-2">${o.meta}</div>`:''}
+   <button id="${o.btn}" class="text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3" style="background:${o.color}"><i class="fas fa-arrow-right-to-bracket mr-1"></i>${o.action}</button>
+  </div>`;
+}
+function _ownerSectionCards(section){
+ const nStud = getStudents().filter(s=>!s.archived).length;
+ const ts = getTeachers().filter(t=>!t.archived); const nt = ts.filter(t=>(t.staffType||'Teaching')==='Non-Teaching').length;
+ const pendReq = getCorrectionRequests().filter(r=>r.status==='pending').length;
+ const users = getUsers(); const defPw = users.filter(u=>u.defaultPw||u.password==='CHANGE_ME').length;
+ const cards = {
+  finance: [
+   {btn:'ownerOpenLedgerBtn', title:'Ledger', icon:'book', color:'#334155', action:'Open Ledger', desc:'Every rupee in and out — searchable, sortable by head, filterable by date.'},
+   {btn:'ownerOpenFeeDashBtn', title:'Fee Dashboard', icon:'chart-column', color:'#059669', action:'Open Fee Dashboard', desc:'Class-wise fees expected, collected and outstanding with collection rates.'},
+   {btn:'ownerOpenFinModelBtn', title:'Financial Model', icon:'chart-line', color:'#4f46e5', action:'Open Financial Model', desc:'Project revenue, cost & surplus. Adjust fees/salaries, see break-even.'},
+   {btn:'ownerOpenFinanceBtn', title:'Financial Summary', icon:'scale-balanced', color:'#2563eb', action:'Financial Summary', desc:'Income, expenses and net position, month by month.'},
+   {btn:'ownerOpenFeeStructBtn', title:'Fee Structure', icon:'indian-rupee-sign', color:'#d97706', action:'Manage Fee Structure', desc:'Define annual fees per class; students inherit their class plan.', meta:`${getFeeStructures().length} class plans set`},
+   {btn:'ownerOpenAccountsBtn', title:'Accounts & Audit', icon:'book-open-reader', color:'#7c3aed', action:'Open Accounts & Audit', desc:'Review correction requests, edit/delete transactions, view audit log.', meta: pendReq>0?`<span class="pill pill-amber">${pendReq} pending</span>`:'No pending requests'},
+  ],
+  academics: [
+   {btn:'ownerOpenHomeworkBtn', title:'Homework', icon:'book-open', color:'#d97706', action:'Review Homework', desc:'See what every teacher has posted — with attachments. Filter by class or teacher.'},
+   {btn:'ownerOpenResourcesBtn', title:'Syllabus & Resources', icon:'book-open-reader', color:'#4f46e5', action:'Open Catalog', desc:'CBSE/NCERT syllabus links plus the school\u2019s own resource library.', meta:`${getResources().length} resources`},
+   {btn:'ownerOpenReportCardsBtn', title:'Report Cards', icon:'file-lines', color:'#7c3aed', action:'Report Cards', desc:'Generate and print term report cards for any class.', meta:`${getExamMarks().length} marks recorded`},
+   {btn:'ownerOpenPtmBtn', title:'Parent-Teacher Meetings', icon:'people-arrows', color:'#a21caf', action:'Open PTM', desc:'Schedule PTMs; teachers record which parents attended.'},
+  ],
+  people: [
+   {btn:'ownerOpenStudentsBtn', title:'Students', icon:'user-graduate', color:'#4f46e5', action:'View Students', desc:'All student details, photos, ID cards, fees and profiles.', meta:`${nStud} students enrolled`},
+   {btn:'ownerOpenStaffBtn', title:'Staff', icon:'users', color:'#7c3aed', action:'Manage Staff', desc:'Add and edit teaching & non-teaching staff; set salaries and details.', meta:`${ts.length-nt} teaching · ${nt} non-teaching`},
+   {btn:'ownerOpenAppraisalBtn', title:'Teacher Appraisal', icon:'clipboard-user', color:'#0d9488', action:'Teacher Appraisal', desc:'Review teachers by curriculum completion plus your assessment.'},
+  ],
+  attendance: [
+   {btn:'ownerOpenStudentAttBtn', title:'Student Attendance', icon:'calendar-check', color:'#2563eb', action:'Open Student Attendance', desc:'School-wide student attendance by class, with today\u2019s summary and exports.'},
+   {btn:'ownerOpenStaffAttBtn', title:'Staff Attendance', icon:'user-clock', color:'#059669', action:'Open Staff Attendance', desc:'Mark daily staff attendance and review each member\u2019s record and percentage.'},
+   {btn:'ownerOpenAttendanceBtn', title:'Attendance Insights', icon:'chart-pie', color:'#0891b2', action:'Attendance Insights', desc:'Overall %, monthly trend, and students needing attention.'},
+  ],
+  admin: [
+   {btn:'ownerOpenUsersBtn', title:'User Accounts', icon:'user-shield', color:'#4f46e5', action:'Manage Users', desc:'Add staff, parents, students; change passwords; print login slips.', meta:`${users.length} logins${defPw>0?` · <span class="pill pill-red">${defPw} default password${defPw===1?'':'s'}</span>`:''}`},
+   {btn:'ownerOpenComplianceBtn', title:'Compliance', icon:'shield-halved', color:'#059669', action:'Manage Compliance', desc:'Track licences, certificates and statutory documents with expiry alerts.'},
+   {btn:'ownerOpenNoticesBtn', title:'Notice Board', icon:'thumbtack', color:'#ea580c', action:'Manage Notices', desc:'Post announcements to students, parents, teachers or the whole school.', meta:`${getNotices().filter(n=>!n.expiry||n.expiry>=new Date().toISOString().slice(0,10)).length} active notices`},
+  ],
+ };
+ return `<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">${(cards[section]||[]).map(_ownerCard).join('')}</div>`;
+}
+function _ownerSectionPage(section){
+ const s = OWNER_SECTIONS[section] || {label:'Section',icon:'folder',color:'#333'};
+ const roleLabel = currentUser.role==='managing_director'?'Managing Director':currentUser.role==='trustee'?'Trustee':'Owner';
+ return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+    <div>
+     <button id="ownerSecBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
+     <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-${s.icon} mr-2" style="color:${s.color}"></i>${roleLabel} · ${s.label}</h1>
+     <p class="text-gray-600 text-xs">${currentUser.name}</p>
+    </div>
+    <button id="logoutBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
+   </div>
+   ${_ownerSectionCards(section)}
+  </div>`;
+}
+
 function renderFinancialModel(){
  if (!finModel) finModel=_finModelAutofill();
  const m=finModel;
@@ -14622,9 +14507,12 @@ function refreshPrincipalTabContent(){
 
 /* ---------- OWNER EVENTS ---------- */
 function attachOwnerEvents(){
- document.getElementById('logoutBtn')?.addEventListener('click',()=>{currentUser=null;chatPanelOpen=false;activeChatWith=null;ownerView='dashboard';renderApp()});
+ document.getElementById('logoutBtn')?.addEventListener('click',()=>{currentUser=null;chatPanelOpen=false;activeChatWith=null;ownerView='dashboard';ownerSection=null;renderApp()});
 
  // Accounts & Audit navigation
+ // Category tiles → open a section page; section back → return to tiles
+ document.querySelectorAll('.ownerSecTile').forEach(t => t.addEventListener('click', () => { ownerSection = t.dataset.sec; renderApp(); }));
+ document.getElementById('ownerSecBackBtn')?.addEventListener('click', () => { ownerSection = null; renderApp(); });
  document.getElementById('ownerOpenAccountsBtn')?.addEventListener('click', () => {
   ownerView = 'accounts';
   activeAdminAccountsSubtab = 'requests';
