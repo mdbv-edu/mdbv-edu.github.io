@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1787245784 - fix: dynamically-created modals (receipt/txn edit etc) now render as proper centered popups (added body-level modal CSS) instead of dumping unstyled at page bottom; Cancel/close now works reliably via delegated handler (fixes intermittent broken Cancel on student edit popups) -->
+<!-- BUILD: v-1787301418 - new class-wise Fee Dashboard (Total expected / Paid / Unpaid + collection rate, grand total, CSV export) on Accountant tab and Owner page -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -4002,6 +4002,20 @@ function renderOwnerDashboard(){
   </div>`;
  }
 
+ if (ownerView === 'feedashboard') {
+  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+    <div>
+     <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
+     <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-crown text-amber-500 mr-2"></i>${currentUser.role==='managing_director'?'Managing Director':currentUser.role==='trustee'?'Trustee':'Owner'} · Fee Dashboard</h1>
+     <p class="text-gray-600 text-xs">${currentUser.name}</p>
+    </div>
+    <button id="logoutBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
+   </div>
+   ${renderFeeDashboard()}
+  </div>`;
+ }
+
  if (ownerView === 'teachers') {
   return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
@@ -4229,6 +4243,13 @@ function renderOwnerDashboard(){
     </div>
     <button id="ownerOpenLedgerBtn" class="bg-slate-700 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
      <i class="fas fa-arrow-right-to-bracket mr-1"></i>Open Ledger
+    </button>
+   </div>
+   <div class="bg-gradient-to-r from-emerald-50 to-green-50 border-2 border-emerald-200 rounded-xl p-5">
+    <h2 class="font-semibold mb-1"><i class="fas fa-chart-column text-emerald-600 mr-2"></i>Fee Dashboard</h2>
+    <p class="text-sm text-gray-700">Class-wise fees expected, collected, and outstanding — with collection rates and a grand total.</p>
+    <button id="ownerOpenFeeDashBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
+     <i class="fas fa-arrow-right-to-bracket mr-1"></i>Open Fee Dashboard
     </button>
    </div>
    <div class="bg-gradient-to-r from-amber-50 to-yellow-50 border-2 border-amber-200 rounded-xl p-5">
@@ -10397,9 +10418,115 @@ function attachManagerEvents(){
  else if (activeManagerTab === 'vehicles' || activeManagerTab === 'maintenance') attachGenericModuleEvents();
 }
 
+// ===== CLASS-WISE FEE DASHBOARD (owner + accountant) =====
+// Total  = sum of each student's composite/decided fee (decidedFees)
+// Unpaid = sum of feeBalance (what the system tracks as outstanding)
+// Paid   = Total - Unpaid (the collected portion implied by the balances)
+function _feeDashboardData(){
+ const students = getStudents().filter(s => !s.archived);
+ const order = ['Pre Nursery','Nursery','LKG','UKG','1','2','3','4','5','6','7','8','9','10','11','12'];
+ const byCls = {};
+ students.forEach(s => {
+  const c = String(s.class||'').trim();
+  if (!byCls[c]) byCls[c] = { cls:c, total:0, unpaid:0, count:0 };
+  byCls[c].total  += Math.round(Number(s.decidedFees)||0);
+  byCls[c].unpaid += Math.round(Number(s.feeBalance)||0);
+  byCls[c].count  += 1;
+ });
+ // keep known order first, then any extra classes
+ const rows = [];
+ order.forEach(c => { if (byCls[c]){ rows.push(byCls[c]); delete byCls[c]; } });
+ Object.keys(byCls).sort().forEach(c => rows.push(byCls[c]));
+ rows.forEach(r => { r.paid = Math.max(0, r.total - r.unpaid); r.pct = r.total>0 ? Math.round(r.paid*100/r.total) : 0; });
+ const tot = rows.reduce((a,r)=>({total:a.total+r.total, paid:a.paid+r.paid, unpaid:a.unpaid+r.unpaid, count:a.count+r.count}), {total:0,paid:0,unpaid:0,count:0});
+ tot.pct = tot.total>0 ? Math.round(tot.paid*100/tot.total) : 0;
+ return { rows, tot };
+}
+function renderFeeDashboard(){
+ const { rows, tot } = _feeDashboardData();
+ const inr = n => 'Rs.' + (n||0).toLocaleString('en-IN');
+ const clsLabel = c => ({'Pre Nursery':'Pre Nur'}[c] || (/^\d+$/.test(c)? 'Class '+c : c));
+ const barColor = p => p>=75?'#1f8f4e':p>=50?'#c8860d':'#b3261e';
+ const card = (label, val, sub, color) =>
+  `<div class="bg-white rounded-xl border p-4">
+    <div class="text-xs text-gray-500 uppercase tracking-wide">${label}</div>
+    <div class="text-2xl font-bold mt-1" style="color:${color}">${inr(val)}</div>
+    ${sub?`<div class="text-xs text-gray-500 mt-0.5">${sub}</div>`:''}
+   </div>`;
+ const rowHtml = r => `<tr class="border-b hover:bg-gray-50">
+   <td class="px-3 py-2 font-medium">${clsLabel(r.cls)}</td>
+   <td class="px-3 py-2 text-right tabular-nums">${inr(r.total)}</td>
+   <td class="px-3 py-2 text-right tabular-nums text-emerald-700">${inr(r.paid)}</td>
+   <td class="px-3 py-2 text-right tabular-nums text-rose-700">${inr(r.unpaid)}</td>
+   <td class="px-3 py-2 w-40">
+     <div class="flex items-center gap-2">
+      <div class="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden"><div style="width:${r.pct}%;background:${barColor(r.pct)}" class="h-2"></div></div>
+      <span class="text-xs text-gray-600 w-9 text-right">${r.pct}%</span>
+     </div>
+   </td>
+   <td class="px-3 py-2 text-center text-xs text-gray-500">${r.count}</td>
+  </tr>`;
+ return `<div class="space-y-4">
+  <div>
+   <h2 class="text-lg font-bold"><i class="fas fa-chart-column text-emerald-600 mr-2"></i>Fee Collection Dashboard</h2>
+   <p class="text-sm text-gray-600">Class-wise composite fee expected, collected, and outstanding. Total = sum of each student's decided fee; Unpaid = outstanding balance; Paid = Total − Unpaid.</p>
+  </div>
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+   ${card('Total Expected', tot.total, tot.count+' students', '#7a1e2e')}
+   ${card('Collected', tot.paid, tot.pct+'% of expected', '#1f8f4e')}
+   ${card('Outstanding', tot.unpaid, (100-tot.pct)+'% pending', '#b3261e')}
+   <div class="bg-white rounded-xl border p-4">
+    <div class="text-xs text-gray-500 uppercase tracking-wide">Collection Rate</div>
+    <div class="text-2xl font-bold mt-1" style="color:${barColor(tot.pct)}">${tot.pct}%</div>
+    <div class="bg-gray-100 rounded-full h-2 overflow-hidden mt-2"><div style="width:${tot.pct}%;background:${barColor(tot.pct)}" class="h-2"></div></div>
+   </div>
+  </div>
+  <div class="bg-white rounded-xl border overflow-hidden">
+   <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+     <thead class="bg-gray-50 text-gray-600"><tr>
+      <th class="px-3 py-2 text-left">Class</th>
+      <th class="px-3 py-2 text-right">Total Expected</th>
+      <th class="px-3 py-2 text-right">Paid</th>
+      <th class="px-3 py-2 text-right">Unpaid</th>
+      <th class="px-3 py-2 text-left">Collection</th>
+      <th class="px-3 py-2 text-center">Students</th>
+     </tr></thead>
+     <tbody>${rows.map(rowHtml).join('')}</tbody>
+     <tfoot><tr class="border-t-2 font-bold bg-gray-50">
+      <td class="px-3 py-2">TOTAL</td>
+      <td class="px-3 py-2 text-right tabular-nums">${inr(tot.total)}</td>
+      <td class="px-3 py-2 text-right tabular-nums text-emerald-700">${inr(tot.paid)}</td>
+      <td class="px-3 py-2 text-right tabular-nums text-rose-700">${inr(tot.unpaid)}</td>
+      <td class="px-3 py-2 text-xs text-gray-600">${tot.pct}% collected</td>
+      <td class="px-3 py-2 text-center text-xs">${tot.count}</td>
+     </tr></tfoot>
+    </table>
+   </div>
+  </div>
+  <div class="flex justify-end">
+   <button id="feeDashExportBtn" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-download mr-1"></i>Export CSV</button>
+  </div>
+  <p class="text-xs text-gray-400">Note: "Paid" is derived from outstanding balances (Total − Unpaid), which reflects what the school has recorded as collected. This can differ from receipts in the Ledger if balances were entered directly.</p>
+ </div>`;
+}
+function _attachFeeDashboardEvents(){
+ document.getElementById('feeDashExportBtn')?.addEventListener('click', () => {
+  const { rows, tot } = _feeDashboardData();
+  let csv = 'Class,Total Expected,Paid,Unpaid,Collection %,Students\n';
+  rows.forEach(r => { csv += `"${r.cls}",${r.total},${r.paid},${r.unpaid},${r.pct},${r.count}\n`; });
+  csv += `TOTAL,${tot.total},${tot.paid},${tot.unpaid},${tot.pct},${tot.count}\n`;
+  const blob = new Blob([csv], {type:'text/csv'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'MDBV_Fee_Dashboard_'+new Date().toISOString().slice(0,10)+'.csv'; a.click();
+ });
+}
+
 function renderAccountantPanel(){
  const tabs = [
+
   {id:'overview', label:'Overview',  icon:'gauge-high'},
+  {id:'feedashboard', label:'Fee Dashboard', icon:'chart-column'},
   {id:'students', label:'Students',  icon:'user-graduate'},
   {id:'receipts', label:'Receipts',  icon:'hand-holding-dollar'},
   {id:'payments', label:'Payments',  icon:'money-bill-transfer'},
@@ -10574,6 +10701,7 @@ function attachFeeRemindersEvents(){
 function renderAccountantTabContent(){
  switch(activeAccountantTab){
   case 'overview': return renderAccOverview();
+  case 'feedashboard': return renderFeeDashboard();
   case 'students': return renderStudentsTab();
   case 'receipts': return renderAccReceipts();
   case 'payments': return renderAccPayments();
@@ -13132,6 +13260,7 @@ function attachAccountantEvents(){
 
  if (activeAccountantTab === 'receipts') _attachReceiptEvents();
  else if (activeAccountantTab === 'students') attachStudentsTabEvents();
+ else if (activeAccountantTab === 'feedashboard') _attachFeeDashboardEvents();
  else if (activeAccountantTab === 'payments') _attachPaymentEvents();
  else if (activeAccountantTab === 'salary') _attachSalaryEvents();
  else if (activeAccountantTab === 'vehicles') _attachVehicleExpenseEvents();
@@ -14308,6 +14437,11 @@ function attachOwnerEvents(){
   ownerView = 'ledger';
   renderApp();
  });
+ document.getElementById('ownerOpenFeeDashBtn')?.addEventListener('click', () => {
+  ownerView = 'feedashboard';
+  renderApp();
+ });
+ if (ownerView === 'feedashboard') _attachFeeDashboardEvents();
  // Homework oversight navigation
  document.getElementById('ownerOpenHomeworkBtn')?.addEventListener('click', () => {
   ownerView = 'homework';
