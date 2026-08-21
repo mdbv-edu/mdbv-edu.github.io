@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1787301418 - new class-wise Fee Dashboard (Total expected / Paid / Unpaid + collection rate, grand total, CSV export) on Accountant tab and Owner page -->
+<!-- BUILD: v-1787335884 - new interactive Financial Projection Model on Owner dashboard: auto-fills from live data, adjustable fees/salaries/new-principal/extra-teachers, adjustable projection years, revenue-vs-cost chart, break-even, year-by-year table, CSV export -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -4016,6 +4016,20 @@ function renderOwnerDashboard(){
   </div>`;
  }
 
+ if (ownerView === 'finmodel') {
+  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+    <div>
+     <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
+     <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-crown text-amber-500 mr-2"></i>${currentUser.role==='managing_director'?'Managing Director':currentUser.role==='trustee'?'Trustee':'Owner'} · Financial Model</h1>
+     <p class="text-gray-600 text-xs">${currentUser.name}</p>
+    </div>
+    <button id="logoutBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
+   </div>
+   <div id="finModelWrap">${renderFinancialModel()}</div>
+  </div>`;
+ }
+
  if (ownerView === 'teachers') {
   return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
@@ -4250,6 +4264,13 @@ function renderOwnerDashboard(){
     <p class="text-sm text-gray-700">Class-wise fees expected, collected, and outstanding — with collection rates and a grand total.</p>
     <button id="ownerOpenFeeDashBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
      <i class="fas fa-arrow-right-to-bracket mr-1"></i>Open Fee Dashboard
+    </button>
+   </div>
+   <div class="bg-gradient-to-r from-indigo-50 to-blue-50 border-2 border-indigo-200 rounded-xl p-5">
+    <h2 class="font-semibold mb-1"><i class="fas fa-chart-line text-indigo-600 mr-2"></i>Financial Model</h2>
+    <p class="text-sm text-gray-700">Live projection of revenue, cost & surplus. Adjust fees, salaries, hire teachers, add the new principal — see break-even instantly.</p>
+    <button id="ownerOpenFinModelBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3">
+     <i class="fas fa-arrow-right-to-bracket mr-1"></i>Open Financial Model
     </button>
    </div>
    <div class="bg-gradient-to-r from-amber-50 to-yellow-50 border-2 border-amber-200 rounded-xl p-5">
@@ -10442,6 +10463,194 @@ function _feeDashboardData(){
  tot.pct = tot.total>0 ? Math.round(tot.paid*100/tot.total) : 0;
  return { rows, tot };
 }
+// ============ INTERACTIVE FINANCIAL / PROJECTION MODEL (owner) ============
+var finModel = null;
+function _finModelAutofill(){
+ const studs = getStudents().filter(s => !s.archived);
+ const n = studs.length || 265;
+ const totalDecided = studs.reduce((a,s)=>a+(Number(s.decidedFees)||0),0);
+ const totalBal = studs.reduce((a,s)=>a+(Number(s.feeBalance)||0),0);
+ const avgFee = n ? Math.round(totalDecided/n) : 15000;
+ const collRate = totalDecided>0 ? Math.round((totalDecided-totalBal)/totalDecided*100) : 100;
+ const teachers = (typeof getTeachers==='function'?getTeachers():[]).filter(t=>!t.archived);
+ const monthlySalary = teachers.reduce((a,t)=>a+(Number(t.salary)||0),0) || 248500;
+ let transport = 850000, other = 500000;
+ try {
+  const exp = get('expenses')||[];
+  const t = exp.filter(e=>/transport|fuel|diesel|vehicle|permit/i.test((e.category||'')+(e.description||''))).reduce((a,e)=>a+(Number(e.amount)||0),0);
+  const o = exp.filter(e=>/utilit|electric|suppl<|station|repair|maint|other/i.test((e.category||''))).reduce((a,e)=>a+(Number(e.amount)||0),0);
+  if (t>0) transport = Math.round(t);
+  if (o>0) other = Math.round(o);
+ } catch(e){}
+ return { students:n, avgFee, collRate, bookFee:1500,
+  monthlySalary, principalMonthly:40000, addTeachers:0, addTeacherSalary:15000, monthsPaid:11,
+  transport, other, studentGrowth:5, feeIncrease:8, salaryIncrement:8, inflation:6, years:5 };
+}
+function _finCompute(m){
+ const yrs = Math.max(1, Math.min(15, Math.round(m.years)||1));
+ const coll = (m.collRate||0)/100;
+ const baseMonthly = (Number(m.monthlySalary)||0) + (Number(m.principalMonthly)||0) + (Number(m.addTeachers)||0)*(Number(m.addTeacherSalary)||0);
+ const rows = [];
+ for (let i=0;i<yrs;i++){
+  const gf = Math.pow(1+(m.studentGrowth||0)/100, i);
+  const ff = Math.pow(1+(m.feeIncrease||0)/100, i);
+  const sf = Math.pow(1+(m.salaryIncrement||0)/100, i);
+  const inf = Math.pow(1+(m.inflation||0)/100, i);
+  const students = Math.round((Number(m.students)||0)*gf);
+  const avgFee = (Number(m.avgFee)||0)*ff;
+  const tuition = students*avgFee*coll;
+  const books = students*(Number(m.bookFee)||0)*ff;
+  const revenue = tuition + books;
+  const salary = baseMonthly*sf*(Number(m.monthsPaid)||11);
+  const transport = (Number(m.transport)||0)*inf;
+  const other = (Number(m.other)||0)*inf;
+  const cost = salary + transport + other;
+  const surplus = revenue - cost;
+  rows.push({ year:i+1, students, avgFee, tuition, books, revenue, salary, transport, other, cost, surplus,
+    margin: revenue>0 ? surplus/revenue : 0 });
+ }
+ // Break-even on year 1
+ const y1 = rows[0];
+ const contribPerStudent = (Number(m.avgFee)||0)*coll + (Number(m.bookFee)||0);
+ const beStudents = contribPerStudent>0 ? Math.ceil(y1.cost/contribPerStudent) : 0;
+ const beAvgFee = (m.students>0 && coll>0) ? ((y1.cost/m.students) - (Number(m.bookFee)||0))/coll : 0;
+ return { rows, be:{ students:beStudents, avgFee:beAvgFee, contribPerStudent } };
+}
+function _inr(n){ n=Math.round(n||0); return '\u20b9'+n.toLocaleString('en-IN'); }
+function _lakh(n){ return '\u20b9'+((n||0)/100000).toLocaleString('en-IN',{maximumFractionDigits:2})+'L'; }
+function _finChart(rows){
+ // grouped bars: revenue vs cost per year, with a surplus line
+ const W=Math.max(360, rows.length*90+80), H=260, padL=54, padB=34, padT=18, padR=12;
+ const maxV = Math.max(1, ...rows.map(r=>Math.max(r.revenue, r.cost)));
+ const plotH=H-padB-padT, plotW=W-padL-padR;
+ const groupW = plotW/rows.length, barW=Math.min(26, groupW/3);
+ const y = v => padT + plotH*(1 - v/maxV);
+ const gridVals=[0,0.25,0.5,0.75,1].map(f=>f*maxV);
+ let g='';
+ gridVals.forEach(v=>{ const yy=y(v); g+=`<line x1="${padL}" y1="${yy.toFixed(1)}" x2="${W-padR}" y2="${yy.toFixed(1)}" stroke="#eee"/><text x="${padL-6}" y="${(yy+3).toFixed(1)}" text-anchor="end" font-size="9" fill="#999">${((v)/100000).toFixed(1)}L</text>`; });
+ let bars='', line='';
+ const pts=[];
+ rows.forEach((r,i)=>{
+  const cx=padL + groupW*i + groupW/2;
+  const rx=cx-barW-2, cxx=cx+2;
+  bars+=`<rect x="${rx.toFixed(1)}" y="${y(r.revenue).toFixed(1)}" width="${barW}" height="${(y(0)-y(r.revenue)).toFixed(1)}" fill="#1f8f4e" rx="2"><title>Yr ${r.year} revenue ${_inr(r.revenue)}</title></rect>`;
+  bars+=`<rect x="${cxx.toFixed(1)}" y="${y(r.cost).toFixed(1)}" width="${barW}" height="${(y(0)-y(r.cost)).toFixed(1)}" fill="#b3261e" rx="2"><title>Yr ${r.year} cost ${_inr(r.cost)}</title></rect>`;
+  bars+=`<text x="${cx.toFixed(1)}" y="${H-padB+14}" text-anchor="middle" font-size="10" fill="#555">Yr ${r.year}</text>`;
+  pts.push([cx, y(r.surplus)]);
+ });
+ if (pts.length>1){ line=`<polyline fill="none" stroke="#c8860d" stroke-width="2" points="${pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ')}"/>`; }
+ pts.forEach((p,i)=>{ line+=`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3" fill="#c8860d"><title>Yr ${rows[i].year} surplus ${_inr(rows[i].surplus)}</title></circle>`; });
+ const zeroY=y(0);
+ return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;height:auto" xmlns="http://www.w3.org/2000/svg">
+   ${g}<line x1="${padL}" y1="${zeroY.toFixed(1)}" x2="${W-padR}" y2="${zeroY.toFixed(1)}" stroke="#bbb"/>
+   ${bars}${line}
+   <g font-size="10">
+    <rect x="${padL}" y="2" width="10" height="10" fill="#1f8f4e"/><text x="${padL+14}" y="11" fill="#555">Revenue</text>
+    <rect x="${padL+70}" y="2" width="10" height="10" fill="#b3261e"/><text x="${padL+84}" y="11" fill="#555">Cost</text>
+    <line x1="${padL+140}" y1="7" x2="${padL+156}" y2="7" stroke="#c8860d" stroke-width="2"/><text x="${padL+160}" y="11" fill="#555">Surplus</text>
+   </g>
+  </svg>`;
+}
+function _finResultsHTML(){
+ const { rows, be } = _finCompute(finModel);
+ const y1 = rows[0];
+ const cardsClr = y1.surplus>=0 ? '#1f8f4e' : '#b3261e';
+ const card=(l,v,sub,clr)=>`<div class="bg-white rounded-xl border p-3"><div class="text-[11px] text-gray-500 uppercase tracking-wide">${l}</div><div class="text-xl font-bold mt-0.5" style="color:${clr||'#111'}">${v}</div>${sub?`<div class="text-[11px] text-gray-500">${sub}</div>`:''}</div>`;
+ const summary = `<div class="grid grid-cols-2 lg:grid-cols-4 gap-2">
+   ${card('Year 1 Revenue', _lakh(y1.revenue), _inr(y1.revenue), '#7a1e2e')}
+   ${card('Year 1 Cost', _lakh(y1.cost), _inr(y1.cost), '#444')}
+   ${card('Year 1 Surplus', _lakh(y1.surplus), (y1.margin*100).toFixed(1)+'% margin', cardsClr)}
+   ${card('Break-even', be.students+' students', 'or avg fee '+_inr(be.avgFee), '#c8860d')}
+  </div>`;
+ const th=(t,r)=>`<th class="px-2 py-1.5 ${r?'text-right':'text-left'} whitespace-nowrap">${t}</th>`;
+ const tr = r => `<tr class="border-b hover:bg-gray-50">
+   <td class="px-2 py-1 font-medium">Year ${r.year}</td>
+   <td class="px-2 py-1 text-right">${r.students}</td>
+   <td class="px-2 py-1 text-right">${_inr(r.avgFee)}</td>
+   <td class="px-2 py-1 text-right text-emerald-700">${_inr(r.revenue)}</td>
+   <td class="px-2 py-1 text-right">${_inr(r.salary)}</td>
+   <td class="px-2 py-1 text-right">${_inr(r.transport)}</td>
+   <td class="px-2 py-1 text-right">${_inr(r.other)}</td>
+   <td class="px-2 py-1 text-right">${_inr(r.cost)}</td>
+   <td class="px-2 py-1 text-right font-semibold" style="color:${r.surplus>=0?'#1f8f4e':'#b3261e'}">${_inr(r.surplus)}</td>
+   <td class="px-2 py-1 text-right">${(r.margin*100).toFixed(1)}%</td>
+  </tr>`;
+ const table = `<div class="bg-white rounded-xl border overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-xs md:text-sm">
+   <thead class="bg-gray-50 text-gray-600"><tr>${th('Year')}${th('Students',1)}${th('Avg Fee',1)}${th('Revenue',1)}${th('Salary',1)}${th('Transport',1)}${th('Other',1)}${th('Total Cost',1)}${th('Surplus',1)}${th('Margin',1)}</tr></thead>
+   <tbody>${rows.map(tr).join('')}</tbody></table></div></div>`;
+ const chart = `<div class="bg-white rounded-xl border p-3"><div class="text-sm font-semibold mb-1">Revenue vs Cost — ${rows.length}-year projection</div>${_finChart(rows)}</div>`;
+ const beNote = y1.surplus>=0
+   ? `<p class="text-xs text-emerald-700">At these settings you run a surplus of ${_inr(y1.surplus)} in Year 1. Break-even is ${be.students} students (you have ${finModel.students}).</p>`
+   : `<p class="text-xs text-rose-700">At these settings you run a deficit of ${_inr(-y1.surplus)} in Year 1. You'd need ${be.students} students (vs ${finModel.students} now) or an average fee of ${_inr(be.avgFee)} to break even.</p>`;
+ return summary + beNote + chart + table;
+}
+function _finInput(id, label, val, opts){
+ opts=opts||{};
+ const suffix = opts.suffix?`<span class="text-gray-400 text-xs ml-1">${opts.suffix}</span>`:'';
+ return `<label class="block"><span class="text-xs font-medium text-gray-700">${label}${suffix}</span>
+   <input type="number" id="${id}" value="${val}" ${opts.step?`step="${opts.step}"`:''} ${opts.min!=null?`min="${opts.min}"`:''} class="finInput mt-0.5 w-full border rounded-lg px-2 py-1 text-sm" data-key="${opts.key||id}"></label>`;
+}
+function renderFinancialModel(){
+ if (!finModel) finModel = _finModelAutofill();
+ const m = finModel;
+ const section = (title, inner) => `<div class="bg-white rounded-xl border p-3 space-y-2"><div class="text-sm font-bold text-gray-800">${title}</div><div class="grid grid-cols-2 gap-2">${inner}</div></div>`;
+ const inputs = `
+  ${section('Revenue', 
+    _finInput('fmStudents','Students', m.students, {key:'students',min:0}) +
+    _finInput('fmAvgFee','Avg annual fee', m.avgFee, {key:'avgFee',min:0}) +
+    _finInput('fmColl','Fee collection', m.collRate, {key:'collRate',suffix:'%',min:0}) +
+    _finInput('fmBook','Books/extra per student', m.bookFee, {key:'bookFee',min:0}))}
+  ${section('Staff cost',
+    _finInput('fmSalary','Current salary bill', m.monthlySalary, {key:'monthlySalary',suffix:'/mo',min:0}) +
+    _finInput('fmPrincipal','New principal', m.principalMonthly, {key:'principalMonthly',suffix:'/mo',min:0}) +
+    _finInput('fmAddT','Extra teachers to hire', m.addTeachers, {key:'addTeachers',min:0}) +
+    _finInput('fmAddTSal','…each at', m.addTeacherSalary, {key:'addTeacherSalary',suffix:'/mo',min:0}) +
+    _finInput('fmMonths','Months salary paid', m.monthsPaid, {key:'monthsPaid',min:1}))}
+  ${section('Other cost (per year)',
+    _finInput('fmTransport','Transport (diesel/service/permit)', m.transport, {key:'transport',min:0}) +
+    _finInput('fmOther','Other opex (electricity, supplies…)', m.other, {key:'other',min:0}))}
+  ${section('Growth & projection',
+    _finInput('fmGrow','Student growth', m.studentGrowth, {key:'studentGrowth',suffix:'%/yr',step:'0.5'}) +
+    _finInput('fmFeeInc','Fee increase', m.feeIncrease, {key:'feeIncrease',suffix:'%/yr',step:'0.5'}) +
+    _finInput('fmSalInc','Salary increment', m.salaryIncrement, {key:'salaryIncrement',suffix:'%/yr',step:'0.5'}) +
+    _finInput('fmInfl','Cost inflation', m.inflation, {key:'inflation',suffix:'%/yr',step:'0.5'}) +
+    _finInput('fmYears','Projection years', m.years, {key:'years',min:1}))}
+  <div class="flex gap-2">
+   <button id="fmResetBtn" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-rotate-left mr-1"></i>Reset to live data</button>
+   <button id="fmExportBtn" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-download mr-1"></i>Export CSV</button>
+  </div>`;
+ return `<div class="space-y-3">
+   <div>
+    <h2 class="text-lg font-bold"><i class="fas fa-chart-line text-emerald-600 mr-2"></i>Financial Projection Model</h2>
+    <p class="text-sm text-gray-600">Auto-filled from your live data. Change any figure on the left — students, average fee, salaries, add teachers, the new principal — and the projection updates instantly.</p>
+   </div>
+   <div class="grid lg:grid-cols-3 gap-3">
+    <div class="lg:col-span-1 space-y-2" id="finInputs">${inputs}</div>
+    <div class="lg:col-span-2 space-y-3" id="finResults">${_finResultsHTML()}</div>
+   </div>
+   <p class="text-xs text-gray-400">Assumptions: salary bill auto-summed from staff records (\u20b9${(m.monthlySalary).toLocaleString('en-IN')}/mo); "New principal" defaults to \u20b940,000 — set it to 0 if already counted in the salary bill. Transport/other auto-estimated from recorded expenses where available. All figures are editable and do not change your actual data.</p>
+  </div>`;
+}
+function _attachFinancialModelEvents(){
+ document.querySelectorAll('.finInput').forEach(inp => {
+  inp.addEventListener('input', () => {
+   const key = inp.dataset.key;
+   let v = parseFloat(inp.value); if (isNaN(v)) v = 0;
+   finModel[key] = v;
+   const res = document.getElementById('finResults');
+   if (res) res.innerHTML = _finResultsHTML();
+  });
+ });
+ document.getElementById('fmResetBtn')?.addEventListener('click', () => { finModel = _finModelAutofill(); const p=document.getElementById('finModelWrap'); if(p){p.innerHTML=renderFinancialModel();_attachFinancialModelEvents();} else { renderApp(); } });
+ document.getElementById('fmExportBtn')?.addEventListener('click', () => {
+  const { rows, be } = _finCompute(finModel);
+  let csv='Year,Students,Avg Fee,Revenue,Salary,Transport,Other,Total Cost,Surplus,Margin %\n';
+  rows.forEach(r=>{ csv+=`${r.year},${r.students},${Math.round(r.avgFee)},${Math.round(r.revenue)},${Math.round(r.salary)},${Math.round(r.transport)},${Math.round(r.other)},${Math.round(r.cost)},${Math.round(r.surplus)},${(r.margin*100).toFixed(1)}\n`; });
+  csv+=`\nBreak-even students,${be.students}\nBreak-even avg fee,${Math.round(be.avgFee)}\n`;
+  const blob=new Blob([csv],{type:'text/csv'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='MDBV_Financial_Model_'+new Date().toISOString().slice(0,10)+'.csv'; a.click();
+ });
+}
+
 function renderFeeDashboard(){
  const { rows, tot } = _feeDashboardData();
  const inr = n => 'Rs.' + (n||0).toLocaleString('en-IN');
@@ -14442,6 +14651,11 @@ function attachOwnerEvents(){
   renderApp();
  });
  if (ownerView === 'feedashboard') _attachFeeDashboardEvents();
+ document.getElementById('ownerOpenFinModelBtn')?.addEventListener('click', () => {
+  ownerView = 'finmodel';
+  renderApp();
+ });
+ if (ownerView === 'finmodel') _attachFinancialModelEvents();
  // Homework oversight navigation
  document.getElementById('ownerOpenHomeworkBtn')?.addEventListener('click', () => {
   ownerView = 'homework';
