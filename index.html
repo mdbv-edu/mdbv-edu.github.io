@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1787338405 - owner dashboard decluttered: 18 feature cards replaced with 5 category tiles (Finance, Academics, Students & Staff, Attendance, Administration), each opening a dedicated section page -->
+<!-- BUILD: v-1787385164 - Admin (28 tabs) & Accountant (11 tabs) portals grouped into a two-level category bar; owner stat card now shows Staff split into teaching + non-teaching -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -4122,7 +4122,7 @@ function renderOwnerDashboard(){
   <div class="grid grid-cols-2 md:grid-cols-4 gap-4 my-6">
    <div class="bg-white p-4 rounded-xl shadow-sm card-hover border"><i class="fas fa-rupee-sign text-green-600 text-xl"></i><p class="text-xs text-gray-500 mt-2">Outstanding Fees</p><p class="text-2xl font-bold text-gray-900">Rs.${tot.toLocaleString('en-IN')}</p></div>
    <div class="bg-white p-4 rounded-xl shadow-sm card-hover border"><i class="fas fa-user-graduate text-indigo-600 text-xl"></i><p class="text-xs text-gray-500 mt-2">Total Students</p><p class="text-2xl font-bold text-gray-900">${st.length}</p></div>
-   <div class="bg-white p-4 rounded-xl shadow-sm card-hover border"><i class="fas fa-chalkboard-teacher text-purple-600 text-xl"></i><p class="text-xs text-gray-500 mt-2">Teachers</p><p class="text-2xl font-bold text-gray-900">${tc.length}</p></div>
+   <div class="bg-white p-4 rounded-xl shadow-sm card-hover border"><i class="fas fa-chalkboard-teacher text-purple-600 text-xl"></i><p class="text-xs text-gray-500 mt-2">Staff</p><p class="text-2xl font-bold text-gray-900">${tc.length}</p>${(() => { const teach=tc.filter(t=>(t.staffType||'Teaching')!=='Non-Teaching').length; const non=tc.length-teach; return `<p class="text-[11px] text-gray-500 mt-0.5">${teach} teaching · ${non} non-teaching</p>`; })()}</div>
    <div class="bg-white p-4 rounded-xl shadow-sm card-hover border"><i class="fas fa-exclamation-triangle text-orange-500 text-xl"></i><p class="text-xs text-gray-500 mt-2">Open Complaints</p><p class="text-2xl font-bold text-gray-900">${pend}</p></div>
   </div>
   <div class="bg-white rounded-xl shadow-sm p-5 mb-6 border-l-4 border-emerald-500">
@@ -4252,6 +4252,34 @@ function renderOwnerDashboard(){
 }
 
 /* ---------- ADMIN PANEL SHELL ---------- */
+// ===== Two-level tab bar: group many tabs into categories (Admin + Accountant) =====
+var ADMIN_CATEGORIES = [
+ {key:'main',       label:'Dashboard',        icon:'gauge-high',     tabs:['dashboard']},
+ {key:'people',     label:'People',           icon:'users',          tabs:['users','students','teachers']},
+ {key:'academics',  label:'Academics',        icon:'graduation-cap', tabs:['homework','ptm','resources','reportcards','activities','gallery','calendar']},
+ {key:'attendance', label:'Attendance',       icon:'calendar-check', tabs:['attendance','staffattendance']},
+ {key:'finance',    label:'Finance & Assets', icon:'sack-dollar',    tabs:['feestructure','bank','vehicles','maintenance','inventory']},
+ {key:'comms',      label:'Communication',    icon:'bullhorn',       tabs:['notices','broadcast','enquiries']},
+ {key:'compliance', label:'Compliance & Docs',icon:'shield-halved',  tabs:['compliance','disclosureDocs','documents','datamanagement','reports','tchaudit','backup']}
+];
+var ACC_CATEGORIES = [
+ {key:'overview', label:'Overview', icon:'gauge-high',           tabs:['overview','feedashboard']},
+ {key:'fees',     label:'Fees',     icon:'hand-holding-dollar',  tabs:['receipts','reminders','students']},
+ {key:'payments', label:'Payments', icon:'money-bill-transfer',  tabs:['payments','salary','vehicles']},
+ {key:'records',  label:'Records',  icon:'book',                 tabs:['ledger','audit','recyclebin']}
+];
+function _twoLevelTabBar(categories, allTabs, activeTab, catClass, tabClass, activeCls){
+ const byId = {}; allTabs.forEach(t=>byId[t.id]=t);
+ const activeCat = categories.find(c=>c.tabs.includes(activeTab)) || categories[0];
+ const catRow = categories.map(c=>{ const on=c.key===activeCat.key;
+   return `<button class="${catClass} px-3 py-1.5 rounded-lg text-sm font-semibold whitespace-nowrap ${on?activeCls:'bg-white border text-gray-600 hover:bg-gray-100'}" data-cat="${c.key}"><i class="fas fa-${c.icon} mr-1"></i>${c.label}</button>`;
+ }).join('');
+ const subRow = activeCat.tabs.filter(id=>byId[id]).map(id=>{ const t=byId[id]; const on=activeTab===id;
+   return `<button class="${tabClass} px-3 py-2 rounded-t-lg text-sm font-medium whitespace-nowrap ${on?activeCls:'bg-gray-100 hover:bg-gray-200 text-gray-700'}" data-tab="${id}"><i class="fas fa-${t.icon} mr-1"></i>${t.label}</button>`;
+ }).join('');
+ return `<div class="tab-scroll gap-1 mb-2 pb-1">${catRow}</div><div class="tab-scroll gap-1 border-b pb-2 mb-4">${subRow}</div>`;
+}
+
 function renderAdminPanel(){
  const tabs=[
   {id:'dashboard',label:'Dashboard',icon:'gauge-high'},
@@ -4289,9 +4317,7 @@ function renderAdminPanel(){
    <div class="text-sm text-gray-600 hidden md:block">${currentUser.name}</div>
    <button id="logoutAdminBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
   </div>
-  <div class="tab-scroll gap-1 border-b pb-2 my-4">
-   ${tabs.map(t=>`<button class="admin-tab px-3 py-2 rounded-t-lg text-sm font-medium whitespace-nowrap ${activeAdminTab===t.id?'bg-indigo-600 text-white':'bg-gray-100 hover:bg-gray-200 text-gray-700'}" data-tab="${t.id}"><i class="fas fa-${t.icon} mr-1"></i>${t.label}</button>`).join('')}
-  </div>
+  ${_twoLevelTabBar(ADMIN_CATEGORIES, tabs, activeAdminTab, 'admin-cat', 'admin-tab', 'bg-indigo-600 text-white')}
   <div id="adminTabContent" class="bg-white rounded-xl shadow-sm p-5 border"></div>
  </div>`;
 }
@@ -10659,9 +10685,7 @@ function renderAccountantPanel(){
    </div>
    <button id="logoutAccBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
   </div>
-  <div class="tab-scroll gap-1 border-b pb-2 mb-4">
-   ${tabs.map(t => `<button class="acc-tab px-3 py-2 rounded-t-lg text-sm font-medium whitespace-nowrap ${activeAccountantTab===t.id?'bg-emerald-600 text-white':'bg-gray-100 hover:bg-gray-200 text-gray-700'}" data-tab="${t.id}"><i class="fas fa-${t.icon} mr-1"></i>${t.label}</button>`).join('')}
-  </div>
+  ${_twoLevelTabBar(ACC_CATEGORIES, tabs, activeAccountantTab, 'acc-cat', 'acc-tab', 'bg-emerald-600 text-white')}
   <div id="accTabContent">${renderAccountantTabContent()}</div>
  </div>`;
 }
@@ -13367,6 +13391,7 @@ function _logMessageToRecipients(students, message, channel){
 /* ---------- ACCOUNTANT EVENT HANDLERS ---------- */
 function attachAccountantEvents(){
  document.getElementById('logoutAccBtn')?.addEventListener('click',()=>{currentUser=null;chatPanelOpen=false;activeChatWith=null;activeAccountantTab='overview';renderApp()});
+ document.querySelectorAll('.acc-cat').forEach(b => b.addEventListener('click', () => { const c=ACC_CATEGORIES.find(x=>x.key===b.dataset.cat); if(c){ activeAccountantTab=c.tabs[0]; renderApp(); } }));
  document.querySelectorAll('.acc-tab').forEach(b => b.addEventListener('click', () => {
   activeAccountantTab = b.dataset.tab;
   renderApp();
@@ -14890,6 +14915,7 @@ function attachOwnerEvents(){
 /* ---------- ADMIN EVENTS ---------- */
 function attachAdminEvents(){
  document.getElementById('logoutAdminBtn')?.addEventListener('click',()=>{currentUser=null;activeAdminTab='dashboard';chatPanelOpen=false;activeChatWith=null;renderApp()});
+ document.querySelectorAll('.admin-cat').forEach(b=>b.addEventListener('click',()=>{const c=ADMIN_CATEGORIES.find(x=>x.key===b.dataset.cat); if(c){activeAdminTab=c.tabs[0];studentFilter={search:'',class:'all',section:'all',category:'all'};renderApp();}}));
  document.querySelectorAll('.admin-tab').forEach(b=>b.addEventListener('click',()=>{activeAdminTab=b.dataset.tab;studentFilter={search:'',class:'all',section:'all',category:'all'};renderApp()}));
 }
 function attachActiveAdminTabEvents(){
