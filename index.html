@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1787385164 - Admin (28 tabs) & Accountant (11 tabs) portals grouped into a two-level category bar; owner stat card now shows Staff split into teaching + non-teaching -->
+<!-- BUILD: v-1787818880 - SR No now visible/editable to admin, accountant, principal & owner (UDISE stays owner/MD); current vs archived students counted separately; teacher marks can be edited & deleted; exam name is a dropdown (Class Test/Unit Test 1&2/Half Yearly/Final Examination/Other); receipts pre-fill the school bank account -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -689,6 +689,12 @@ function isActivityIncharge(role){
 // Only Owner and Managing Director may see SR and UDISE/PEN. Everyone else never sees them.
 function canSeeConfidentialNumbers(){
  return currentUser && (currentUser.role === 'owner' || currentUser.role === 'managing_director');
+}
+// Scholar Register (SR) number is needed by the office to issue a TC, so admin, accountant,
+// principal and owner-level roles can all see and edit it. UDISE/PEN stays Owner/MD only.
+function canSeeSRNumber(){
+ if (!currentUser) return false;
+ return isOwnerLevel() || isAdminLevel() || isAccountantLevel() || isPrincipalLevel();
 }
 // Masks a confidential value for display to non-privileged users (shows nothing revealing).
 function maskConfidential(val){
@@ -1863,6 +1869,8 @@ function setupContactForm() {
 
 // All publicly-visible school information lives here. Edit values, save, redeploy.
 // This block is referenced from About, Disclosure, Contact, Footer, etc.
+// The school's own bank account — pre-filled on receipts so the accountant doesn't retype it.
+const SCHOOL_BANK = { name: 'MDDG Makhar Educ and School Welfare Trust', accountNo: '39332537438' };
 const SCHOOL_INFO = {
   // School identity
   name:        'Murti Devi Balika Vidyapeeth',
@@ -3782,7 +3790,7 @@ function restoreFromBackup(backupObj){
  }
 }
 function exportUdisCSV(){
- const st=getStudents(),tc=getTeachers(),inf=getSchoolInfra();
+ const st=getStudents().filter(x=>!x.archived),tc=getTeachers(),inf=getSchoolInfra();
  let rows=[['UDISE Code','UP-0987-12345','School','Murti Devi Balika Vidyapeeth']];
  rows.push(['Report Year','2025-26','Total Girls',st.length]);
  rows.push(['Class','Enrolled','SC','ST','OBC','General','BPL','CWSN']);
@@ -4121,7 +4129,7 @@ function renderOwnerDashboard(){
   ${renderNoticesForCurrentUser(3)}
   <div class="grid grid-cols-2 md:grid-cols-4 gap-4 my-6">
    <div class="bg-white p-4 rounded-xl shadow-sm card-hover border"><i class="fas fa-rupee-sign text-green-600 text-xl"></i><p class="text-xs text-gray-500 mt-2">Outstanding Fees</p><p class="text-2xl font-bold text-gray-900">Rs.${tot.toLocaleString('en-IN')}</p></div>
-   <div class="bg-white p-4 rounded-xl shadow-sm card-hover border"><i class="fas fa-user-graduate text-indigo-600 text-xl"></i><p class="text-xs text-gray-500 mt-2">Total Students</p><p class="text-2xl font-bold text-gray-900">${st.length}</p></div>
+   <div class="bg-white p-4 rounded-xl shadow-sm card-hover border"><i class="fas fa-user-graduate text-indigo-600 text-xl"></i><p class="text-xs text-gray-500 mt-2">Current Students</p><p class="text-2xl font-bold text-gray-900">${st.filter(x=>!x.archived).length}</p>${(()=>{const a=st.filter(x=>x.archived).length; return a?`<p class="text-[11px] text-gray-500 mt-0.5">${a} archived (TC issued)</p>`:'';})()}</div>
    <div class="bg-white p-4 rounded-xl shadow-sm card-hover border"><i class="fas fa-chalkboard-teacher text-purple-600 text-xl"></i><p class="text-xs text-gray-500 mt-2">Staff</p><p class="text-2xl font-bold text-gray-900">${tc.length}</p>${(() => { const teach=tc.filter(t=>(t.staffType||'Teaching')!=='Non-Teaching').length; const non=tc.length-teach; return `<p class="text-[11px] text-gray-500 mt-0.5">${teach} teaching · ${non} non-teaching</p>`; })()}</div>
    <div class="bg-white p-4 rounded-xl shadow-sm card-hover border"><i class="fas fa-exclamation-triangle text-orange-500 text-xl"></i><p class="text-xs text-gray-500 mt-2">Open Complaints</p><p class="text-2xl font-bold text-gray-900">${pend}</p></div>
   </div>
@@ -4421,7 +4429,10 @@ function renderStudentsTab(){
  const inArchiveView = studentFilter.category === 'archived';
  return `<div>
   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
-   <h2 class="text-lg font-bold"><i class="fas fa-user-graduate text-indigo-600 mr-1"></i>Students Management${inArchiveView?' <span class="text-sm font-normal text-gray-500">— Archive (TC issued)</span>':''}</h2>
+   <div>
+    <h2 class="text-lg font-bold"><i class="fas fa-user-graduate text-indigo-600 mr-1"></i>Students Management${inArchiveView?' <span class="text-sm font-normal text-gray-500">— Archive (TC issued)</span>':''}</h2>
+    <div class="text-xs text-gray-600 mt-0.5"><span class="pill pill-green">${activeCount} current</span> <span class="pill pill-gray ml-1">${archivedCount} archived</span> <span class="text-gray-400 ml-1">(counted separately)</span></div>
+   </div>
    <div class="flex gap-2 flex-wrap">
     ${inArchiveView ? `<button id="backToActiveBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-arrow-left mr-1"></i>Back to Active (${activeCount})</button>` : `
     <button id="addStudentBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-plus mr-1"></i>Add Student</button>
@@ -4457,12 +4468,12 @@ function renderStudentsTab(){
     </div>`;
   })()}
   <div class="overflow-x-auto">
-   <table class="border text-sm"><thead><tr><th>Photo</th><th>Adm No</th>${canSeeConfidentialNumbers()?'<th title="Scholar Register No — confidential">SR No</th><th title="UDISE/PEN — confidential">UDISE</th>':''}<th>Name</th><th>Class</th><th>Sec</th><th>Roll</th><th>Parent</th><th>Fee Due</th><th>Tags</th><th>Actions</th></tr></thead>
+   <table class="border text-sm"><thead><tr><th>Photo</th><th>Adm No</th>${canSeeSRNumber()?'<th title="Scholar Register No — used for TC">SR No</th>':''}${canSeeConfidentialNumbers()?'<th title="UDISE/PEN — confidential">UDISE</th>':''}<th>Name</th><th>Class</th><th>Sec</th><th>Roll</th><th>Parent</th><th>Fee Due</th><th>Tags</th><th>Actions</th></tr></thead>
    <tbody>
     ${filt.map(s=>`<tr>
      <td>${s.photo?`<img src="${s.photo}" class="w-8 h-8 rounded object-cover" alt="">`:`<div class="w-8 h-8 rounded bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold">${initials(s.name)}</div>`}</td>
      <td class="text-xs text-gray-600">${s.admissionNo||'-'}</td>
-     ${canSeeConfidentialNumbers()?`<td class="text-xs text-gray-600 font-mono">${s.registrationNo||'<span class="text-gray-400">—</span>'}</td><td class="text-xs text-gray-600 font-mono">${s.pen||'<span class="text-gray-400">—</span>'}</td>`:''}
+     ${canSeeSRNumber()?`<td class="text-xs text-gray-600 font-mono">${s.registrationNo||'<span class="text-gray-400">—</span>'}</td>`:''}${canSeeConfidentialNumbers()?`<td class="text-xs text-gray-600 font-mono">${s.pen||'<span class="text-gray-400">—</span>'}</td>`:''}
      <td class="font-medium">${s.name}</td>
      <td>${s.class}</td><td>${s.section}</td><td>${s.rollNo}</td>
      <td class="text-xs">${s.fatherName||s.motherName||s.parentName||'-'}<br><span class="text-gray-500">${s.parentPhone||''}</span></td>
@@ -4477,7 +4488,7 @@ function renderStudentsTab(){
         : `<button class="archiveStudentBtn text-amber-600 hover:text-amber-800 ml-1" data-id="${s.id}" title="Issue TC / Archive"><i class="fas fa-box-archive"></i></button>`}
       <button class="delStudentBtn2 text-red-600 hover:text-red-800 ml-1" data-id="${s.id}" title="Delete"><i class="fas fa-trash"></i></button>
      </td>
-    </tr>`).join('')||`<tr><td colspan="${canSeeConfidentialNumbers()?13:11}" class="text-center text-gray-500 py-6">No students match</td></tr>`}
+    </tr>`).join('')||`<tr><td colspan="${11+(canSeeSRNumber()?1:0)+(canSeeConfidentialNumbers()?1:0)}" class="text-center text-gray-500 py-6">No students match</td></tr>`}
    </tbody></table>
   </div>
 
@@ -4546,7 +4557,7 @@ function renderDataManagementModals(){
    <input type="hidden" id="dmStuId">
    <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
     <div><label class="text-xs font-medium">Full Name *</label><input id="dmStuName"></div>
-    <div${canSeeConfidentialNumbers()?'':' style="display:none"'}><label class="text-xs font-medium">Scholar Reg No <i class="fas fa-lock text-amber-500" title="Confidential — Owner/MD only"></i></label><input id="dmStuRegNo" placeholder="SR register number" autocomplete="off"></div>
+    <div${canSeeSRNumber()?'':' style="display:none"'}><label class="text-xs font-medium">Scholar Reg No <i class="fas fa-id-badge text-amber-500" title="Scholar Register number — used for TC"></i></label><input id="dmStuRegNo" placeholder="SR register number" autocomplete="off"></div>
     <div><label class="text-xs font-medium">Admission No</label><input id="dmStuAdmNo"></div>
     <div><label class="text-xs font-medium">Class *</label><select id="dmStuClass">${ALL_CLASSES.map(c=>`<option>${c}</option>`).join('')}</select></div>
     <div><label class="text-xs font-medium">Section</label><select id="dmStuSection">${ALL_SECTIONS.map(c=>`<option>${c}</option>`).join('')}</select></div>
@@ -4893,7 +4904,7 @@ function generateReportCard(student, examName){
       <div><span class="lbl">Admission No:</span> <b>${s.admissionNo||'-'}</b></div>
       <div><span class="lbl">Father/Guardian:</span> <b>${s.fatherName||s.motherName||s.parentName||'-'}</b></div>
       <div><span class="lbl">Date of Birth:</span> <b>${s.dob?new Date(s.dob).toLocaleDateString('en-IN'):'-'}</b></div>
-      ${canSeeConfidentialNumbers()?`<div><span class="lbl">Scholar Reg No:</span> <b>${s.registrationNo||'-'}</b></div><div><span class="lbl">UDISE/PEN:</span> <b>${s.pen||'-'}</b></div>`:''}
+      ${canSeeSRNumber()?`<div><span class="lbl">Scholar Reg No:</span> <b>${s.registrationNo||'-'}</b></div>`:''}${canSeeConfidentialNumbers()?`<div><span class="lbl">UDISE/PEN:</span> <b>${s.pen||'-'}</b></div>`:''}
      </div>
     </div>
     <div class="stuphoto">${photo?`<img src="${photo}">`:`<div class="ini">${initialsTxt}</div>`}</div>
@@ -4942,7 +4953,7 @@ function renderStudentProfile(id){
    <div><div class="text-xs text-gray-500">Blood Group</div><div class="font-medium">${s.bloodGroup||'-'}</div></div>
    <div><div class="text-xs text-gray-500">Caste</div><div class="font-medium">${s.caste}</div></div>
    <div><div class="text-xs text-gray-500">Aadhaar</div><div class="font-medium">${s.aadhaar||'-'}</div></div>
-   ${canSeeConfidentialNumbers()?`<div><div class="text-xs text-gray-500">Scholar Reg No <i class="fas fa-lock text-amber-500" title="Confidential"></i></div><div class="font-medium font-mono">${s.registrationNo||'-'}</div></div><div><div class="text-xs text-gray-500">UDISE/PEN <i class="fas fa-lock text-amber-500" title="Confidential"></i></div><div class="font-medium font-mono">${s.pen||'-'}</div></div>`:''}
+   ${canSeeSRNumber()?`<div><div class="text-xs text-gray-500">Scholar Reg No <i class="fas fa-id-badge text-amber-500" title="Used for TC"></i></div><div class="font-medium font-mono">${s.registrationNo||'-'}</div></div>`:''}${canSeeConfidentialNumbers()?`<div><div class="text-xs text-gray-500">UDISE/PEN <i class="fas fa-lock text-amber-500" title="Confidential"></i></div><div class="font-medium font-mono">${s.pen||'-'}</div></div>`:''}
    <div><div class="text-xs text-gray-500">BPL / CWSN</div><div class="font-medium">${s.bpl?'BPL':''} ${s.cwsn?'CWSN':''} ${!s.bpl&&!s.cwsn?'-':''}</div></div>
    <div><div class="text-xs text-gray-500">Admission Date</div><div class="font-medium">${fmtDate(s.admissionDate)}</div></div>
    <div class="col-span-2"><div class="text-xs text-gray-500">Parent</div><div class="font-medium">${s.fatherName||s.motherName||s.parentName||'-'} - ${s.parentPhone||'-'}</div></div>
@@ -8066,7 +8077,11 @@ function renderTchMarks(){
     </div>
     <div>
      <label class="text-xs font-medium">Exam Name *</label>
-     <input id="mkExam" placeholder="e.g. Unit Test 1, Half Yearly, Annual">
+     <select id="mkExamSel" onchange="document.getElementById('mkExam').style.display=this.value==='Other'?'block':'none';if(this.value!=='Other'){document.getElementById('mkExam').value='';}">
+      <option value="">— Select exam —</option>
+      ${EXAM_NAMES.map(e=>`<option>${e}</option>`).join('')}
+     </select>
+     <input id="mkExam" placeholder="Type exam name" style="display:none" class="mt-1 text-sm w-full">
     </div>
     <div>
      <label class="text-xs font-medium">Max Marks *</label>
@@ -8924,7 +8939,10 @@ function _attachMarksEvents(){
  classSel?.addEventListener('change', renderRoster);
 
  saveBtn?.addEventListener('click', () => {
-  const exam = document.getElementById('mkExam').value.trim();
+  const examSel = document.getElementById('mkExamSel') ? document.getElementById('mkExamSel').value : '';
+  const exam = (examSel === 'Other' || !examSel)
+    ? document.getElementById('mkExam').value.trim()
+    : examSel;
   let sub = document.getElementById('mkSubject').value;
   if (sub === 'Other') { const o = document.getElementById('mkSubjectOther')?.value.trim(); if (o) sub = o; }
   const max = parseInt(document.getElementById('mkMax').value) || 100;
@@ -8980,15 +8998,42 @@ function _attachMarksEvents(){
       <span class="text-xs">Avg: <b>${avg.toFixed(1)}/${max}</b> · High: <b>${high}</b> · Low: <b>${low}</b></span>
      </summary>
      <div class="overflow-x-auto p-2"><table class="text-xs w-full border">
-      <thead class="bg-gray-100"><tr><th>Roll</th><th>Name</th><th>Marks</th><th>%</th><th>Grade</th></tr></thead>
+      <thead class="bg-gray-100"><tr><th>Roll</th><th>Name</th><th>Marks</th><th>%</th><th>Grade</th><th>Actions</th></tr></thead>
       <tbody>${marks.sort((a,b) => (a.student?.rollNo||0)-(b.student?.rollNo||0)).map(m => {
         const pct = (m.marks / max) * 100;
         const grade = pct >= 90 ? 'A+' : pct >= 80 ? 'A' : pct >= 70 ? 'B+' : pct >= 60 ? 'B' : pct >= 50 ? 'C' : pct >= 33 ? 'D' : 'F';
-        return `<tr><td>${m.student?.rollNo||'-'}</td><td>${m.student?.name||'?'}</td><td>${m.marks}/${max}</td><td>${pct.toFixed(1)}%</td><td class="font-semibold">${grade}</td></tr>`;
+        return `<tr><td>${m.student?.rollNo||'-'}</td><td>${m.student?.name||'?'}</td><td>${m.marks}/${max}</td><td>${pct.toFixed(1)}%</td><td class="font-semibold">${grade}</td>
+          <td class="whitespace-nowrap"><button class="mkEditBtn text-blue-600 hover:text-blue-800" data-id="${m.id}" title="Edit marks"><i class="fas fa-edit"></i></button>
+          <button class="mkDelBtn text-red-600 hover:text-red-800 ml-2" data-id="${m.id}" title="Delete marks"><i class="fas fa-trash"></i></button></td></tr>`;
        }).join('')}</tbody>
      </table></div>
     </details>`;
   }).join('');
+  // Re-bind row actions after every re-render
+  document.querySelectorAll('.mkEditBtn').forEach(b => b.addEventListener('click', () => {
+   const all = getExamMarks();
+   const m = all.find(x => String(x.id) === String(b.dataset.id));
+   if (!m) return;
+   const stu = getStudents().find(x => x.id === m.studentId);
+   const cur = prompt(`Edit marks for ${stu ? stu.name : 'student'}\n${m.examName} · ${m.subject}\n\nMarks obtained (out of ${m.maxMarks}):`, m.marks);
+   if (cur === null) return;
+   const v = parseFloat(cur);
+   if (isNaN(v) || v < 0 || v > m.maxMarks) { alert(`Please enter a number between 0 and ${m.maxMarks}.`); return; }
+   m.marks = v; m.editedAt = new Date().toISOString(); m.editedBy = currentUser?.name || '';
+   saveExamMarks(all);
+   showToast('Marks updated');
+   renderSummary();
+  }));
+  document.querySelectorAll('.mkDelBtn').forEach(b => b.addEventListener('click', () => {
+   const all = getExamMarks();
+   const m = all.find(x => String(x.id) === String(b.dataset.id));
+   if (!m) return;
+   const stu = getStudents().find(x => x.id === m.studentId);
+   if (!confirm(`Delete this marks entry?\n\n${stu ? stu.name : 'Student'} — ${m.examName} · ${m.subject} — ${m.marks}/${m.maxMarks}\n\nThis cannot be undone.`)) return;
+   saveExamMarks(all.filter(x => String(x.id) !== String(b.dataset.id)));
+   showToast('Marks entry deleted');
+   renderSummary();
+  }));
  };
  document.getElementById('mkFilterExam')?.addEventListener('change', renderSummary);
  renderSummary();
@@ -9899,6 +9944,8 @@ const FEE_HEADS = [
 // Fee heads on the printed receipt book (order matches the school's paper receipt).
 var _rcptYearFilter = 'all';
 var _rcptHeads = []; // line items being added to the current receipt: [{head, amount}]
+// Standard exam names for marks entry. 'Other' reveals a free-text box.
+const EXAM_NAMES = ['Class Test','Unit Test 1','Unit Test 2','Half Yearly','Final Examination','Other'];
 const RECEIPT_FEE_HEADS = [
   'Registration Fees', 'Admission Fee', 'Composite Fee', 'Tuition Fee', 'Book Fee', 'Computer Fee',
   'Transport Fees', 'Annual Charges', 'Examination Fee', 'Day Boarding (Mess)', 'Other'
@@ -11343,9 +11390,9 @@ function renderAccReceipts(){
     </div>
     <div id="rcptBankRow" style="display:none">
      <label class="text-xs font-medium">Credit to school A/C *</label>
-     <select id="rcptBankAcc">${banks.map(b => `<option value="${b.id}">${b.bankName} · ${b.accountNo}</option>`).join('')}<option value="__manual__">Other (type manually)…</option></select>
-     <input id="rcptBankManual" placeholder="Or type bank name / account number here" class="mt-2">
-     <div class="text-xs text-gray-500 mt-0.5">Pick the school account that received this, or just type the bank / account here.</div>
+     <select id="rcptBankAcc"><option value="__school__" selected>${SCHOOL_BANK.name} · ${SCHOOL_BANK.accountNo}</option>${banks.map(b => `<option value="${b.id}">${b.bankName} · ${b.accountNo}</option>`).join('')}<option value="__manual__">Other (type manually)…</option></select>
+     <input id="rcptBankManual" placeholder="Or type bank name / account number here" class="mt-2" style="display:none">
+     <div class="text-xs text-gray-500 mt-0.5">Defaults to the school account. Pick another, or choose "Other" to type one.</div>
     </div>
     <div id="rcptRefRow" style="display:none">
      <label class="text-xs font-medium">Transaction Ref / UTR No. <span class="text-gray-400">(optional)</span></label>
@@ -13800,8 +13847,11 @@ function _attachReceiptEvents(){
  const refRow = document.getElementById('rcptRefRow');
  const bankAccSel = document.getElementById('rcptBankAcc');
  const bankManual = document.getElementById('rcptBankManual');
- // The typed box is always visible when the bank row shows — no need to pick "Other" first.
- const updateBankManual = () => {};
+ // Show the free-text box only when "Other (type manually)" is selected.
+ const updateBankManual = () => {
+  if (!bankManual || !bankAccSel) return;
+  bankManual.style.display = (bankAccSel.value === '__manual__') ? '' : 'none';
+ };
  bankAccSel?.addEventListener('change', updateBankManual);
  const updateRcptModeUI = () => {
   if (!modeSel) return;
@@ -13832,9 +13882,14 @@ function _attachReceiptEvents(){
   const academicYear = document.getElementById('rcptYear')?.value || currentSession();
   const chequeNo = document.getElementById('rcptChequeNo')?.value.trim();
   const bankAccRaw = document.getElementById('rcptBankAcc')?.value;
-  const bankAccId = (mode !== 'Cash' && bankAccRaw && bankAccRaw !== '__manual__') ? (parseInt(bankAccRaw) || null) : null;
+  const bankAccId = (mode !== 'Cash' && bankAccRaw && bankAccRaw !== '__manual__' && bankAccRaw !== '__school__') ? (parseInt(bankAccRaw) || null) : null;
   // Free-typed bank/account (when "Other" is chosen) and transaction reference/UTR.
-  const bankManualText = (mode !== 'Cash') ? (document.getElementById('rcptBankManual')?.value.trim() || '') : '';
+  // The default "__school__" option records the school's own account details.
+  const bankManualText = (mode !== 'Cash')
+    ? (bankAccRaw === '__school__'
+        ? `${SCHOOL_BANK.name} · A/C ${SCHOOL_BANK.accountNo}`
+        : (document.getElementById('rcptBankManual')?.value.trim() || ''))
+    : '';
   const txnRef = (mode.includes('Online') || mode === 'Bank Transfer') ? (document.getElementById('rcptTxnRef')?.value.trim() || '') : '';
   const notes = document.getElementById('rcptNotes').value.trim();
   const slipNo = document.getElementById('rcptSlipNo')?.value.trim();
@@ -15236,14 +15291,15 @@ function attachStudentsTabEvents(){
  }));
  document.getElementById('exportStudentsBtn')?.addEventListener('click',()=>{
   const s=getStudents();
-  const conf = canSeeConfidentialNumbers(); // only Owner/MD get SR + UDISE columns
-  const confHead = conf ? '<th>Scholar Reg No</th><th>UDISE/PEN</th>' : '';
+  const sr = canSeeSRNumber();              // office roles get SR (needed for TC)
+  const conf = canSeeConfidentialNumbers();  // only Owner/MD get UDISE
+  const confHead = (sr ? '<th>Scholar Reg No</th>' : '') + (conf ? '<th>UDISE/PEN</th>' : '');
   let h='<table border="1"><tr><th>Adm No</th>'+confHead+'<th>Name</th><th>Class</th><th>Section</th><th>Roll</th><th>Gender</th><th>DOB</th><th>Blood</th><th>Caste</th><th>BPL</th><th>CWSN</th><th>Aadhaar</th><th>Parent</th><th>Phone</th><th>Address</th><th>Adm Date</th><th>Fee Balance</th></tr>';
   s.forEach(x=>{
-   const confCells = conf ? `<td>${x.registrationNo||''}</td><td>${x.pen||''}</td>` : '';
+   const confCells = (sr ? `<td>${x.registrationNo||''}</td>` : '') + (conf ? `<td>${x.pen||''}</td>` : '');
    h+=`<tr><td>${x.admissionNo||''}</td>${confCells}<td>${x.name}</td><td>${x.class}</td><td>${x.section}</td><td>${x.rollNo}</td><td>${x.gender||''}</td><td>${x.dob||''}</td><td>${x.bloodGroup||''}</td><td>${x.caste}</td><td>${x.bpl?'Yes':'No'}</td><td>${x.cwsn?'Yes':'No'}</td><td>${x.aadhaar||''}</td><td>${x.parentName||''}</td><td>${x.parentPhone||''}</td><td>${x.address||''}</td><td>${x.admissionDate||''}</td><td>${x.feeBalance||0}</td></tr>`;
   });
-  h+='</table>';downloadExcel(h,'Students_'+(conf?'Full_':'Basic_')+new Date().toISOString().slice(0,10));
+  h+='</table>';downloadExcel(h,'Students_'+(sr?'Full_':'Basic_')+new Date().toISOString().slice(0,10));
  });
  document.getElementById('promoteStudentsBtn')?.addEventListener('click',()=>{
   if(!confirm('Promote ALL students to the next class? Class 12 students stay in Class 12. Continue?'))return;
@@ -16114,8 +16170,10 @@ function attachDataManagementEvents(){
   }
   // Confidential numbers (SR + UDISE/PEN) can only be set by Owner/MD. For everyone else,
   // do NOT overwrite them — the fields are hidden and would otherwise blank out real data.
-  if (canSeeConfidentialNumbers()) {
+  if (canSeeSRNumber()) {
     data.registrationNo = document.getElementById('dmStuRegNo').value.trim();
+  }
+  if (canSeeConfidentialNumbers()) {
     data.pen = document.getElementById('dmStuPen').value.trim();
   }
   // Auto-fill the Annual (class reference) fee from the class fee structure if not typed in.
