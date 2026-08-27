@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1787818880 - SR No now visible/editable to admin, accountant, principal & owner (UDISE stays owner/MD); current vs archived students counted separately; teacher marks can be edited & deleted; exam name is a dropdown (Class Test/Unit Test 1&2/Half Yearly/Final Examination/Other); receipts pre-fill the school bank account -->
+<!-- BUILD: v-1787834680 - Transfer Certificate in the school Scholar-Register format: editable form pre-filled from the student record, prints A4 with logo, saved on the student; class-wise subjects taken from the exam datesheet now drive the marks-entry subject list -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -2546,6 +2546,9 @@ function get(k){ return DB.getAll(k); }
 function set(k, d){ DB.setAll(k, d); }
 function getUsers(){ return DB.getAll('users'); }
 function getStudents(){ return DB.getAll('students'); }
+// Current strength: everyone EXCEPT archived (TC-issued) students. Use this for every count,
+// roster and dashboard figure — archived students are only shown in the Archive view.
+function getActiveStudents(){ return DB.getAll('students').filter(s => !s.archived); }
 function getFeeTransactions(){ return DB.getAll('feeTransactions'); }
 // Compact HOMEWORK-ONLY summary from the diary — just subject + homework, latest day.
 // For parents who want a quick "what's the homework" glance.
@@ -4110,7 +4113,7 @@ function renderOwnerDashboard(){
  }
 
  if (ownerSection) return _ownerSectionPage(ownerSection);
- const st=getStudents(),tc=getTeachers(),c=getComplaints(),inf=getSchoolInfra();
+ const st=getActiveStudents(),tc=getTeachers(),c=getComplaints(),inf=getSchoolInfra();
  const tot=st.reduce((a,x)=>a+(x.feeBalance||0),0);
  const pend=c.filter(x=>x.status==='open').length;
  const ud=DB.getObject('udiseReport');
@@ -4129,7 +4132,7 @@ function renderOwnerDashboard(){
   ${renderNoticesForCurrentUser(3)}
   <div class="grid grid-cols-2 md:grid-cols-4 gap-4 my-6">
    <div class="bg-white p-4 rounded-xl shadow-sm card-hover border"><i class="fas fa-rupee-sign text-green-600 text-xl"></i><p class="text-xs text-gray-500 mt-2">Outstanding Fees</p><p class="text-2xl font-bold text-gray-900">Rs.${tot.toLocaleString('en-IN')}</p></div>
-   <div class="bg-white p-4 rounded-xl shadow-sm card-hover border"><i class="fas fa-user-graduate text-indigo-600 text-xl"></i><p class="text-xs text-gray-500 mt-2">Current Students</p><p class="text-2xl font-bold text-gray-900">${st.filter(x=>!x.archived).length}</p>${(()=>{const a=st.filter(x=>x.archived).length; return a?`<p class="text-[11px] text-gray-500 mt-0.5">${a} archived (TC issued)</p>`:'';})()}</div>
+   <div class="bg-white p-4 rounded-xl shadow-sm card-hover border"><i class="fas fa-user-graduate text-indigo-600 text-xl"></i><p class="text-xs text-gray-500 mt-2">Current Students</p><p class="text-2xl font-bold text-gray-900">${st.length}</p>${(()=>{const a=getStudents().filter(x=>x.archived).length; return a?`<p class="text-[11px] text-gray-500 mt-0.5">${a} archived (TC issued) — not counted above</p>`:'';})()}</div>
    <div class="bg-white p-4 rounded-xl shadow-sm card-hover border"><i class="fas fa-chalkboard-teacher text-purple-600 text-xl"></i><p class="text-xs text-gray-500 mt-2">Staff</p><p class="text-2xl font-bold text-gray-900">${tc.length}</p>${(() => { const teach=tc.filter(t=>(t.staffType||'Teaching')!=='Non-Teaching').length; const non=tc.length-teach; return `<p class="text-[11px] text-gray-500 mt-0.5">${teach} teaching · ${non} non-teaching</p>`; })()}</div>
    <div class="bg-white p-4 rounded-xl shadow-sm card-hover border"><i class="fas fa-exclamation-triangle text-orange-500 text-xl"></i><p class="text-xs text-gray-500 mt-2">Open Complaints</p><p class="text-2xl font-bold text-gray-900">${pend}</p></div>
   </div>
@@ -4151,7 +4154,7 @@ function renderOwnerDashboard(){
     <span class="udise-badge px-3 py-1 rounded-full text-xs font-semibold">Govt Mandate</span>
    </div>
    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mt-3">
-    <div>Aadhaar mapped: <b>${st.filter(s=>s.aadhaar).length}/${st.length}</b></div>
+    <div>Aadhaar mapped: <b>${st.filter(s=>!s.archived&&s.aadhaar).length}/${st.filter(s=>!s.archived).length}</b></div>
     <div>CWSN: <b>${st.filter(s=>s.cwsn).length}</b></div>
     <div>Girls toilets: <b>${inf.girlsToilets}</b></div>
     <div>Last UDISE: <b>${ud?.lastSubmitted||'N/A'}</b></div>
@@ -4373,13 +4376,13 @@ function renderAdminTabContent(){
  }
 }
 function renderAdminDashboardTab(){
- const s=getStudents(),t=getTeachers(),c=getComplaints(),comp=getCompliance();
+ const s=getActiveStudents(),t=getTeachers(),c=getComplaints(),comp=getCompliance();
  const unread=getChatMessages().filter(m=>m.to===currentUser.id&&!m.read).length;
  return `<div>
   ${renderNoticesForCurrentUser(3)}
   <h2 class="text-lg font-bold mb-4">At a glance</h2>
   <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-   <div class="bg-indigo-50 p-4 rounded-lg"><div class="text-xs text-indigo-700 font-semibold">STUDENTS</div><div class="text-2xl font-bold text-indigo-900">${s.length}</div></div>
+   <div class="bg-indigo-50 p-4 rounded-lg"><div class="text-xs text-indigo-700 font-semibold">CURRENT STUDENTS</div><div class="text-2xl font-bold text-indigo-900">${s.length}</div>${(()=>{const a=getStudents().filter(x=>x.archived).length;return a?`<div class="text-[11px] text-indigo-700/70 mt-0.5">${a} archived separately</div>`:'';})()}</div>
    <div class="bg-purple-50 p-4 rounded-lg"><div class="text-xs text-purple-700 font-semibold">TEACHERS</div><div class="text-2xl font-bold text-purple-900">${t.length}</div></div>
    <div class="bg-amber-50 p-4 rounded-lg"><div class="text-xs text-amber-700 font-semibold">OPEN COMPLAINTS</div><div class="text-2xl font-bold text-amber-900">${c.filter(x=>x.status==='open').length}</div></div>
    <div class="bg-emerald-50 p-4 rounded-lg"><div class="text-xs text-emerald-700 font-semibold">COMPLIANT</div><div class="text-2xl font-bold text-emerald-900">${comp.filter(x=>x.enabled&&x.status==='compliant').length}/${comp.filter(x=>x.enabled).length}</div></div>
@@ -4453,7 +4456,7 @@ function renderStudentsTab(){
    <select id="studentCategoryFilter"><option value="all" ${studentFilter.category==='all'?'selected':''}>All Categories</option><option value="bpl" ${studentFilter.category==='bpl'?'selected':''}>BPL</option><option value="cwsn" ${studentFilter.category==='cwsn'?'selected':''}>CWSN</option><option value="feeDue" ${studentFilter.category==='feeDue'?'selected':''}>Fee Due</option></select>
    <button id="clearFilters" class="bg-gray-300 hover:bg-gray-400 text-gray-800 rounded-lg text-sm font-medium">Clear</button>
   </div>
-  <div class="text-sm text-gray-600 mb-2">Showing <b>${filt.length}</b> of ${all.length} students</div>
+  <div class="text-sm text-gray-600 mb-2">Showing <b>${filt.length}</b> of ${inArchiveView?archivedCount:activeCount} ${inArchiveView?'archived':'current'} students</div>
   ${(() => {
     const noClass = all.filter(s => !s.class || !ALL_CLASSES.includes(s.class));
     const noAdm = all.filter(s => !s.admissionNo);
@@ -4486,6 +4489,7 @@ function renderStudentsTab(){
       ${s.archived
         ? `<button class="restoreStudentBtn text-emerald-700 hover:text-emerald-900 ml-1" data-id="${s.id}" title="Restore (re-admit)"><i class="fas fa-rotate-left"></i></button>`
         : `<button class="archiveStudentBtn text-amber-600 hover:text-amber-800 ml-1" data-id="${s.id}" title="Issue TC / Archive"><i class="fas fa-box-archive"></i></button>`}
+        ${canSeeSRNumber()?`<button class="tcPrintBtn text-rose-700 hover:text-rose-900 ml-1" data-id="${s.id}" title="Transfer Certificate (edit &amp; print)"><i class="fas fa-file-contract"></i></button>`:''}
       <button class="delStudentBtn2 text-red-600 hover:text-red-800 ml-1" data-id="${s.id}" title="Delete"><i class="fas fa-trash"></i></button>
      </td>
     </tr>`).join('')||`<tr><td colspan="${11+(canSeeSRNumber()?1:0)+(canSeeConfidentialNumbers()?1:0)}" class="text-center text-gray-500 py-6">No students match</td></tr>`}
@@ -4657,6 +4661,198 @@ function renderDataManagementModals(){
    </div>
   </div></div>
 `;
+}
+
+// ===== CLASS-WISE SUBJECTS (from the school's exam datesheet) =====
+// Used to pre-fill subject choices for marks entry, report cards and homework.
+const CLASS_SUBJECTS = {
+ 'Pre Nursery':['Drawing','Mathematics','English','Hindi'],
+ 'Nursery':['Drawing','Hindi','Mathematics','English'],
+ 'LKG':['Drawing','English','Hindi','Mathematics'],
+ 'UKG':['Drawing','Mathematics','Hindi','English','General Knowledge'],
+ '1':['General Knowledge','Drawing','Sanskrit','English','EVS','Hindi','Mathematics','Computer'],
+ '2':['EVS','Hindi','English','Mathematics','Computer','General Knowledge','Sanskrit'],
+ '3':['English','Hindi','EVS','Mathematics','Computer','Drawing','Reasoning','General Knowledge','Sanskrit'],
+ '4':['EVS','Sanskrit','Hindi','English','General Knowledge','Drawing','Mathematics','Computer','Reasoning'],
+ '5':['Hindi','Sanskrit','English','Mathematics','EVS','Drawing','Computer','General Knowledge','Reasoning'],
+ '6':['Science','Sanskrit','Computer','Hindi','Social Science','Drawing','Mathematics','English','General Knowledge','Reasoning'],
+ '7':['Sanskrit','Computer','Hindi','Science','Social Science','Drawing','English','Mathematics','General Knowledge','Reasoning'],
+ '8':['Hindi','English','Mathematics','Science','Sanskrit','Computer','Social Science','Drawing','General Knowledge','Reasoning'],
+ '9':['Science','Hindi','Social Science','Mathematics','Computer','English'],
+ '10':['Hindi','Social Science','Science','Computer','Mathematics','English'],
+ '11':['Political Science','Chemistry','Physical Education','Geography','Economics','Physics','History','Biology','Mathematics','English','Fine Arts'],
+ '12':['Fine Arts','Political Science','Geography','Economics','Physics','Chemistry','Physical Education','History','Biology','Mathematics','English']
+};
+function subjectsForClass(cls){
+ const list = CLASS_SUBJECTS[String(cls||'').trim()];
+ return (list && list.length) ? list : SUBJECTS.filter(s=>s!=='Other');
+}
+// Subject <option>s for a class: that class's subjects first, then the rest, then Other.
+function classSubjectOptionsHTML(cls, selected){
+ const mine = subjectsForClass(cls);
+ const rest = SUBJECTS.filter(s => s!=='Other' && !mine.includes(s));
+ const opt = s => `<option value="${s}" ${selected===s?'selected':''}>${s}</option>`;
+ return `<optgroup label="Class ${escapeHTML(String(cls||''))} subjects">${mine.map(opt).join('')}</optgroup>`
+      + (rest.length?`<optgroup label="Other subjects">${rest.map(opt).join('')}</optgroup>`:'')
+      + `<option value="Other" ${selected==='Other'?'selected':''}>Other</option>`;
+}
+
+// ===== TRANSFER CERTIFICATE (Scholar's Register format) =====
+const TC_CLASS_ROWS = [
+ {label:'PRE NUR', key:'Pre Nursery'},{label:'NUR', key:'Nursery'},{label:'L.K.G.', key:'LKG'},{label:'U.K.G.', key:'UKG'},
+ {label:'I', key:'1'},{label:'II', key:'2'},{label:'III', key:'3'},{label:'IV', key:'4'},{label:'V', key:'5'},{label:'VI', key:'6'},
+ {label:'VII', key:'7'},{label:'VIII', key:'8'},{label:'IX', key:'9'},{label:'X', key:'10'},{label:'XI', key:'11'},{label:'XII', key:'12'}
+];
+function _tcDate(d){ if(!d) return ''; const p=String(d).split('-'); return p.length===3&&p[0].length===4?`${p[2]}-${p[1]}-${p[0]}`:String(d); }
+// Opens the editable TC form. Values default from the student record + any saved TC data.
+function openTCPrintModal(studentId){
+ const s = getStudents().find(x=>x.id===parseInt(studentId));
+ if (!s) { alert('Student not found.'); return; }
+ const t = s.tc || {};
+ const sess = currentSession();
+ const g = (id,val,ph) => `<div><label class="text-xs font-medium text-gray-700">${id.label}</label><input id="${id.id}" value="${String(val||'').replace(/"/g,'&quot;')}" placeholder="${ph||''}" class="w-full border rounded-lg px-2 py-1 text-sm"></div>`;
+ const rows = TC_CLASS_ROWS.map(r => {
+   const saved = (t.rows && t.rows[r.key]) || {};
+   const isCurrent = String(s.class).trim()===r.key;
+   const d = {
+     adm: saved.adm || (isCurrent ? _tcDate(s.admissionDate||t.admissionDate||'') : ''),
+     prom: saved.prom || '', sess: saved.sess || (isCurrent ? sess : ''),
+     res: saved.res || (isCurrent ? 'Pass' : ''), cond: saved.cond || (isCurrent ? 'Good' : ''),
+     work: saved.work || (isCurrent ? 'Satisfactory' : '')
+   };
+   return `<tr data-cls="${r.key}">
+     <td class="px-1 py-0.5 text-xs font-semibold">${r.label}</td>
+     ${['adm','prom','sess','res','cond','work'].map(f=>`<td class="px-0.5 py-0.5"><input class="tcRowIn w-full border rounded px-1 py-0.5 text-xs" data-f="${f}" value="${String(d[f]).replace(/"/g,'&quot;')}"></td>`).join('')}
+    </tr>`;
+ }).join('');
+ const old = document.getElementById('tcPrintModal'); if (old) old.remove();
+ const m = document.createElement('div');
+ m.id = 'tcPrintModal'; m.className = 'modal';
+ m.innerHTML = `<div class="modal-content" style="max-width:960px">
+   <h3 class="text-lg font-bold mb-1"><i class="fas fa-file-contract text-amber-600 mr-1"></i>Transfer Certificate — ${escapeHTML(s.name)}</h3>
+   <p class="text-xs text-gray-500 mb-3">Everything below is editable. It prints in the school's Scholar's Register &amp; TC format with the logo.</p>
+   <div class="grid md:grid-cols-3 gap-2 mb-3">
+    ${g({id:'tcpReg',label:'Registration No.'}, t.regNo || s.registrationNo)}
+    ${g({id:'tcpPen',label:'PEN No.'}, t.pen || s.pen)}
+    ${g({id:'tcpFile',label:'Withdrawal File No.'}, t.fileNo)}
+    ${g({id:'tcpName',label:'Name of the Scholar'}, t.name || s.name)}
+    ${g({id:'tcpAadhaar',label:'Aadhaar Card No.'}, t.aadhaar || s.aadhaar)}
+    ${g({id:'tcpDob',label:'Date of birth'}, t.dob || _tcDate(s.dob), 'DD-MM-YYYY')}
+    ${g({id:'tcpMother',label:"Mother's Name"}, t.mother || s.motherName || s.parentName)}
+    ${g({id:'tcpMotherOcc',label:"Mother's Occupation"}, t.motherOcc)}
+    ${g({id:'tcpFather',label:"Father's Name"}, t.father || s.fatherName)}
+    ${g({id:'tcpFatherOcc',label:"Father's Occupation"}, t.fatherOcc)}
+    ${g({id:'tcpAddress',label:'Address'}, t.address || s.address || s.village)}
+    ${g({id:'tcpGuardian',label:'Local guardian (name & address)'}, t.guardian)}
+    ${g({id:'tcpCaste',label:'Caste / religion & nationality'}, t.caste || (s.caste? s.caste+' / Hindu':''), 'e.g. OBC / Hindu')}
+    ${g({id:'tcpLastInst',label:'Last institution attended'}, t.lastInst)}
+    ${g({id:'tcpResidence',label:'Duration of residence in U.P.'}, t.residence || 'Since Birth')}
+    ${g({id:'tcpAdmDate',label:'Date of Admission'}, t.admissionDate || _tcDate(s.admissionDate), 'DD-MM-YYYY')}
+    ${g({id:'tcpRemDate',label:'Date of Removal'}, t.removalDate || _tcDate(s.tcDate), 'DD-MM-YYYY')}
+    ${g({id:'tcpCause',label:'Cause of Removal'}, t.cause || s.tcReason || "Parent's Wish")}
+   </div>
+   <div class="text-sm font-semibold mb-1">Class-wise record</div>
+   <div class="overflow-x-auto border rounded mb-3" style="max-height:260px">
+    <table class="w-full text-xs"><thead class="bg-gray-100 sticky top-0"><tr>
+     <th class="px-1 py-1">Class</th><th class="px-1 py-1">Date of Admission</th><th class="px-1 py-1">Date of Promotion</th>
+     <th class="px-1 py-1">Session</th><th class="px-1 py-1">Result</th><th class="px-1 py-1">Conduct</th><th class="px-1 py-1">Work</th>
+    </tr></thead><tbody>${rows}</tbody></table>
+   </div>
+   <div class="grid md:grid-cols-2 gap-2 mb-3">
+    ${g({id:'tcpPreparedBy',label:'Prepared by'}, t.preparedBy || (currentUser?currentUser.name:''))}
+    ${g({id:'tcpIssueDate',label:'Date of issue'}, t.issueDate || _tcDate(new Date().toISOString().slice(0,10)), 'DD-MM-YYYY')}
+   </div>
+   <div class="flex justify-end gap-2">
+    <button class="closeModal bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded-lg text-sm">Close</button>
+    <button id="tcpSaveBtn" class="bg-gray-100 hover:bg-gray-200 border px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-save mr-1"></i>Save details</button>
+    <button id="tcpPrintBtn" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-print mr-1"></i>Save &amp; Print TC</button>
+   </div>
+  </div>`;
+ document.body.appendChild(m);
+ const collect = () => {
+  const v = id => (document.getElementById(id)?.value || '').trim();
+  const rowsOut = {};
+  m.querySelectorAll('tbody tr').forEach(tr => {
+   const key = tr.dataset.cls; const o = {};
+   tr.querySelectorAll('.tcRowIn').forEach(i => { o[i.dataset.f] = i.value.trim(); });
+   if (Object.values(o).some(x=>x)) rowsOut[key] = o;
+  });
+  return { regNo:v('tcpReg'), pen:v('tcpPen'), fileNo:v('tcpFile'), name:v('tcpName'), aadhaar:v('tcpAadhaar'), dob:v('tcpDob'),
+   mother:v('tcpMother'), motherOcc:v('tcpMotherOcc'), father:v('tcpFather'), fatherOcc:v('tcpFatherOcc'),
+   address:v('tcpAddress'), guardian:v('tcpGuardian'), caste:v('tcpCaste'), lastInst:v('tcpLastInst'), residence:v('tcpResidence'),
+   admissionDate:v('tcpAdmDate'), removalDate:v('tcpRemDate'), cause:v('tcpCause'),
+   preparedBy:v('tcpPreparedBy'), issueDate:v('tcpIssueDate'), rows:rowsOut };
+ };
+ const persist = () => {
+  const all = getStudents(); const i = all.findIndex(x=>x.id===s.id);
+  if (i>-1){ all[i] = {...all[i], tc: collect()};
+   // keep the SR number on the record in step with the TC
+   if (collect().regNo && canSeeSRNumber()) all[i].registrationNo = collect().regNo;
+   saveStudents(all); }
+ };
+ m.querySelector('#tcpSaveBtn').addEventListener('click', () => { persist(); showToast('TC details saved'); });
+ m.querySelector('#tcpPrintBtn').addEventListener('click', () => { persist(); printTransferCertificate(s.id, collect()); });
+}
+function printTransferCertificate(studentId, data){
+ const s = getStudents().find(x=>x.id===parseInt(studentId)) || {};
+ const t = data || s.tc || {};
+ const school = SCHOOL_INFO;
+ const logo = school.logo ? `<img src="${school.logo}" style="width:64px;height:64px;object-fit:contain">` : '';
+ const dot = v => `<span class="fill">${escapeHTML(v||'')}</span>`;
+ const rowHtml = r => {
+  const d = (t.rows && t.rows[r.key]) || {};
+  return `<tr><td class="cl">${r.label}</td><td>${escapeHTML(d.adm||'')}</td><td>${escapeHTML(d.prom||'')}</td><td>${escapeHTML(d.sess||'')}</td><td>${escapeHTML(d.res||'')}</td><td>${escapeHTML(d.cond||'')}</td><td>${escapeHTML(d.work||'')}</td><td></td></tr>`;
+ };
+ const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Transfer Certificate — ${escapeHTML(t.name||s.name||'')}</title>
+ <style>
+  @page { size: A4; margin: 12mm; }
+  *{box-sizing:border-box}
+  body{font-family:"Times New Roman",Georgia,serif;color:#000;margin:0;font-size:12.5px;line-height:1.55}
+  .sheet{max-width:190mm;margin:0 auto}
+  .head{text-align:center;border-bottom:2px solid #000;padding-bottom:6px;margin-bottom:8px}
+  .head .row{display:flex;align-items:center;justify-content:center;gap:10px}
+  .sch{font-size:19px;font-weight:bold;letter-spacing:.4px}
+  .addr{font-size:11px}
+  h1{font-size:15px;font-weight:bold;text-align:center;margin:8px 0 10px;text-decoration:underline}
+  .fill{border-bottom:1px dotted #333;padding:0 5px;min-width:80px;display:inline-block}
+  .line{margin:5px 0}
+  table{width:100%;border-collapse:collapse;margin-top:8px}
+  th,td{border:1px solid #000;padding:3px 4px;font-size:11px;text-align:center;height:19px}
+  th{background:#f0f0f0;font-weight:bold}
+  td.cl{font-weight:bold;background:#fafafa;width:8%}
+  .top3 td{height:34px}
+  .cert{margin-top:10px;font-size:11.5px;text-align:justify}
+  .sign{display:flex;justify-content:space-between;margin-top:26px;font-size:12px}
+  .noprint{text-align:center;margin:10px 0}
+  button{padding:8px 18px;font-size:14px;cursor:pointer;border-radius:6px;border:1px solid #999;background:#7a1e2e;color:#fff;margin:0 4px}
+  @media print{ .noprint{display:none} }
+ </style></head><body>
+ <div class="noprint"><button onclick="window.print()">Print / Save as PDF</button><button onclick="document.body.contentEditable=(document.body.contentEditable!=='true');this.textContent=document.body.contentEditable==='true'?'Editing — click to lock':'Click to edit on page'" style="background:#555">Click to edit on page</button></div>
+ <div class="sheet">
+  <div class="head"><div class="row">${logo}<div><div class="sch">${escapeHTML((school.name||'Murti Devi Balika Vidyapeeth').toUpperCase())}</div><div class="addr">${escapeHTML([school.addressLine1,school.addressLine2].filter(Boolean).join(', ')||'Meerut-Baraut Road, Binauli (Baghpat)')}</div></div></div></div>
+  <h1>SCHOLAR'S REGISTER &amp; TRANSFER CERTIFICATE</h1>
+  <div class="line">Registration No. ${dot(t.regNo||s.registrationNo)} &nbsp; PEN No. ${dot(t.pen||s.pen)} &nbsp; Withdrawal File No. ${dot(t.fileNo)}</div>
+  <div class="line">Name of the Scholar ${dot(t.name||s.name)} &nbsp; Aadhaar Card No. ${dot(t.aadhaar||s.aadhaar)}</div>
+  <div class="line">Mother's Name ${dot(t.mother)} &nbsp; Occupation ${dot(t.motherOcc)}</div>
+  <div class="line">Father's Name ${dot(t.father)} &nbsp; Occupation ${dot(t.fatherOcc)}</div>
+  <div class="line">Address ${dot(t.address)}</div>
+  <div class="line">Name &amp; Address of the Local guardian ${dot(t.guardian)}</div>
+  <div class="line">Caste if Hindu, otherwise religion &amp; nationality ${dot(t.caste)}</div>
+  <div class="line">Date of birth of the scholar ${dot(t.dob)}</div>
+  <div class="line">The last institution, if any, which the scholar attended before joining the institution ${dot(t.lastInst)}</div>
+  <div class="line">Duration of residence in Uttar Pradesh ${dot(t.residence)}</div>
+  <table class="top3"><thead><tr><th>DATE OF ADMISSION</th><th>DATE OF REMOVAL</th><th>CAUSE OF REMOVAL</th></tr></thead>
+   <tbody><tr><td>${escapeHTML(t.admissionDate||'')}</td><td>${escapeHTML(t.removalDate||'')}</td><td>${escapeHTML(t.cause||'')}</td></tr></tbody></table>
+  <table><thead><tr><th>CLASS</th><th>DATE OF<br>ADMISSION</th><th>DATE OF<br>PROMOTION</th><th>SESSION</th><th>RESULT</th><th>CONDUCT</th><th>WORK</th><th>SIG. OF<br>PRINCIPAL</th></tr></thead>
+   <tbody>${TC_CLASS_ROWS.map(rowHtml).join('')}</tbody></table>
+  <div class="cert">Certified that the above Scholar's Register has been posted upto the date of the scholar's leaving as required by the Departmental Rules and that there are no dues of the School outstanding against his name.</div>
+  <div class="sign"><div>PREPARED BY ${dot(t.preparedBy)}</div><div>Date ${dot(t.issueDate)}</div><div style="text-align:center">${escapeHTML(school.principalName||school.principal||'')}<br><span style="font-size:11px">Principal</span></div></div>
+ </div>
+ <script>window.onload=function(){setTimeout(function(){window.print()},400)}<\/script>
+ </body></html>`;
+ const w = window.open('', '_blank');
+ if (!w) { alert('Please allow pop-ups to print the TC.'); return; }
+ w.document.write(html); w.document.close();
 }
 
 function generateStudentIDCard(s){
@@ -5237,7 +5433,7 @@ function renderTeachersTab(){
 
 /* ---------- DATA MANAGEMENT ---------- */
 function renderDataManagement(){
- const students=getStudents(),hws=getHomeworks(),marks=getExamMarks(),comps=getComplaints();
+ const students=getActiveStudents(),hws=getHomeworks(),marks=getExamMarks(),comps=getComplaints();
  // Class ordering — primary, then numeric grades
  const classOrder = ALL_CLASSES;
  const grouped = {};
@@ -6001,7 +6197,7 @@ function attachReportCardsEvents(){
   const container = document.getElementById('rcStudentList');
   if (!container) return;
   if (!cls) { container.innerHTML = '<div class="text-sm text-gray-500 py-3">Select a class and click "Show Students".</div>'; return; }
-  const students = getStudents().filter(s => s.class === cls && !s.archived).sort((a,b) => (a.rollNo||0)-(b.rollNo||0));
+  const students = getActiveStudents().filter(s => s.class === cls && !s.archived).sort((a,b) => (a.rollNo||0)-(b.rollNo||0));
   const marks = getExamMarks();
   if (students.length === 0) { container.innerHTML = '<div class="text-sm text-gray-500 py-3">No students in this class.</div>'; return; }
 
@@ -6988,13 +7184,13 @@ function renderPrincipalPanel(){
  </div>`;
 }
 function renderPrincipalTabContent(){
- const s=getStudents(),t=getTeachers(),ev=get('calendar'),comp=getCompliance();
+ const s=getActiveStudents(),t=getTeachers(),ev=get('calendar'),comp=getCompliance();
  if(activePrincipalTab==='dashboard'){
   return `<div>
    ${renderNoticesForCurrentUser(3)}
    <h2 class="text-lg font-bold mb-4">Welcome, ${currentUser.name}</h2>
    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-    <div class="bg-indigo-50 p-4 rounded-lg"><div class="text-xs font-semibold text-indigo-700">STUDENTS</div><div class="text-2xl font-bold">${s.length}</div></div>
+    <div class="bg-indigo-50 p-4 rounded-lg"><div class="text-xs font-semibold text-indigo-700">CURRENT STUDENTS</div><div class="text-2xl font-bold">${s.length}</div>${(()=>{const a=getStudents().filter(x=>x.archived).length;return a?`<div class="text-[11px] text-indigo-700/70 mt-0.5">${a} archived separately</div>`:'';})()}</div>
     <div class="bg-purple-50 p-4 rounded-lg"><div class="text-xs font-semibold text-purple-700">TEACHERS</div><div class="text-2xl font-bold">${t.length}</div></div>
     <div class="bg-amber-50 p-4 rounded-lg"><div class="text-xs font-semibold text-amber-700">EVENTS</div><div class="text-2xl font-bold">${ev.length}</div></div>
     <div class="bg-emerald-50 p-4 rounded-lg"><div class="text-xs font-semibold text-emerald-700">COMPLIANT</div><div class="text-2xl font-bold">${comp.filter(x=>x.enabled&&x.status==='compliant').length}</div></div>
@@ -7447,7 +7643,7 @@ function _renderAttendanceGlance(){
  const today = new Date().toISOString().slice(0,10);
  const prettyToday = fmtDate(today);
  const ar = getAttendanceRecords();
- const students = getStudents();
+ const students = getActiveStudents();
  const cards = _teacherAssignedClasses().map(cls => {
   const sts = students.filter(s => s.class === cls);
   const total = sts.length;
@@ -7593,7 +7789,7 @@ function _renderHomeworkTracker(){
  if (_hwTrackerBy === 'student') {
   return `<div class="bg-white border rounded-lg p-4">${subToggle}${_renderHomeworkByStudent(mine)}</div>`;
  }
- const students = getStudents();
+ const students = getActiveStudents();
  const today = new Date().toISOString().slice(0,10);
  const rows = mine.map(hw => {
   const sts = students.filter(s => s.class === hw.className);
@@ -7645,7 +7841,7 @@ function _renderHomeworkByStudent(mine){
    <select id="hwStudentClass" class="text-sm">${teacherClasses.map(c => `<option ${c===activeClass?'selected':''}>${c}</option>`).join('')}</select>
   </div>` : '';
  const clsHomework = mine.filter(h => h.className === activeClass);
- const students = getStudents().filter(s => s.class === activeClass).sort((a,b)=>(a.rollNo||0)-(b.rollNo||0));
+ const students = getActiveStudents().filter(s => s.class === activeClass).sort((a,b)=>(a.rollNo||0)-(b.rollNo||0));
  if (students.length === 0) return `${classFilter}<div class="text-sm text-gray-500 py-4 text-center">No students in Class ${escapeHTML(activeClass||'')}.</div>`;
  if (clsHomework.length === 0) return `${classFilter}<div class="text-sm text-gray-500 py-4 text-center">No homework posted for Class ${escapeHTML(activeClass||'')} yet.</div>`;
 
@@ -7932,7 +8128,7 @@ function renderMarksTracker(classes){
  const activeClass = (_marksTrackerClass && classes.includes(_marksTrackerClass)) ? _marksTrackerClass : classes[0];
  const classFilter = classes.length > 1 ? `<div class="mb-3"><label class="text-xs font-medium mr-2">Class</label>
    <select id="mkTrackClass" class="text-sm" style="width:auto;min-width:120px">${classes.map(c=>`<option ${c===activeClass?'selected':''}>${c}</option>`).join('')}</select></div>` : '';
- let students = getStudents().filter(s => s.class === activeClass && !s.archived).sort((a,b)=>(a.rollNo||0)-(b.rollNo||0));
+ let students = getActiveStudents().filter(s => s.class === activeClass && !s.archived).sort((a,b)=>(a.rollNo||0)-(b.rollNo||0));
  // Attach performance to each
  const withPerf = students.map(s => ({ s, perf: _studentMarksPerformance(s.id) }));
  const lowCount = withPerf.filter(x => x.perf.band === 'low').length;
@@ -8072,7 +8268,7 @@ function renderTchMarks(){
     </div>
     <div>
      <label class="text-xs font-medium">Subject *</label>
-     <select id="mkSubject" onchange="document.getElementById('mkSubjectOther').style.display=this.value==='Other'?'block':'none'">${subjectOptionsHTML()}</select>
+     <select id="mkSubject" onchange="document.getElementById('mkSubjectOther').style.display=this.value==='Other'?'block':'none'">${classSubjectOptionsHTML(_teacherAssignedClasses()[0]||'')}</select>
      <input id="mkSubjectOther" placeholder="Type subject name" style="display:none" class="mt-1 text-sm w-full">
     </div>
     <div>
@@ -8477,7 +8673,7 @@ function _attachAttendanceEvents(){
     return;
    }
    const ar = getAttendanceRecords();
-   const sts = getStudents().filter(s => s.class === cls).sort((a,b) => (a.rollNo||0)-(b.rollNo||0));
+   const sts = getActiveStudents().filter(s => s.class === cls).sort((a,b) => (a.rollNo||0)-(b.rollNo||0));
    if (sts.length === 0) {
     roster.innerHTML = '<div class="text-sm text-gray-500 py-3 text-center">No students in this class</div>';
     saveBtn.disabled = true;
@@ -8541,7 +8737,7 @@ function _attachAttendanceEvents(){
    }
    const from = fromSel.value, to = toSel.value;
    const ar = getAttendanceRecords();
-   const sts = getStudents().filter(s => s.class === cls).sort((a,b) => (a.rollNo||0)-(b.rollNo||0));
+   const sts = getActiveStudents().filter(s => s.class === cls).sort((a,b) => (a.rollNo||0)-(b.rollNo||0));
    if (sts.length === 0) { results.innerHTML = '<div class="text-sm text-gray-500 py-3">No students</div>'; return; }
    // Build date list within range
    const dates = [];
@@ -8587,7 +8783,7 @@ function _attachAttendanceEvents(){
    if (!cls) { alert('Pick a class first'); return; }
    const from = fromSel.value, to = toSel.value;
    const ar = getAttendanceRecords();
-   const sts = getStudents().filter(s => s.class === cls).sort((a,b) => (a.rollNo||0)-(b.rollNo||0));
+   const sts = getActiveStudents().filter(s => s.class === cls).sort((a,b) => (a.rollNo||0)-(b.rollNo||0));
    const dates = [];
    if (from && to) {
     let d = new Date(from);
@@ -8659,7 +8855,7 @@ function _attachHomeworkEvents(){
   const i = hws.findIndex(h => h.id === hwId);
   if (i < 0) return;
   const hw = hws[i];
-  const sts = getStudents().filter(s => s.class === hw.className);
+  const sts = getActiveStudents().filter(s => s.class === hw.className);
   if (!hw.tracker) hw.tracker = {};
   if (code === 'clear') { hw.tracker = {}; }
   else if (code === 'O') { sts.forEach(s => { hw.tracker[s.id] = 'O'; }); }
@@ -8886,7 +9082,7 @@ function _attachHomeworkEvents(){
 }
 
 function _generateHomeworkBroadcast(hw){
- const parents = getStudents().filter(s => s.class === hw.className && s.parentPhone);
+ const parents = getActiveStudents().filter(s => s.class === hw.className && s.parentPhone);
  if (parents.length === 0) { alert('No parents with phone numbers in Class ' + hw.className); return; }
  const message = `Dear Parent,\n\nHomework for ${hw.subject} (Class ${hw.className})\n\n${hw.description}\n\nDue: ${hw.dueDate}\n\n— ${currentUser.name}\n${SCHOOL_INFO.name}`;
  const container = document.getElementById('hwBroadcastResults');
@@ -8909,6 +9105,17 @@ function _generateHomeworkBroadcast(hw){
 }
 
 function _attachMarksEvents(){
+ // Keep the Subject list in step with the chosen class (subjects come from the exam datesheet).
+ const _mkClassSel = document.getElementById('mkClass');
+ const _mkSubSel = document.getElementById('mkSubject');
+ if (_mkClassSel && _mkSubSel){
+  _mkClassSel.addEventListener('change', () => {
+   const keep = _mkSubSel.value;
+   _mkSubSel.innerHTML = classSubjectOptionsHTML(_mkClassSel.value || '', keep);
+   const other = document.getElementById('mkSubjectOther');
+   if (other) other.style.display = _mkSubSel.value === 'Other' ? 'block' : 'none';
+  });
+ }
  // Marks mode toggle + performance tracker
  document.querySelectorAll('.mkModeBtn').forEach(b=>b.addEventListener('click',()=>{ _marksMode=b.dataset.mode; renderApp(); }));
  document.getElementById('mkTrackClass')?.addEventListener('change',e=>{ _marksTrackerClass=e.target.value; renderApp(); });
@@ -8925,7 +9132,7 @@ function _attachMarksEvents(){
    saveBtn.disabled = true;
    return;
   }
-  const sts = getStudents().filter(s => s.class === cls).sort((a,b) => (a.rollNo||0)-(b.rollNo||0));
+  const sts = getActiveStudents().filter(s => s.class === cls).sort((a,b) => (a.rollNo||0)-(b.rollNo||0));
   if (sts.length === 0) { roster.innerHTML = '<div class="text-sm text-gray-500 py-3">No students</div>'; saveBtn.disabled = true; return; }
   roster.innerHTML = '<div class="bg-purple-50 text-purple-800 text-xs p-2 rounded mb-2">Enter marks below. Leave blank to skip a student.</div>' + sts.map(s => `
    <div class="flex items-center gap-3 p-2 border rounded hover:bg-gray-50">
@@ -9099,7 +9306,7 @@ function _attachClassEvents(){
   const cls = b.dataset.class;
   const msg = prompt('Message to send to all parents of Class ' + cls + ':');
   if (!msg || !msg.trim()) return;
-  const parents = getStudents().filter(s => s.class === cls && s.parentPhone);
+  const parents = getActiveStudents().filter(s => s.class === cls && s.parentPhone);
   if (parents.length === 0) { alert('No parents with phone numbers in Class ' + cls); return; }
   // Build a temporary "broadcast results" view at top of page
   const existing = document.getElementById('tchClassBroadcastResults');
@@ -10211,7 +10418,7 @@ function renderFeeStructureTab(){
     <tbody>
     ${classes.filter(cls => sessionPlan(cls)).map(cls => {
       const plan = sessionPlan(cls);
-      const stuCount = getStudents().filter(s => s.class === cls).length;
+      const stuCount = getActiveStudents().filter(s => s.class === cls).length;
       return `<tr class="border-t hover:bg-gray-50">
        <td class="p-2 font-semibold">Class ${cls}</td>
        ${FEE_HEADS.filter(h => h !== 'Late Fee' && h !== 'Other').map(h => {
@@ -15094,6 +15301,7 @@ function attachStudentsTabEvents(){
  // archive, restore). These live in attachDataManagementEvents; calling it here makes the
  // Students list's Edit/Add/Archive buttons open and operate the full modal.
  if (typeof attachDataManagementEvents === 'function') attachDataManagementEvents();
+ document.querySelectorAll('.tcPrintBtn').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();openTCPrintModal(b.dataset.id);}));
  const refresh=()=>{
   if (isOwnerLevel()) renderApp();
   else if (currentUser && currentUser.role==='accountant'){
