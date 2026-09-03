@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1787834680 - Transfer Certificate in the school Scholar-Register format: editable form pre-filled from the student record, prints A4 with logo, saved on the student; class-wise subjects taken from the exam datesheet now drive the marks-entry subject list -->
+<!-- BUILD: v-1788421282 - staff are now ARCHIVED instead of deleted: full record kept (join date, every salary payment, attendance) with an Archive view, full-record modal (printable) and Restore; archived staff excluded from counts, salary lists and class assignment; permanent delete is Owner-only with a warning -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -2823,6 +2823,26 @@ function _printFilledDiary(className, dates){
 }
 
 function getTeachers(){ return DB.getAll('teachers'); }
+// Current staff only — archived (left the school) records are kept for history but excluded
+// from rosters, salary lists, counts and assignment dropdowns.
+function getActiveTeachers(){ return DB.getAll('teachers').filter(t => !t.archived); }
+// Everything the school holds on one staff member, for the archive view.
+function staffHistory(teacherId){
+ const id = parseInt(teacherId);
+ const pays = (get('salaryPayments')||[]).filter(p => p.teacherId === id);
+ const total = pays.reduce((a,p) => a + (Number(p.amount)||0), 0);
+ const att = (getStaffAttendance()||{})[id] || {};
+ const days = Object.keys(att);
+ const present = days.filter(d => att[d]==='P' || att[d]==='L').length;
+ return {
+  payments: pays.sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))),
+  totalPaid: total, paymentCount: pays.length,
+  firstPaid: pays.length ? pays.map(p=>p.date).sort()[0] : '',
+  lastPaid:  pays.length ? pays.map(p=>p.date).sort().slice(-1)[0] : '',
+  attendanceDays: days.length, attendancePresent: present,
+  attendancePct: days.length ? Math.round(present*100/days.length) : null
+ };
+}
 // Gather every staff member across the school for the salary payee dropdown:
 // teachers (with their id), plus principal/accountant/admin user accounts, plus bus drivers.
 // Returns [{name, role, teacherId?}] deduplicated by name.
@@ -2838,7 +2858,7 @@ function _allStaffForSalary(){
   out.push({ name: n, role: role||'Staff', teacherId: teacherId });
  };
  // Teachers table (these have an id we can link salary to)
- getTeachers().forEach(t => add(t.name, t.subject ? ('Teacher · ' + t.subject) : 'Teacher', t.id));
+ getActiveTeachers().forEach(t => add(t.name, t.subject ? ('Teacher · ' + t.subject) : 'Teacher', t.id));
  // Staff user accounts (principal, accountant, admin, etc.) that aren't students/parents
  (typeof getUsers === 'function' ? getUsers() : DB.getAll('users')).forEach(u => {
   const r = (u.role||'').toLowerCase();
@@ -3793,7 +3813,7 @@ function restoreFromBackup(backupObj){
  }
 }
 function exportUdisCSV(){
- const st=getStudents().filter(x=>!x.archived),tc=getTeachers(),inf=getSchoolInfra();
+ const st=getStudents().filter(x=>!x.archived),tc=getActiveTeachers(),inf=getSchoolInfra();
  let rows=[['UDISE Code','UP-0987-12345','School','Murti Devi Balika Vidyapeeth']];
  rows.push(['Report Year','2025-26','Total Girls',st.length]);
  rows.push(['Class','Enrolled','SC','ST','OBC','General','BPL','CWSN']);
@@ -3837,6 +3857,7 @@ function enterPortal() {
 
 /* ---------- OWNER DASHBOARD ---------- */
 let ownerView = 'dashboard'; // 'dashboard' | 'accounts' | 'users'
+let _staffArchiveView = false; // Staff tab: showing archived (left) staff instead of current
 let ownerSection = null; // null = category tiles; 'finance'|'academics'|'people'|'attendance'|'admin' = that category's page
 
 function renderOwnerDashboard(){
@@ -4113,7 +4134,7 @@ function renderOwnerDashboard(){
  }
 
  if (ownerSection) return _ownerSectionPage(ownerSection);
- const st=getActiveStudents(),tc=getTeachers(),c=getComplaints(),inf=getSchoolInfra();
+ const st=getActiveStudents(),tc=getActiveTeachers(),c=getComplaints(),inf=getSchoolInfra();
  const tot=st.reduce((a,x)=>a+(x.feeBalance||0),0);
  const pend=c.filter(x=>x.status==='open').length;
  const ud=DB.getObject('udiseReport');
@@ -4376,7 +4397,7 @@ function renderAdminTabContent(){
  }
 }
 function renderAdminDashboardTab(){
- const s=getActiveStudents(),t=getTeachers(),c=getComplaints(),comp=getCompliance();
+ const s=getActiveStudents(),t=getActiveTeachers(),c=getComplaints(),comp=getCompliance();
  const unread=getChatMessages().filter(m=>m.to===currentUser.id&&!m.read).length;
  return `<div>
   ${renderNoticesForCurrentUser(3)}
@@ -5334,16 +5355,44 @@ function renderComplianceTab(){
 
 /* ---------- TEACHERS TAB ---------- */
 function renderTeachersTab(){
- const ts=getTeachers();
+ const allStaff = getTeachers();
+ const ts = allStaff.filter(t => !t.archived);
+ const archivedStaff = allStaff.filter(t => t.archived);
  const auditLog = getTeacherAuditLog().sort((a,b) => (b.at||'').localeCompare(a.at||''));
  const teaching = ts.filter(t => (t.staffType||'Teaching') === 'Teaching');
  const nonTeaching = ts.filter(t => (t.staffType||'Teaching') === 'Non-Teaching');
- const staffRow = t => `<tr><td>${t.photo?`<img src="${t.photo}" class="w-9 h-9 rounded-full object-cover" alt="">`:`<div class="w-9 h-9 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold">${initials(t.name)}</div>`}</td><td class="font-medium">${t.name}</td><td>${t.subject||'-'}</td><td class="text-xs">${(t.staffType||'Teaching')==='Teaching'?((Array.isArray(t.assignedClasses)&&t.assignedClasses.length)?t.assignedClasses.join(', '):'<span class="text-amber-600">none</span>'):'<span class="text-gray-300">—</span>'}</td><td>${t.qualification||'-'}</td><td>${t.employeeId || t.udiseTeacherId || '-'}</td><td>${t.trainingDate?fmtDate(t.trainingDate):'-'}</td><td>Rs.${(t.salary||0).toLocaleString('en-IN')}</td><td>${t.phone||'-'}</td><td class="whitespace-nowrap"><button class="editTeacherBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${t.id}" title="Edit"><i class="fas fa-edit"></i></button> <button class="delTeacherBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Delete"><i class="fas fa-trash"></i></button></td></tr>`;
+ const inStaffArchive = (typeof _staffArchiveView !== 'undefined') && _staffArchiveView;
+ const staffRow = t => `<tr><td>${t.photo?`<img src="${t.photo}" class="w-9 h-9 rounded-full object-cover" alt="">`:`<div class="w-9 h-9 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold">${initials(t.name)}</div>`}</td><td class="font-medium">${t.name}</td><td>${t.subject||'-'}</td><td class="text-xs">${(t.staffType||'Teaching')==='Teaching'?((Array.isArray(t.assignedClasses)&&t.assignedClasses.length)?t.assignedClasses.join(', '):'<span class="text-amber-600">none</span>'):'<span class="text-gray-300">—</span>'}</td><td>${t.qualification||'-'}</td><td>${t.employeeId || t.udiseTeacherId || '-'}</td><td>${t.trainingDate?fmtDate(t.trainingDate):'-'}</td><td>Rs.${(t.salary||0).toLocaleString('en-IN')}</td><td>${t.phone||'-'}</td><td class="whitespace-nowrap"><button class="editTeacherBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${t.id}" title="Edit"><i class="fas fa-edit"></i></button> <button class="archiveTeacherBtn bg-amber-500 hover:bg-amber-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Archive (keeps full record & salary history)"><i class="fas fa-box-archive"></i></button>${currentUser&&currentUser.role==='owner'?` <button class="delTeacherBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Delete permanently (Owner only)"><i class="fas fa-trash"></i></button>`:''}</td></tr>`;
+ // Archived staff row: shows when they left, why, and their salary history at a glance.
+ const archivedRow = t => { const h = staffHistory(t.id); return `<tr class="bg-gray-50">
+   <td class="font-medium">${escapeHTML(t.name||'')}</td>
+   <td class="text-xs">${escapeHTML(t.staffType||'Teaching')}${t.subject?' · '+escapeHTML(t.subject):''}</td>
+   <td class="text-xs">${t.joinDate?fmtDate(t.joinDate):(t.trainingDate?fmtDate(t.trainingDate):'-')}</td>
+   <td class="text-xs">${t.archivedDate?fmtDate(t.archivedDate):'-'}</td>
+   <td class="text-xs">${escapeHTML(t.archiveReason||'-')}</td>
+   <td class="text-xs text-right">Rs.${(t.salary||0).toLocaleString('en-IN')}</td>
+   <td class="text-xs text-right">${h.paymentCount}</td>
+   <td class="text-xs text-right font-semibold">Rs.${h.totalPaid.toLocaleString('en-IN')}</td>
+   <td class="whitespace-nowrap">
+    <button class="staffHistoryBtn bg-indigo-500 hover:bg-indigo-600 text-white px-2 py-1 rounded text-xs" data-id="${t.id}" title="Full record"><i class="fas fa-clock-rotate-left"></i></button>
+    <button class="restoreTeacherBtn bg-emerald-500 hover:bg-emerald-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Restore to active staff"><i class="fas fa-rotate-left"></i></button>
+   </td></tr>`; };
  return `<div>
   <div class="flex justify-between items-center mb-4">
-   <h2 class="text-lg font-bold"><i class="fas fa-users text-purple-600 mr-1"></i>Staff <span class="text-sm font-normal text-gray-500">(${ts.length} total · ${teaching.length} teaching, ${nonTeaching.length} non-teaching)</span></h2>
-   <button id="addTeacherBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-plus mr-1"></i>Add Staff</button>
+   <div>
+    <h2 class="text-lg font-bold"><i class="fas fa-users text-purple-600 mr-1"></i>Staff${inStaffArchive?' <span class="text-sm font-normal text-gray-500">— Archive (left the school)</span>':''}</h2>
+    <div class="text-xs text-gray-600 mt-0.5"><span class="pill pill-green">${ts.length} current</span> <span class="text-gray-500 ml-1">${teaching.length} teaching · ${nonTeaching.length} non-teaching</span> <span class="pill pill-gray ml-1">${archivedStaff.length} archived</span></div>
+   </div>
+   <div class="flex gap-2">
+    <button id="staffArchiveToggleBtn" class="bg-gray-600 hover:bg-gray-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Staff who have left — records kept">${inStaffArchive?'<i class="fas fa-arrow-left mr-1"></i>Back to Current Staff':`<i class="fas fa-box-archive mr-1"></i>Archive${archivedStaff.length?` (${archivedStaff.length})`:''}`}</button>
+    <button id="addTeacherBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-plus mr-1"></i>Add Staff</button>
+   </div>
   </div>
+  ${inStaffArchive ? `<div class="overflow-x-auto mb-6">
+    <p class="text-xs text-gray-600 mb-2">These staff have left. Their full record — join date, salary paid, attendance — is preserved. They are not counted in current staff, salary lists or class assignment.</p>
+    <table class="border text-sm w-full"><thead><tr><th>Name</th><th>Type</th><th>Joined</th><th>Left</th><th>Reason</th><th class="text-right">Last Salary</th><th class="text-right">Payments</th><th class="text-right">Total Paid</th><th>Actions</th></tr></thead>
+    <tbody>${archivedStaff.length?archivedStaff.map(archivedRow).join(''):'<tr><td colspan="9" class="text-center text-gray-400 py-3">No archived staff</td></tr>'}</tbody></table>
+   </div>` : `
   <div class="overflow-x-auto mb-6">
    <div class="text-sm font-semibold text-purple-700 mb-1"><i class="fas fa-chalkboard-teacher mr-1"></i>Teaching Staff</div>
    <table class="border text-sm w-full"><thead><tr><th>Photo</th><th>Name</th><th>Subject</th><th>Classes</th><th>Qualification</th><th>Emp. ID</th><th>Joined</th><th>Salary</th><th>Phone</th><th>Actions</th></tr></thead>
@@ -5353,7 +5402,7 @@ function renderTeachersTab(){
    <div class="text-sm font-semibold text-teal-700 mb-1"><i class="fas fa-user-tie mr-1"></i>Non-Teaching Staff <span class="font-normal text-gray-400">(principal, drivers, guards, office, support)</span></div>
    <table class="border text-sm w-full"><thead><tr><th>Photo</th><th>Name</th><th>Designation</th><th>—</th><th>Qualification</th><th>Emp. ID</th><th>Joined</th><th>Salary</th><th>Phone</th><th>Actions</th></tr></thead>
    <tbody>${nonTeaching.length?nonTeaching.map(staffRow).join(''):'<tr><td colspan="10" class="text-center text-gray-400 py-3">No non-teaching staff yet. Click "Add Staff" and choose "Non-Teaching Staff" to add drivers, guards, office staff, etc.</td></tr>'}</tbody></table>
-  </div>
+  </div>`}
 
   <!-- Teacher Activity Audit Log (admin oversight) -->
   <div class="bg-white border-2 border-purple-200 rounded-lg p-4 mt-6">
@@ -5933,7 +5982,7 @@ function renderFinancialSummary(){
 }
 
 function renderTeacherAppraisalTab(){
- const teachers = getTeachers();
+ const teachers = getActiveTeachers();
  const session = currentSession();
  const appraisals = getTeacherAppraisals();
 
@@ -7184,7 +7233,7 @@ function renderPrincipalPanel(){
  </div>`;
 }
 function renderPrincipalTabContent(){
- const s=getActiveStudents(),t=getTeachers(),ev=get('calendar'),comp=getCompliance();
+ const s=getActiveStudents(),t=getActiveTeachers(),ev=get('calendar'),comp=getCompliance();
  if(activePrincipalTab==='dashboard'){
   return `<div>
    ${renderNoticesForCurrentUser(3)}
@@ -11910,7 +11959,7 @@ function renderMoneyAuditTrail(){
 /* ---------- STAGGERED SALARY PAYMENTS ---------- */
 let _salarySelectedTeacher = null;
 function renderAccSalary(){
- const teachers = getTeachers();
+ const teachers = getActiveTeachers();
  const payments = _activeSalaryPayments();
  const canSeeDues = isOwnerLevel() || isPrincipalLevel() || isAccountantLevel();
  const showDuesColumn = isOwnerLevel() || isPrincipalLevel(); // management sees dues prominently
@@ -12074,7 +12123,7 @@ function renderAccSalary(){
   ${(() => {
     // Legacy: payments typed in by name that don't match any staff record (from before the
     // unified staff list). Properly-added staff appear in the main list above.
-    const staffNames = new Set(getTeachers().map(t => (t.name||'').toLowerCase()));
+    const staffNames = new Set(getActiveTeachers().map(t => (t.name||'').toLowerCase()));
     const nonTeacher = _activeSalaryPayments().filter(p => !p.teacherId && !staffNames.has((p.teacherName||'').toLowerCase()));
     if (nonTeacher.length === 0) return '';
     const byName = {};
@@ -12109,7 +12158,7 @@ function renderAccSalary(){
        <label class="text-xs font-medium block mb-1">Assign to a staff member (recommended)</label>
        <select id="salFixTeacher" class="text-sm w-full">
         <option value="">— Keep as typed name —</option>
-        ${getTeachers().map(t=>`<option value="${t.id}">${escapeHTML(t.name)}${t.subject?' · '+escapeHTML(t.subject):''}</option>`).join('')}
+        ${getActiveTeachers().map(t=>`<option value="${t.id}">${escapeHTML(t.name)}${t.subject?' · '+escapeHTML(t.subject):''}</option>`).join('')}
        </select>
        <p class="text-xs text-gray-400 mt-1">Assigning links this payment to a teacher so it counts toward their salary & dues.</p>
       </div>
@@ -13515,7 +13564,7 @@ let tchAuditFilter = { teacherId: 'all', action: 'all' };
 
 function renderTchAuditAdminTab(){
  const log = getTeacherAuditLog().sort((a,b) => (b.at||'').localeCompare(a.at||''));
- const teachers = getTeachers();
+ const teachers = getActiveTeachers();
  const teacherIds = [...new Set(log.map(e => e.byId).filter(Boolean))];
  // Filter
  const filtered = log.filter(e => {
@@ -13735,7 +13784,7 @@ function _attachSalaryEvents(){
  // Set/edit the teacher's monthly salary directly from the Salary tab (also updates their record).
  document.getElementById('salSetMonthlyBtn')?.addEventListener('click', () => {
   const tid = _salarySelectedTeacher;
-  const teachers = getTeachers();
+  const teachers = getActiveTeachers();
   const i = teachers.findIndex(x => x.id === tid);
   if (i < 0) { alert('Staff member not found.'); return; }
   const val = parseInt(document.getElementById('salSetMonthly').value) || 0;
@@ -16050,7 +16099,7 @@ function attachTeachersTabEvents(){
    // Non-teaching staff don't handle classes.
    assignedClasses: ((document.getElementById('tchStaffType')||{}).value === 'Non-Teaching') ? [] : Array.from(document.querySelectorAll('.tchClassChk')).filter(c => c.checked).map(c => c.value)
   };
-  const teachers = getTeachers();
+  const teachers = getActiveTeachers();
   if (id) {
    // Edit mode — update existing record
    const i = teachers.findIndex(x => x.id === parseInt(id));
@@ -16074,11 +16123,96 @@ function attachTeachersTabEvents(){
   refresh();
  });
 
+ // Archive instead of delete: the record, salary history and attendance are all kept.
+ document.getElementById('staffArchiveToggleBtn')?.addEventListener('click', () => { _staffArchiveView = !_staffArchiveView; refresh(); });
+ document.querySelectorAll('.archiveTeacherBtn').forEach(b => b.addEventListener('click', () => {
+  const all = getTeachers();
+  const t = all.find(x => x.id === parseInt(b.dataset.id));
+  if (!t) return;
+  const h = staffHistory(t.id);
+  const reason = prompt(`Archive ${t.name}?\n\nTheir full record is kept — join date, ${h.paymentCount} salary payment(s) totalling Rs.${h.totalPaid.toLocaleString('en-IN')}, and attendance.\nThey will no longer appear in current staff, salary lists or class assignment.\n\nReason for leaving:`, 'Resigned');
+  if (reason === null) return;
+  t.archived = true;
+  t.archivedDate = new Date().toISOString().slice(0,10);
+  t.archiveReason = (reason || '').trim() || 'Not stated';
+  t.archivedBy = currentUser?.name || '';
+  t.assignedClasses = [];   // free up their classes for reassignment
+  saveTeachers(all);
+  showToast(`${t.name} archived — record preserved`);
+  refresh();
+ }));
+ document.querySelectorAll('.restoreTeacherBtn').forEach(b => b.addEventListener('click', () => {
+  const all = getTeachers();
+  const t = all.find(x => x.id === parseInt(b.dataset.id));
+  if (!t) return;
+  if (!confirm(`Restore ${t.name} to current staff?`)) return;
+  delete t.archived; delete t.archivedDate; delete t.archiveReason; delete t.archivedBy;
+  saveTeachers(all);
+  showToast(`${t.name} restored to current staff`);
+  refresh();
+ }));
+ document.querySelectorAll('.staffHistoryBtn').forEach(b => b.addEventListener('click', () => _openStaffHistoryModal(b.dataset.id)));
+ // Permanent delete stays Owner-only, and warns about what is lost.
  document.querySelectorAll('.delTeacherBtn').forEach(b => b.addEventListener('click', () => {
-  if (!confirm('Delete this teacher?')) return;
+  const t = getTeachers().find(x => x.id === parseInt(b.dataset.id));
+  if (!t) return;
+  const h = staffHistory(t.id);
+  if (!confirm(`PERMANENTLY delete ${t.name}?\n\nThis erases the staff record. ${h.paymentCount} salary payment(s) totalling Rs.${h.totalPaid.toLocaleString('en-IN')} will stay in the ledger but lose their link.\n\nUse Archive instead to keep the full history.\n\nDelete anyway?`)) return;
   saveTeachers(getTeachers().filter(x => x.id !== parseInt(b.dataset.id)));
   refresh();
  }));
+}
+// Full record for one staff member: profile, salary payments, attendance.
+function _openStaffHistoryModal(teacherId){
+ const t = getTeachers().find(x => x.id === parseInt(teacherId));
+ if (!t) return;
+ const h = staffHistory(t.id);
+ const inr = n => 'Rs.' + (Number(n)||0).toLocaleString('en-IN');
+ const row = (k,v) => v ? `<div class="flex justify-between border-b py-1"><span class="text-gray-500 text-xs">${k}</span><span class="text-sm font-medium">${escapeHTML(String(v))}</span></div>` : '';
+ const pays = h.payments.map(p => `<tr class="border-b"><td class="px-2 py-1 text-xs">${p.date?fmtDate(p.date):'-'}</td><td class="px-2 py-1 text-xs">${escapeHTML(p.forMonth||'-')}</td><td class="px-2 py-1 text-xs">${escapeHTML(p.mode||'-')}</td><td class="px-2 py-1 text-xs text-right font-medium">${inr(p.amount)}</td></tr>`).join('');
+ const old = document.getElementById('staffHistModal'); if (old) old.remove();
+ const m = document.createElement('div');
+ m.id='staffHistModal'; m.className='modal';
+ m.innerHTML = `<div class="modal-content" style="max-width:760px">
+   <h3 class="text-lg font-bold mb-1"><i class="fas fa-clock-rotate-left text-indigo-600 mr-1"></i>${escapeHTML(t.name||'')} — full record</h3>
+   <p class="text-xs text-gray-500 mb-3">${t.archived?`Archived on ${t.archivedDate?fmtDate(t.archivedDate):'-'} · ${escapeHTML(t.archiveReason||'')}`:'Currently on the staff.'}</p>
+   <div class="grid md:grid-cols-2 gap-4">
+    <div>
+     <div class="text-sm font-semibold mb-1">Profile</div>
+     ${row('Type', t.staffType||'Teaching')}${row('Subject', t.subject)}${row('Qualification', t.qualification)}
+     ${row('Employee ID', t.employeeId||t.udiseTeacherId)}${row('Phone', t.phone)}
+     ${row('Joined', t.joinDate?fmtDate(t.joinDate):(t.trainingDate?fmtDate(t.trainingDate):''))}
+     ${row('Last monthly salary', t.salary?inr(t.salary):'')}
+     ${t.archived?row('Left', t.archivedDate?fmtDate(t.archivedDate):''):''}
+     ${t.archived?row('Reason', t.archiveReason):''}
+     ${t.archived?row('Archived by', t.archivedBy):''}
+    </div>
+    <div>
+     <div class="text-sm font-semibold mb-1">Summary</div>
+     ${row('Salary payments', h.paymentCount)}
+     ${row('Total paid', inr(h.totalPaid))}
+     ${row('First payment', h.firstPaid?fmtDate(h.firstPaid):'')}
+     ${row('Last payment', h.lastPaid?fmtDate(h.lastPaid):'')}
+     ${row('Attendance marked', h.attendanceDays?h.attendanceDays+' days':'')}
+     ${row('Attendance', h.attendancePct!=null?h.attendancePct+'%':'')}
+    </div>
+   </div>
+   <div class="text-sm font-semibold mt-4 mb-1">Salary payment history</div>
+   <div class="border rounded overflow-auto" style="max-height:260px">
+    <table class="w-full text-sm"><thead class="bg-gray-100 sticky top-0"><tr><th class="px-2 py-1 text-left">Date</th><th class="px-2 py-1 text-left">For month</th><th class="px-2 py-1 text-left">Mode</th><th class="px-2 py-1 text-right">Amount</th></tr></thead>
+    <tbody>${pays||'<tr><td colspan="4" class="text-center text-gray-400 py-3">No salary payments recorded</td></tr>'}</tbody></table>
+   </div>
+   <div class="flex justify-end gap-2 mt-3">
+    <button class="closeModal bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded-lg text-sm">Close</button>
+    <button id="staffHistPrintBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-print mr-1"></i>Print</button>
+   </div>
+  </div>`;
+ document.body.appendChild(m);
+ m.querySelector('#staffHistPrintBtn').addEventListener('click', () => {
+  const w = window.open('', '_blank'); if (!w) return;
+  w.document.write(`<html><head><title>${escapeHTML(t.name||'')} — staff record</title><style>body{font-family:Arial;padding:24px;font-size:13px}table{width:100%;border-collapse:collapse;margin-top:8px}th,td{border:1px solid #ccc;padding:5px;font-size:12px}th{background:#eee}h1{font-size:17px}</style></head><body><h1>${escapeHTML(SCHOOL_INFO.name)}</h1><h2 style="font-size:15px">${escapeHTML(t.name||'')} — staff record</h2>${m.querySelector('.modal-content').innerHTML.replace(/<button[\s\S]*?<\/button>/g,'')}<script>window.print()<\/script></body></html>`);
+  w.document.close();
+ });
 }
 
 /* ---------- COMPLIANCE EVENTS ---------- */
@@ -17252,7 +17386,7 @@ function renderUsersTab(){
 
   ${(() => {
     const students = getStudents();
-    const teachers = getTeachers();
+    const teachers = getActiveTeachers();
     const allUsers = users;
     const studentsWithLogin = students.filter(s => allUsers.some(u => u.role === 'student' && u.studentId === s.id)).length;
     const studentsWithParent = students.filter(s => allUsers.some(u => u.role === 'parent' && u.linkedStudentId === s.id)).length;
@@ -17443,7 +17577,7 @@ function attachUsersTabEvents(){
  // Reconcile logins with staff: every teaching-role login gets a Staff record (if missing).
  document.getElementById('syncStaffBtn')?.addEventListener('click', () => {
   const users = getUsers();
-  const teachers = getTeachers();
+  const teachers = getActiveTeachers();
   let created = 0, linked = 0;
   users.forEach(u => {
    if (!isTeacherRole(u.role)) return;
@@ -17511,7 +17645,7 @@ function attachUsersTabEvents(){
   // A user with any teaching role must have a matching Staff (teacher) record so they appear on
   // the Staff page and can be assigned classes. If none is linked, create or reuse one by name.
   if (isTeacherRole(role)) {
-   const teachers = getTeachers();
+   const teachers = getActiveTeachers();
    let tRec = data.teacherId ? teachers.find(t => t.id === data.teacherId) : null;
    if (!tRec) tRec = teachers.find(t => (t.name||'').trim().toLowerCase() === name.toLowerCase());
    if (!tRec) {
@@ -17673,7 +17807,7 @@ async function createLoginForTeacher(teacher) {
 // `flags` = { student, parent, teacher }
 async function bulkGenerateLogins(flags) {
  const students = getStudents();
- const teachers = getTeachers();
+ const teachers = getActiveTeachers();
  let stuCreated = 0, parCreated = 0, teaCreated = 0;
  let stuSkipped = 0, parSkipped = 0, teaSkipped = 0;
 
@@ -17727,7 +17861,7 @@ function _displayPasswordForSheet(user){
 function exportLoginSheet() {
  const users = getUsers();
  const students = getStudents();
- const teachers = getTeachers();
+ const teachers = getActiveTeachers();
 
  // Build sectioned HTML table — Excel handles this fine via downloadExcel
  let html = '<table border="1" cellspacing="0" cellpadding="4">';
