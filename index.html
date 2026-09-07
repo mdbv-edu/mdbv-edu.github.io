@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1788421282 - staff are now ARCHIVED instead of deleted: full record kept (join date, every salary payment, attendance) with an Archive view, full-record modal (printable) and Restore; archived staff excluded from counts, salary lists and class assignment; permanent delete is Owner-only with a warning -->
+<!-- BUILD: v-1788775916 - salaries hidden from Admin (visible to Owner/MD/Trustee, Principal and Accountant); admin edits no longer wipe salary; FIXED: managing_director role was being split into managing+director and failing every permission check; FIXED: saving a staff member could drop archived staff -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -652,9 +652,14 @@ function isFullOwner(){ return currentUser && currentUser.role === 'owner'; }
 // A user's role can be a combo like "admin_teacher" or "accountant_teacher". These helpers
 // decompose the role so a permission check passes if ANY of the user's roles qualifies.
 // This fixes admin/accountant-only features not working for combined-role users.
+// Role names that legitimately contain an underscore must NOT be split into parts.
+// Without this, "managing_director" became ['managing','director'] and failed every role check.
+const ATOMIC_ROLES = ['managing_director'];
 function userRoles(role){
- const r = role || (currentUser && currentUser.role) || '';
- return String(r).split('_').filter(Boolean); // "admin_teacher" -> ['admin','teacher']
+ const r = String(role || (currentUser && currentUser.role) || '');
+ if (!r) return [];
+ if (ATOMIC_ROLES.includes(r)) return [r];
+ return r.split('_').filter(Boolean); // "admin_teacher" -> ['admin','teacher']
 }
 function hasRole(target, role){
  return userRoles(role).includes(target);
@@ -692,6 +697,14 @@ function canSeeConfidentialNumbers(){
 }
 // Scholar Register (SR) number is needed by the office to issue a TC, so admin, accountant,
 // principal and owner-level roles can all see and edit it. UDISE/PEN stays Owner/MD only.
+// Salary figures are restricted: Owner / Managing Director / Trustee and the Principal can see
+// them. The Accountant also can, because recording salary payments is their job. Admin cannot.
+function canSeeSalary(){
+ if (!currentUser) return false;
+ const rs = userRoles(currentUser.role);
+ // Explicit list — note isAccountantLevel() also covers admin, which must NOT see salaries.
+ return rs.some(r => OWNER_LEVEL_ROLES.includes(r)) || rs.includes('principal') || rs.includes('accountant');
+}
 function canSeeSRNumber(){
  if (!currentUser) return false;
  return isOwnerLevel() || isAdminLevel() || isAccountantLevel() || isPrincipalLevel();
@@ -4294,6 +4307,15 @@ var ADMIN_CATEGORIES = [
  {key:'comms',      label:'Communication',    icon:'bullhorn',       tabs:['notices','broadcast','enquiries']},
  {key:'compliance', label:'Compliance & Docs',icon:'shield-halved',  tabs:['compliance','disclosureDocs','documents','datamanagement','reports','tchaudit','backup']}
 ];
+var PRINCIPAL_CATEGORIES = [
+ {key:'main',       label:'Dashboard',   icon:'gauge-high',     tabs:['dashboard']},
+ {key:'people',     label:'People',      icon:'users',          tabs:['students','teachers','appraisal']},
+ {key:'academics',  label:'Academics',   icon:'graduation-cap', tabs:['homework','reportcards','resources','ptm','activities','gallery','calendar']},
+ {key:'attendance', label:'Attendance',  icon:'calendar-check', tabs:['studentattendance','staffattendance','attendance']},
+ {key:'finance',    label:'Fees',        icon:'chart-column',   tabs:['feedashboard']},
+ {key:'comms',      label:'Communication',icon:'bullhorn',      tabs:['notices','broadcast','enquiries']},
+ {key:'records',    label:'Compliance & Records', icon:'shield-halved', tabs:['compliance','documents','reports']}
+];
 var ACC_CATEGORIES = [
  {key:'overview', label:'Overview', icon:'gauge-high',           tabs:['overview','feedashboard']},
  {key:'fees',     label:'Fees',     icon:'hand-holding-dollar',  tabs:['receipts','reminders','students']},
@@ -5362,7 +5384,7 @@ function renderTeachersTab(){
  const teaching = ts.filter(t => (t.staffType||'Teaching') === 'Teaching');
  const nonTeaching = ts.filter(t => (t.staffType||'Teaching') === 'Non-Teaching');
  const inStaffArchive = (typeof _staffArchiveView !== 'undefined') && _staffArchiveView;
- const staffRow = t => `<tr><td>${t.photo?`<img src="${t.photo}" class="w-9 h-9 rounded-full object-cover" alt="">`:`<div class="w-9 h-9 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold">${initials(t.name)}</div>`}</td><td class="font-medium">${t.name}</td><td>${t.subject||'-'}</td><td class="text-xs">${(t.staffType||'Teaching')==='Teaching'?((Array.isArray(t.assignedClasses)&&t.assignedClasses.length)?t.assignedClasses.join(', '):'<span class="text-amber-600">none</span>'):'<span class="text-gray-300">—</span>'}</td><td>${t.qualification||'-'}</td><td>${t.employeeId || t.udiseTeacherId || '-'}</td><td>${t.trainingDate?fmtDate(t.trainingDate):'-'}</td><td>Rs.${(t.salary||0).toLocaleString('en-IN')}</td><td>${t.phone||'-'}</td><td class="whitespace-nowrap"><button class="editTeacherBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${t.id}" title="Edit"><i class="fas fa-edit"></i></button> <button class="archiveTeacherBtn bg-amber-500 hover:bg-amber-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Archive (keeps full record & salary history)"><i class="fas fa-box-archive"></i></button>${currentUser&&currentUser.role==='owner'?` <button class="delTeacherBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Delete permanently (Owner only)"><i class="fas fa-trash"></i></button>`:''}</td></tr>`;
+ const staffRow = t => `<tr><td>${t.photo?`<img src="${t.photo}" class="w-9 h-9 rounded-full object-cover" alt="">`:`<div class="w-9 h-9 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold">${initials(t.name)}</div>`}</td><td class="font-medium">${t.name}</td><td>${t.subject||'-'}</td><td class="text-xs">${(t.staffType||'Teaching')==='Teaching'?((Array.isArray(t.assignedClasses)&&t.assignedClasses.length)?t.assignedClasses.join(', '):'<span class="text-amber-600">none</span>'):'<span class="text-gray-300">—</span>'}</td><td>${t.qualification||'-'}</td><td>${t.employeeId || t.udiseTeacherId || '-'}</td><td>${t.trainingDate?fmtDate(t.trainingDate):'-'}</td>${canSeeSalary()?`<td>Rs.${(t.salary||0).toLocaleString('en-IN')}</td>`:''}<td>${t.phone||'-'}</td><td class="whitespace-nowrap"><button class="editTeacherBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${t.id}" title="Edit"><i class="fas fa-edit"></i></button> <button class="archiveTeacherBtn bg-amber-500 hover:bg-amber-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Archive (keeps full record & salary history)"><i class="fas fa-box-archive"></i></button>${currentUser&&currentUser.role==='owner'?` <button class="delTeacherBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Delete permanently (Owner only)"><i class="fas fa-trash"></i></button>`:''}</td></tr>`;
  // Archived staff row: shows when they left, why, and their salary history at a glance.
  const archivedRow = t => { const h = staffHistory(t.id); return `<tr class="bg-gray-50">
    <td class="font-medium">${escapeHTML(t.name||'')}</td>
@@ -5370,9 +5392,9 @@ function renderTeachersTab(){
    <td class="text-xs">${t.joinDate?fmtDate(t.joinDate):(t.trainingDate?fmtDate(t.trainingDate):'-')}</td>
    <td class="text-xs">${t.archivedDate?fmtDate(t.archivedDate):'-'}</td>
    <td class="text-xs">${escapeHTML(t.archiveReason||'-')}</td>
-   <td class="text-xs text-right">Rs.${(t.salary||0).toLocaleString('en-IN')}</td>
+   ${canSeeSalary()?`<td class="text-xs text-right">Rs.${(t.salary||0).toLocaleString('en-IN')}</td>
    <td class="text-xs text-right">${h.paymentCount}</td>
-   <td class="text-xs text-right font-semibold">Rs.${h.totalPaid.toLocaleString('en-IN')}</td>
+   <td class="text-xs text-right font-semibold">Rs.${h.totalPaid.toLocaleString('en-IN')}</td>`:''}
    <td class="whitespace-nowrap">
     <button class="staffHistoryBtn bg-indigo-500 hover:bg-indigo-600 text-white px-2 py-1 rounded text-xs" data-id="${t.id}" title="Full record"><i class="fas fa-clock-rotate-left"></i></button>
     <button class="restoreTeacherBtn bg-emerald-500 hover:bg-emerald-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Restore to active staff"><i class="fas fa-rotate-left"></i></button>
@@ -5390,18 +5412,18 @@ function renderTeachersTab(){
   </div>
   ${inStaffArchive ? `<div class="overflow-x-auto mb-6">
     <p class="text-xs text-gray-600 mb-2">These staff have left. Their full record — join date, salary paid, attendance — is preserved. They are not counted in current staff, salary lists or class assignment.</p>
-    <table class="border text-sm w-full"><thead><tr><th>Name</th><th>Type</th><th>Joined</th><th>Left</th><th>Reason</th><th class="text-right">Last Salary</th><th class="text-right">Payments</th><th class="text-right">Total Paid</th><th>Actions</th></tr></thead>
-    <tbody>${archivedStaff.length?archivedStaff.map(archivedRow).join(''):'<tr><td colspan="9" class="text-center text-gray-400 py-3">No archived staff</td></tr>'}</tbody></table>
+    <table class="border text-sm w-full"><thead><tr><th>Name</th><th>Type</th><th>Joined</th><th>Left</th><th>Reason</th>${canSeeSalary()?'<th class="text-right">Last Salary</th><th class="text-right">Payments</th><th class="text-right">Total Paid</th>':''}<th>Actions</th></tr></thead>
+    <tbody>${archivedStaff.length?archivedStaff.map(archivedRow).join(''):'<tr><td colspan="${canSeeSalary()?9:6}" class="text-center text-gray-400 py-3">No archived staff</td></tr>'}</tbody></table>
    </div>` : `
   <div class="overflow-x-auto mb-6">
    <div class="text-sm font-semibold text-purple-700 mb-1"><i class="fas fa-chalkboard-teacher mr-1"></i>Teaching Staff</div>
-   <table class="border text-sm w-full"><thead><tr><th>Photo</th><th>Name</th><th>Subject</th><th>Classes</th><th>Qualification</th><th>Emp. ID</th><th>Joined</th><th>Salary</th><th>Phone</th><th>Actions</th></tr></thead>
-   <tbody>${teaching.length?teaching.map(staffRow).join(''):'<tr><td colspan="10" class="text-center text-gray-400 py-3">No teaching staff added yet</td></tr>'}</tbody></table>
+   <table class="border text-sm w-full"><thead><tr><th>Photo</th><th>Name</th><th>Subject</th><th>Classes</th><th>Qualification</th><th>Emp. ID</th><th>Joined</th>${canSeeSalary()?'<th>Salary</th>':''}<th>Phone</th><th>Actions</th></tr></thead>
+   <tbody>${teaching.length?teaching.map(staffRow).join(''):'<tr><td colspan="${canSeeSalary()?10:9}" class="text-center text-gray-400 py-3">No teaching staff added yet</td></tr>'}</tbody></table>
   </div>
   <div class="overflow-x-auto mb-6">
    <div class="text-sm font-semibold text-teal-700 mb-1"><i class="fas fa-user-tie mr-1"></i>Non-Teaching Staff <span class="font-normal text-gray-400">(principal, drivers, guards, office, support)</span></div>
-   <table class="border text-sm w-full"><thead><tr><th>Photo</th><th>Name</th><th>Designation</th><th>—</th><th>Qualification</th><th>Emp. ID</th><th>Joined</th><th>Salary</th><th>Phone</th><th>Actions</th></tr></thead>
-   <tbody>${nonTeaching.length?nonTeaching.map(staffRow).join(''):'<tr><td colspan="10" class="text-center text-gray-400 py-3">No non-teaching staff yet. Click "Add Staff" and choose "Non-Teaching Staff" to add drivers, guards, office staff, etc.</td></tr>'}</tbody></table>
+   <table class="border text-sm w-full"><thead><tr><th>Photo</th><th>Name</th><th>Designation</th><th>—</th><th>Qualification</th><th>Emp. ID</th><th>Joined</th>${canSeeSalary()?'<th>Salary</th>':''}<th>Phone</th><th>Actions</th></tr></thead>
+   <tbody>${nonTeaching.length?nonTeaching.map(staffRow).join(''):'<tr><td colspan="${canSeeSalary()?10:9}" class="text-center text-gray-400 py-3">No non-teaching staff yet. Click "Add Staff" and choose "Non-Teaching Staff" to add drivers, guards, office staff, etc.</td></tr>'}</tbody></table>
   </div>`}
 
   <!-- Teacher Activity Audit Log (admin oversight) -->
@@ -5452,8 +5474,8 @@ function renderTeachersTab(){
     <div><label class="text-xs">Qualification</label><input id="tchQual"></div>
     <div><label class="text-xs">Employee ID</label><input id="tchEmpId" placeholder="e.g. MDB-T-001"></div>
     <div><label class="text-xs">Date of Joining</label><input type="date" id="tchTrain"></div>
-    <div><label class="text-xs">Salary</label><input type="number" id="tchSalary"></div>
-    <div><label class="text-xs">Salary Start Month <i class="fas fa-circle-info text-gray-400" title="Month salary began this session — used to calculate dues precisely for mid-year joiners. Leave blank to use April."></i></label><select id="tchSalaryStart"><option value="">April (session start)</option>${SESSION_MONTHS.map(m=>`<option value="${m}">${m}</option>`).join('')}</select></div>
+    <div${canSeeSalary()?'':' style="display:none"'}><label class="text-xs">Salary</label><input type="number" id="tchSalary"></div>
+    <div${canSeeSalary()?'':' style="display:none"'}><label class="text-xs">Salary Start Month <i class="fas fa-circle-info text-gray-400" title="Month salary began this session — used to calculate dues precisely for mid-year joiners. Leave blank to use April."></i></label><select id="tchSalaryStart"><option value="">April (session start)</option>${SESSION_MONTHS.map(m=>`<option value="${m}">${m}</option>`).join('')}</select></div>
     <div><label class="text-xs">Phone</label><input id="tchPhone"></div>
     <div><label class="text-xs">Email</label><input id="tchEmail" placeholder="name@example.com"></div>
     <div><label class="text-xs">Date of Birth</label><input type="date" id="tchDob"></div>
@@ -7208,16 +7230,24 @@ function renderPrincipalPanel(){
  const tabs=[
   {id:'dashboard',label:'Dashboard',icon:'gauge-high'},
   {id:'students',label:'Students',icon:'user-graduate'},
-  {id:'studentattendance',label:'Student Attendance',icon:'calendar-check'},
   {id:'teachers',label:'Staff',icon:'users'},
-  {id:'staffattendance',label:'Staff Attendance',icon:'user-clock'},
-  {id:'ptm',label:'PTM',icon:'people-arrows'},
-  {id:'compliance',label:'Compliance',icon:'shield-halved'},
-  {id:'notices',label:'Notice Board',icon:'thumbtack'},
-  {id:'reportcards',label:'Report Cards',icon:'file-lines'},
   {id:'appraisal',label:'Teacher Appraisal',icon:'clipboard-user'},
-  {id:'attendance',label:'Attendance Insights',icon:'calendar-check'},
+  {id:'homework',label:'Homework',icon:'book-open'},
+  {id:'reportcards',label:'Report Cards',icon:'file-lines'},
+  {id:'resources',label:'Syllabus & Resources',icon:'book-open-reader'},
+  {id:'ptm',label:'PTM',icon:'people-arrows'},
+  {id:'activities',label:'Activities',icon:'palette'},
+  {id:'gallery',label:'Gallery',icon:'images'},
   {id:'calendar',label:'Calendar',icon:'calendar-days'},
+  {id:'studentattendance',label:'Student Attendance',icon:'calendar-check'},
+  {id:'staffattendance',label:'Staff Attendance',icon:'user-clock'},
+  {id:'attendance',label:'Attendance Insights',icon:'chart-pie'},
+  {id:'feedashboard',label:'Fee Dashboard',icon:'chart-column'},
+  {id:'notices',label:'Notice Board',icon:'thumbtack'},
+  {id:'broadcast',label:'Broadcast',icon:'bullhorn'},
+  {id:'enquiries',label:'Admissions',icon:'inbox'},
+  {id:'compliance',label:'Compliance',icon:'shield-halved'},
+  {id:'documents',label:'Documents',icon:'folder-open'},
   {id:'reports',label:'Reports',icon:'chart-bar'}
  ];
  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
@@ -7227,7 +7257,7 @@ function renderPrincipalPanel(){
    <button id="logoutPrincipalBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
   </div>
   <div class="tab-scroll gap-1 border-b pb-2 my-4">
-   ${tabs.map(t=>`<button class="principal-tab px-3 py-2 rounded-t-lg text-sm font-medium whitespace-nowrap ${activePrincipalTab===t.id?'bg-purple-600 text-white':'bg-gray-100 hover:bg-gray-200 text-gray-700'}" data-tab="${t.id}"><i class="fas fa-${t.icon} mr-1"></i>${t.label}</button>`).join('')}
+   ${_twoLevelTabBar(PRINCIPAL_CATEGORIES, tabs, activePrincipalTab, 'principal-cat', 'principal-tab', 'bg-purple-600 text-white')}
   </div>
   <div id="principalTabContent" class="bg-white rounded-xl shadow-sm p-5 border"></div>
  </div>`;
@@ -7250,6 +7280,14 @@ function renderPrincipalTabContent(){
    </div>
   </div>`;
  } else if(activePrincipalTab==='students')return renderStudentsTab();
+ else if(activePrincipalTab==='homework')return renderHomeworkOversight();
+ else if(activePrincipalTab==='resources')return renderResourceCatalog();
+ else if(activePrincipalTab==='activities')return renderActivitiesPage();
+ else if(activePrincipalTab==='gallery')return renderGalleryAdminTab();
+ else if(activePrincipalTab==='feedashboard')return renderFeeDashboard();
+ else if(activePrincipalTab==='broadcast')return renderBroadcastTab();
+ else if(activePrincipalTab==='enquiries')return renderEnquiriesTab();
+ else if(activePrincipalTab==='documents')return renderDocuments();
  else if(activePrincipalTab==='studentattendance')return renderAdminAttendance();
  else if(activePrincipalTab==='teachers')return renderTeachersTab();
  else if(activePrincipalTab==='staffattendance')return renderStaffAttendance();
@@ -15317,10 +15355,19 @@ function attachTchAuditAdminEvents(){
 /* ---------- PRINCIPAL EVENTS ---------- */
 function attachPrincipalEvents(){
  document.getElementById('logoutPrincipalBtn')?.addEventListener('click',()=>{currentUser=null;activePrincipalTab='dashboard';chatPanelOpen=false;activeChatWith=null;renderApp()});
+ document.querySelectorAll('.principal-cat').forEach(b=>b.addEventListener('click',()=>{const c=PRINCIPAL_CATEGORIES.find(x=>x.key===b.dataset.cat); if(c){activePrincipalTab=c.tabs[0];studentFilter={search:'',class:'all',section:'all',category:'all'};renderApp();}}));
  document.querySelectorAll('.principal-tab').forEach(b=>b.addEventListener('click',()=>{activePrincipalTab=b.dataset.tab;studentFilter={search:'',class:'all',section:'all',category:'all'};renderApp()}));
 }
 function attachActivePrincipalTabEvents(){
  if(activePrincipalTab==='students')attachStudentsTabEvents();
+ else if(activePrincipalTab==='homework')_attachHomeworkOversightEvents();
+ else if(activePrincipalTab==='resources')attachResourceCatalogEvents();
+ else if(activePrincipalTab==='activities')attachActivitiesEvents();
+ else if(activePrincipalTab==='gallery')attachGalleryAdminEvents();
+ else if(activePrincipalTab==='feedashboard')_attachFeeDashboardEvents();
+ else if(activePrincipalTab==='broadcast')attachBroadcastEvents();
+ else if(activePrincipalTab==='enquiries')attachEnquiriesTabEvents();
+ else if(activePrincipalTab==='documents')attachGenericModuleEvents();
  else if(activePrincipalTab==='studentattendance')_attachAdminAttendanceEvents();
  else if(activePrincipalTab==='teachers')attachTeachersTabEvents();
  else if(activePrincipalTab==='staffattendance')_attachStaffAttendanceEvents();
@@ -16086,8 +16133,6 @@ function attachTeachersTabEvents(){
    qualification: document.getElementById('tchQual').value.trim(),
    employeeId: document.getElementById('tchEmpId').value.trim(),
    trainingDate: document.getElementById('tchTrain').value,
-   salary: parseInt(document.getElementById('tchSalary').value) || 0,
-   salaryStartMonth: (document.getElementById('tchSalaryStart') ? document.getElementById('tchSalaryStart').value : '') || undefined,
    phone: document.getElementById('tchPhone').value.trim(),
    bankAccount: document.getElementById('tchBank').value.trim(),
    email: document.getElementById('tchEmail').value.trim(),
@@ -16099,7 +16144,13 @@ function attachTeachersTabEvents(){
    // Non-teaching staff don't handle classes.
    assignedClasses: ((document.getElementById('tchStaffType')||{}).value === 'Non-Teaching') ? [] : Array.from(document.querySelectorAll('.tchClassChk')).filter(c => c.checked).map(c => c.value)
   };
-  const teachers = getActiveTeachers();
+  // Only write the salary if this user is allowed to see it — otherwise keep what's on record.
+  if (canSeeSalary()) {
+   data.salary = parseInt(document.getElementById('tchSalary').value) || 0;
+   data.salaryStartMonth = (document.getElementById('tchSalaryStart') ? document.getElementById('tchSalaryStart').value : '') || undefined;
+  }
+  // Use the FULL list (never getActiveTeachers) so archived staff aren't dropped on save.
+  const teachers = getTeachers();
   if (id) {
    // Edit mode — update existing record
    const i = teachers.findIndex(x => x.id === parseInt(id));
@@ -16182,26 +16233,26 @@ function _openStaffHistoryModal(teacherId){
      ${row('Type', t.staffType||'Teaching')}${row('Subject', t.subject)}${row('Qualification', t.qualification)}
      ${row('Employee ID', t.employeeId||t.udiseTeacherId)}${row('Phone', t.phone)}
      ${row('Joined', t.joinDate?fmtDate(t.joinDate):(t.trainingDate?fmtDate(t.trainingDate):''))}
-     ${row('Last monthly salary', t.salary?inr(t.salary):'')}
+     ${canSeeSalary()?row('Last monthly salary', t.salary?inr(t.salary):''):''}
      ${t.archived?row('Left', t.archivedDate?fmtDate(t.archivedDate):''):''}
      ${t.archived?row('Reason', t.archiveReason):''}
      ${t.archived?row('Archived by', t.archivedBy):''}
     </div>
     <div>
      <div class="text-sm font-semibold mb-1">Summary</div>
-     ${row('Salary payments', h.paymentCount)}
+     ${canSeeSalary()?`${row('Salary payments', h.paymentCount)}
      ${row('Total paid', inr(h.totalPaid))}
      ${row('First payment', h.firstPaid?fmtDate(h.firstPaid):'')}
-     ${row('Last payment', h.lastPaid?fmtDate(h.lastPaid):'')}
+     ${row('Last payment', h.lastPaid?fmtDate(h.lastPaid):'')}`:''}
      ${row('Attendance marked', h.attendanceDays?h.attendanceDays+' days':'')}
      ${row('Attendance', h.attendancePct!=null?h.attendancePct+'%':'')}
     </div>
    </div>
-   <div class="text-sm font-semibold mt-4 mb-1">Salary payment history</div>
+   ${canSeeSalary()?`<div class="text-sm font-semibold mt-4 mb-1">Salary payment history</div>
    <div class="border rounded overflow-auto" style="max-height:260px">
     <table class="w-full text-sm"><thead class="bg-gray-100 sticky top-0"><tr><th class="px-2 py-1 text-left">Date</th><th class="px-2 py-1 text-left">For month</th><th class="px-2 py-1 text-left">Mode</th><th class="px-2 py-1 text-right">Amount</th></tr></thead>
     <tbody>${pays||'<tr><td colspan="4" class="text-center text-gray-400 py-3">No salary payments recorded</td></tr>'}</tbody></table>
-   </div>
+   </div>`:''}
    <div class="flex justify-end gap-2 mt-3">
     <button class="closeModal bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded-lg text-sm">Close</button>
     <button id="staffHistPrintBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-print mr-1"></i>Print</button>
