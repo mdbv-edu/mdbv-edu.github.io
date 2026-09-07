@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1788775916 - salaries hidden from Admin (visible to Owner/MD/Trustee, Principal and Accountant); admin edits no longer wipe salary; FIXED: managing_director role was being split into managing+director and failing every permission check; FIXED: saving a staff member could drop archived staff -->
+<!-- BUILD: v-1788776356 - Principal portal rebuilt with the Owner-style card navigation (category tiles then feature cards, replacing the broken tab bar); Staff stat card now shows total with teaching/non-teaching split on both Principal and Admin dashboards -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -4426,7 +4426,7 @@ function renderAdminDashboardTab(){
   <h2 class="text-lg font-bold mb-4">At a glance</h2>
   <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
    <div class="bg-indigo-50 p-4 rounded-lg"><div class="text-xs text-indigo-700 font-semibold">CURRENT STUDENTS</div><div class="text-2xl font-bold text-indigo-900">${s.length}</div>${(()=>{const a=getStudents().filter(x=>x.archived).length;return a?`<div class="text-[11px] text-indigo-700/70 mt-0.5">${a} archived separately</div>`:'';})()}</div>
-   <div class="bg-purple-50 p-4 rounded-lg"><div class="text-xs text-purple-700 font-semibold">TEACHERS</div><div class="text-2xl font-bold text-purple-900">${t.length}</div></div>
+   <div class="bg-purple-50 p-4 rounded-lg"><div class="text-xs text-purple-700 font-semibold">STAFF</div><div class="text-2xl font-bold text-purple-900">${t.length}</div><div class="text-[11px] text-purple-700/70 mt-0.5">${t.filter(x=>(x.staffType||'Teaching')!=='Non-Teaching').length} teaching · ${t.filter(x=>(x.staffType||'Teaching')==='Non-Teaching').length} non-teaching</div></div>
    <div class="bg-amber-50 p-4 rounded-lg"><div class="text-xs text-amber-700 font-semibold">OPEN COMPLAINTS</div><div class="text-2xl font-bold text-amber-900">${c.filter(x=>x.status==='open').length}</div></div>
    <div class="bg-emerald-50 p-4 rounded-lg"><div class="text-xs text-emerald-700 font-semibold">COMPLIANT</div><div class="text-2xl font-bold text-emerald-900">${comp.filter(x=>x.enabled&&x.status==='compliant').length}/${comp.filter(x=>x.enabled).length}</div></div>
   </div>
@@ -7226,6 +7226,62 @@ function renderReports(){
 }
 
 /* ---------- PRINCIPAL PANEL ---------- */
+// ===== PRINCIPAL: owner-style category tiles + section cards =====
+var principalSection = null; // null = dashboard tiles; else a PRINCIPAL_CATEGORIES key
+const PRINCIPAL_TAB_INFO = {
+ students:{label:'Students', icon:'user-graduate', color:'#4f46e5', action:'View Students', desc:'All student records, profiles, fees, SR numbers and Transfer Certificates.'},
+ teachers:{label:'Staff', icon:'users', color:'#7c3aed', action:'Manage Staff', desc:'Teaching and non-teaching staff, with archive and full service records.'},
+ appraisal:{label:'Teacher Appraisal', icon:'clipboard-user', color:'#0d9488', action:'Open Appraisal', desc:'Review teachers on curriculum completion plus your own assessment.'},
+ homework:{label:'Homework', icon:'book-open', color:'#d97706', action:'Review Homework', desc:'See what every teacher has posted, with attachments. Filter by class or teacher.'},
+ reportcards:{label:'Report Cards', icon:'file-lines', color:'#7c3aed', action:'Report Cards', desc:'Generate and print term report cards for any class.'},
+ resources:{label:'Syllabus & Resources', icon:'book-open-reader', color:'#4f46e5', action:'Open Catalog', desc:'CBSE/NCERT syllabus links and the school\u2019s own resource library.'},
+ ptm:{label:'Parent-Teacher Meetings', icon:'people-arrows', color:'#a21caf', action:'Open PTM', desc:'Schedule PTMs; teachers record which parents attended.'},
+ activities:{label:'Activities', icon:'palette', color:'#ea580c', action:'Open Activities', desc:'Clubs, houses and co-curricular activities across the school.'},
+ gallery:{label:'Gallery', icon:'images', color:'#0891b2', action:'Manage Gallery', desc:'Photos shown on the public website.'},
+ calendar:{label:'Calendar', icon:'calendar-days', color:'#2563eb', action:'Open Calendar', desc:'Academic calendar, holidays and school events.'},
+ studentattendance:{label:'Student Attendance', icon:'calendar-check', color:'#2563eb', action:'Open Attendance', desc:'School-wide student attendance by class, with today\u2019s summary and exports.'},
+ staffattendance:{label:'Staff Attendance', icon:'user-clock', color:'#059669', action:'Open Staff Attendance', desc:'Mark daily staff attendance and review each member\u2019s record.'},
+ attendance:{label:'Attendance Insights', icon:'chart-pie', color:'#0891b2', action:'Open Insights', desc:'Overall %, monthly trends and students needing attention.'},
+ feedashboard:{label:'Fee Dashboard', icon:'chart-column', color:'#059669', action:'Open Fee Dashboard', desc:'Class-wise fees expected, collected and outstanding with collection rates.'},
+ notices:{label:'Notice Board', icon:'thumbtack', color:'#ea580c', action:'Manage Notices', desc:'Post announcements to students, parents, teachers or the whole school.'},
+ broadcast:{label:'Broadcast', icon:'bullhorn', color:'#d97706', action:'Send Broadcast', desc:'Send a message to a whole class or the entire school at once.'},
+ enquiries:{label:'Admissions', icon:'inbox', color:'#4f46e5', action:'View Enquiries', desc:'Admission enquiries received from the website.'},
+ compliance:{label:'Compliance', icon:'shield-halved', color:'#059669', action:'Manage Compliance', desc:'Licences, certificates and statutory documents with expiry alerts.'},
+ documents:{label:'Documents', icon:'folder-open', color:'#7c3aed', action:'Open Documents', desc:'School document store — policies, circulars and records.'},
+ reports:{label:'Reports', icon:'chart-bar', color:'#334155', action:'View Reports', desc:'Printable summaries across students, staff and academics.'}
+};
+function _principalCategoryTiles(){
+ const cats = PRINCIPAL_CATEGORIES.filter(c => c.key !== 'main');
+ const colors = {people:'#4f46e5', academics:'#7a1e2e', attendance:'#0891b2', finance:'#1f8f4e', comms:'#d97706', records:'#b45309'};
+ const tile = c => `<button class="prinSecTile text-left bg-white border-2 rounded-2xl p-5 hover:shadow-md transition group" style="border-color:${colors[c.key]||'#999'}33" data-sec="${c.key}">
+    <div class="flex items-center gap-3">
+     <div class="w-12 h-12 rounded-xl flex items-center justify-center text-white text-xl" style="background:${colors[c.key]||'#666'}"><i class="fas fa-${c.icon}"></i></div>
+     <div><div class="font-bold text-gray-900">${c.label}</div><div class="text-[11px] text-gray-500">${c.tabs.length} tool${c.tabs.length===1?'':'s'}</div></div>
+     <i class="fas fa-arrow-right ml-auto text-gray-300 group-hover:text-gray-500"></i>
+    </div>
+    <p class="text-xs text-gray-600 mt-3">${c.tabs.map(t=>(PRINCIPAL_TAB_INFO[t]||{}).label||t).join(' · ')}</p>
+   </button>`;
+ return `<div class="mt-6">
+   <h2 class="font-semibold text-gray-800 mb-3"><i class="fas fa-layer-group text-gray-500 mr-2"></i>Manage your school</h2>
+   <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">${cats.map(tile).join('')}</div>
+  </div>`;
+}
+function _principalSectionCards(secKey){
+ const cat = PRINCIPAL_CATEGORIES.find(c => c.key === secKey);
+ if (!cat) return '';
+ const nStud = getActiveStudents().length;
+ const ts = getActiveTeachers();
+ const nonT = ts.filter(t => (t.staffType||'Teaching')==='Non-Teaching').length;
+ const meta = { students:`${nStud} students enrolled`, teachers:`${ts.length-nonT} teaching · ${nonT} non-teaching` };
+ const card = id => { const i = PRINCIPAL_TAB_INFO[id]; if (!i) return '';
+  return `<div class="bg-white border-2 rounded-xl p-5 flex flex-col" style="border-color:${i.color}33">
+    <h2 class="font-semibold mb-1"><i class="fas fa-${i.icon} mr-2" style="color:${i.color}"></i>${i.label}</h2>
+    <p class="text-sm text-gray-700 flex-1">${i.desc}</p>
+    ${meta[id]?`<div class="text-xs text-gray-600 mt-2">${meta[id]}</div>`:''}
+    <button class="prinOpenTab text-white px-4 py-2 rounded-lg text-sm font-medium w-full mt-3" style="background:${i.color}" data-tab="${id}"><i class="fas fa-arrow-right-to-bracket mr-1"></i>${i.action}</button>
+   </div>`; };
+ return `<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">${cat.tabs.map(card).join('')}</div>`;
+}
 function renderPrincipalPanel(){
  const tabs=[
   {id:'dashboard',label:'Dashboard',icon:'gauge-high'},
@@ -7256,10 +7312,28 @@ function renderPrincipalPanel(){
    <div class="text-sm text-gray-600 hidden md:block">${currentUser.name}</div>
    <button id="logoutPrincipalBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
   </div>
-  <div class="tab-scroll gap-1 border-b pb-2 my-4">
-   ${_twoLevelTabBar(PRINCIPAL_CATEGORIES, tabs, activePrincipalTab, 'principal-cat', 'principal-tab', 'bg-purple-600 text-white')}
-  </div>
-  <div id="principalTabContent" class="bg-white rounded-xl shadow-sm p-5 border"></div>
+  ${(() => {
+   // Three views, mirroring the Owner dashboard:
+   //  1. dashboard  -> stats + category tiles
+   //  2. a section  -> cards for that category's tools
+   //  3. a tool     -> the tool itself, with a back link
+   if (activePrincipalTab === 'dashboard' && !principalSection) {
+    return `<div id="principalTabContent" class="mt-4"></div>`;
+   }
+   if (activePrincipalTab === 'dashboard' && principalSection) {
+    const cat = PRINCIPAL_CATEGORIES.find(c => c.key === principalSection) || {label:'', icon:'folder'};
+    return `<div class="mt-4">
+      <button id="prinBackTiles" class="text-gray-600 hover:text-gray-900 text-sm mb-2"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
+      <h2 class="text-lg font-bold mb-3"><i class="fas fa-${cat.icon} text-purple-600 mr-2"></i>${cat.label}</h2>
+      ${_principalSectionCards(principalSection)}
+     </div>`;
+   }
+   const info = PRINCIPAL_TAB_INFO[activePrincipalTab] || {label:''};
+   return `<div class="mt-4">
+     <button id="prinBackSection" class="text-gray-600 hover:text-gray-900 text-sm mb-2"><i class="fas fa-arrow-left mr-1"></i>Back${principalSection?' to '+((PRINCIPAL_CATEGORIES.find(c=>c.key===principalSection)||{}).label||''):' to Dashboard'}</button>
+     <div id="principalTabContent" class="bg-white rounded-xl shadow-sm p-5 border"></div>
+    </div>`;
+  })()}
  </div>`;
 }
 function renderPrincipalTabContent(){
@@ -7270,7 +7344,7 @@ function renderPrincipalTabContent(){
    <h2 class="text-lg font-bold mb-4">Welcome, ${currentUser.name}</h2>
    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
     <div class="bg-indigo-50 p-4 rounded-lg"><div class="text-xs font-semibold text-indigo-700">CURRENT STUDENTS</div><div class="text-2xl font-bold">${s.length}</div>${(()=>{const a=getStudents().filter(x=>x.archived).length;return a?`<div class="text-[11px] text-indigo-700/70 mt-0.5">${a} archived separately</div>`:'';})()}</div>
-    <div class="bg-purple-50 p-4 rounded-lg"><div class="text-xs font-semibold text-purple-700">TEACHERS</div><div class="text-2xl font-bold">${t.length}</div></div>
+    <div class="bg-purple-50 p-4 rounded-lg"><div class="text-xs font-semibold text-purple-700">STAFF</div><div class="text-2xl font-bold">${t.length}</div><div class="text-[11px] text-purple-700/70 mt-0.5">${t.filter(x=>(x.staffType||'Teaching')!=='Non-Teaching').length} teaching · ${t.filter(x=>(x.staffType||'Teaching')==='Non-Teaching').length} non-teaching</div></div>
     <div class="bg-amber-50 p-4 rounded-lg"><div class="text-xs font-semibold text-amber-700">EVENTS</div><div class="text-2xl font-bold">${ev.length}</div></div>
     <div class="bg-emerald-50 p-4 rounded-lg"><div class="text-xs font-semibold text-emerald-700">COMPLIANT</div><div class="text-2xl font-bold">${comp.filter(x=>x.enabled&&x.status==='compliant').length}</div></div>
    </div>
@@ -7278,6 +7352,7 @@ function renderPrincipalTabContent(){
     <div class="border p-4 rounded-lg"><h3 class="font-semibold mb-2"><i class="fas fa-bullhorn text-purple-600 mr-1"></i>Upcoming Events</h3>${ev.slice(0,5).map(e=>`<div class="text-sm py-1">${fmtDate(e.date)} - ${e.title}</div>`).join('')||'<div class="text-gray-500">None</div>'}</div>
     <div class="border p-4 rounded-lg"><h3 class="font-semibold mb-2"><i class="fas fa-triangle-exclamation text-amber-600 mr-1"></i>Compliance Alerts</h3>${comp.filter(x=>x.enabled&&x.status==='pending').slice(0,5).map(x=>`<div class="text-sm py-1">${x.name}</div>`).join('')||'<div class="text-emerald-700 text-sm">All clear</div>'}</div>
    </div>
+   ${_principalCategoryTiles()}
   </div>`;
  } else if(activePrincipalTab==='students')return renderStudentsTab();
  else if(activePrincipalTab==='homework')return renderHomeworkOversight();
@@ -15354,9 +15429,14 @@ function attachTchAuditAdminEvents(){
 
 /* ---------- PRINCIPAL EVENTS ---------- */
 function attachPrincipalEvents(){
- document.getElementById('logoutPrincipalBtn')?.addEventListener('click',()=>{currentUser=null;activePrincipalTab='dashboard';chatPanelOpen=false;activeChatWith=null;renderApp()});
- document.querySelectorAll('.principal-cat').forEach(b=>b.addEventListener('click',()=>{const c=PRINCIPAL_CATEGORIES.find(x=>x.key===b.dataset.cat); if(c){activePrincipalTab=c.tabs[0];studentFilter={search:'',class:'all',section:'all',category:'all'};renderApp();}}));
- document.querySelectorAll('.principal-tab').forEach(b=>b.addEventListener('click',()=>{activePrincipalTab=b.dataset.tab;studentFilter={search:'',class:'all',section:'all',category:'all'};renderApp()}));
+ document.getElementById('logoutPrincipalBtn')?.addEventListener('click',()=>{currentUser=null;principalSection=null;activePrincipalTab='dashboard';chatPanelOpen=false;activeChatWith=null;renderApp()});
+ // Category tile -> that section's cards
+ document.querySelectorAll('.prinSecTile').forEach(b=>b.addEventListener('click',()=>{principalSection=b.dataset.sec;activePrincipalTab='dashboard';renderApp();}));
+ // Card -> open the tool
+ document.querySelectorAll('.prinOpenTab').forEach(b=>b.addEventListener('click',()=>{activePrincipalTab=b.dataset.tab;studentFilter={search:'',class:'all',section:'all',category:'all'};renderApp();}));
+ // Back links
+ document.getElementById('prinBackTiles')?.addEventListener('click',()=>{principalSection=null;activePrincipalTab='dashboard';renderApp();});
+ document.getElementById('prinBackSection')?.addEventListener('click',()=>{activePrincipalTab='dashboard';renderApp();});
 }
 function attachActivePrincipalTabEvents(){
  if(activePrincipalTab==='students')attachStudentsTabEvents();
