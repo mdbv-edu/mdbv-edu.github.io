@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1788776356 - Principal portal rebuilt with the Owner-style card navigation (category tiles then feature cards, replacing the broken tab bar); Staff stat card now shows total with teaching/non-teaching split on both Principal and Admin dashboards -->
+<!-- BUILD: v-1789228334 - printable class-wise Fee Register on the Fee Dashboard: every student with composite fee, paid and unpaid, class subtotals, grand total and signature lines; print all classes or one class -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -11061,12 +11061,114 @@ function renderFeeDashboard(){
    </div>
   </div>
   <div class="flex justify-end">
-   <button id="feeDashExportBtn" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-download mr-1"></i>Export CSV</button>
+   <select id="feeRegClass" class="border rounded-lg px-2 py-1.5 text-sm" style="width:auto"><option value="">All classes</option>${ALL_CLASSES.map(c=>`<option value="${c}">${/^\d+$/.test(c)?'Class '+c:c}</option>`).join('')}</select>
+   <button id="feeRegPrintBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium ml-2"><i class="fas fa-print mr-1"></i>Print Fee Register</button>
+   <button id="feeDashExportBtn" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-sm font-medium ml-2"><i class="fas fa-download mr-1"></i>Export CSV</button>
   </div>
   <p class="text-xs text-gray-400">Note: "Paid" is derived from outstanding balances (Total − Unpaid), which reflects what the school has recorded as collected. This can differ from receipts in the Ledger if balances were entered directly.</p>
  </div>`;
 }
+// Printable class-wise fee register: every student with decided fee, paid and unpaid,
+// with per-class subtotals and a grand total. Meant for checking against the hard-copy register.
+function printFeeRegister(onlyClass){
+ const students = getActiveStudents();
+ const order = ALL_CLASSES.slice();
+ const byCls = {};
+ students.forEach(s => {
+  const c = String(s.class||'').trim();
+  if (onlyClass && c !== onlyClass) return;
+  (byCls[c] = byCls[c] || []).push(s);
+ });
+ const classes = order.filter(c => byCls[c]).concat(Object.keys(byCls).filter(c => !order.includes(c)).sort());
+ if (!classes.length) { alert('No students found for that class.'); return; }
+ const n = v => Math.round(Number(v)||0);
+ const inr = v => n(v).toLocaleString('en-IN');
+ const showSR = canSeeSRNumber();
+ let gTotal=0, gPaid=0, gDue=0, gCount=0;
+ const sections = classes.map(c => {
+  const list = byCls[c].slice().sort((a,b) => (Number(a.rollNo)||9999)-(Number(b.rollNo)||9999) || String(a.name||'').localeCompare(String(b.name||'')));
+  let tTotal=0, tPaid=0, tDue=0;
+  const rows = list.map((s,i) => {
+   const fee = n(s.decidedFees), due = n(s.feeBalance), paid = Math.max(0, fee-due);
+   tTotal+=fee; tDue+=due; tPaid+=paid;
+   return `<tr>
+     <td class="c">${i+1}</td>
+     ${showSR?`<td class="c">${escapeHTML(s.registrationNo||'')}</td>`:''}
+     <td>${escapeHTML(s.name||'')}</td>
+     <td>${escapeHTML(s.fatherName||s.motherName||s.parentName||'')}</td>
+     <td class="c">${escapeHTML(String(s.rollNo||''))}</td>
+     <td class="r">${fee?inr(fee):'<span class="muted">not set</span>'}</td>
+     <td class="r">${inr(paid)}</td>
+     <td class="r ${due>0?'due':''}">${inr(due)}</td>
+     <td class="sig"></td>
+    </tr>`;
+  }).join('');
+  gTotal+=tTotal; gPaid+=tPaid; gDue+=tDue; gCount+=list.length;
+  const cols = showSR?9:8;
+  return `<div class="clsblock">
+    <div class="clshead">${/^\d+$/.test(c)?'Class '+c:c} <span class="cnt">(${list.length} student${list.length===1?'':'s'})</span></div>
+    <table>
+     <thead><tr><th class="c">#</th>${showSR?'<th class="c">SR No</th>':''}<th>Student Name</th><th>Father / Parent</th><th class="c">Roll</th><th class="r">Composite Fee</th><th class="r">Paid</th><th class="r">Unpaid</th><th class="sig">Remarks</th></tr></thead>
+     <tbody>${rows}</tbody>
+     <tfoot><tr><td class="r" colspan="${showSR?5:4}"><b>Class total</b></td><td class="r"><b>${inr(tTotal)}</b></td><td class="r"><b>${inr(tPaid)}</b></td><td class="r"><b>${inr(tDue)}</b></td><td></td></tr></tfoot>
+    </table>
+   </div>`;
+ }).join('');
+ const title = onlyClass ? ((/^\d+$/.test(onlyClass)?'Class '+onlyClass:onlyClass)+' — Fee Register') : 'Fee Register — All Classes';
+ const today = new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
+ const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${escapeHTML(title)}</title><style>
+  @page{size:A4;margin:10mm}
+  *{box-sizing:border-box}
+  body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;font-size:11px}
+  .head{text-align:center;border-bottom:2px solid #7a1e2e;padding-bottom:6px;margin-bottom:10px}
+  .sch{font-size:17px;font-weight:bold;color:#7a1e2e}
+  .addr{font-size:10px;color:#444}
+  .ttl{font-size:13px;font-weight:bold;margin-top:4px}
+  .meta{font-size:10px;color:#555;display:flex;justify-content:space-between;margin-bottom:8px}
+  .clsblock{margin-bottom:14px;page-break-inside:auto}
+  .clshead{font-size:12px;font-weight:bold;background:#f3ece7;border-left:4px solid #7a1e2e;padding:4px 8px;margin-bottom:3px}
+  .cnt{font-weight:normal;color:#666;font-size:10px}
+  table{width:100%;border-collapse:collapse}
+  th,td{border:1px solid #bbb;padding:3px 5px;font-size:10.5px}
+  th{background:#efefef;font-weight:bold}
+  td.c,th.c{text-align:center}
+  td.r,th.r{text-align:right}
+  td.sig,th.sig{width:70px}
+  td.due{color:#b3261e;font-weight:bold}
+  .muted{color:#999}
+  tfoot td{background:#fafafa}
+  .grand{margin-top:12px;border:2px solid #7a1e2e;padding:8px}
+  .grand table{width:100%}.grand td{border:none;font-size:12px;padding:2px 6px}
+  .foot{margin-top:22px;display:flex;justify-content:space-between;font-size:10px}
+  .noprint{text-align:center;margin:10px 0}
+  button{padding:8px 18px;font-size:14px;cursor:pointer;border-radius:6px;border:none;background:#7a1e2e;color:#fff}
+  @media print{.noprint{display:none}}
+ </style></head><body>
+ <div class="noprint"><button onclick="window.print()">Print / Save as PDF</button></div>
+ <div class="head">
+  <div class="sch">${escapeHTML((SCHOOL_INFO.name||'').toUpperCase())}</div>
+  <div class="addr">${escapeHTML([SCHOOL_INFO.addressLine1,SCHOOL_INFO.addressLine2].filter(Boolean).join(', '))}</div>
+  <div class="ttl">${escapeHTML(title)}</div>
+ </div>
+ <div class="meta"><div>Session: ${escapeHTML(currentSession())}</div><div>Printed: ${today}</div></div>
+ ${sections}
+ <div class="grand"><table><tr>
+   <td><b>GRAND TOTAL</b> &nbsp; ${gCount} student${gCount===1?'':'s'}</td>
+   <td class="r">Expected: <b>Rs.${inr(gTotal)}</b></td>
+   <td class="r">Paid: <b>Rs.${inr(gPaid)}</b></td>
+   <td class="r">Unpaid: <b style="color:#b3261e">Rs.${inr(gDue)}</b></td>
+   <td class="r">Collected: <b>${gTotal>0?Math.round(gPaid*100/gTotal):0}%</b></td>
+  </tr></table></div>
+ <div class="foot"><div>Checked by _____________________</div><div>Accountant _____________________</div><div>Principal _____________________</div></div>
+ </body></html>`;
+ const w = window.open('', '_blank');
+ if (!w) { alert('Please allow pop-ups to print the fee register.'); return; }
+ w.document.write(html); w.document.close();
+}
 function _attachFeeDashboardEvents(){
+ document.getElementById('feeRegPrintBtn')?.addEventListener('click', () => {
+  printFeeRegister(document.getElementById('feeRegClass')?.value || '');
+ });
  document.getElementById('feeDashExportBtn')?.addEventListener('click', () => {
   const { rows, tot } = _feeDashboardData();
   let csv = 'Class,Total Expected,Paid,Unpaid,Collection %,Students\n';
