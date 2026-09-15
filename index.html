@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1789484876 - Faculty Gap Analysis: class x subject matrix of who teaches what (from assignments plus actual homework/marks activity), coverage %, gaps grouped by class and by subject, teacher load, staff records needing fixes - on Owner and Principal, printable landscape and exportable to XLSX -->
+<!-- BUILD: v-1789485697 - financial model added-staff lines now take a headcount multiplier (3 x Rs.8000), their own months-per-year, and a separate months figure for the joining year so late starters are costed correctly -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -10821,24 +10821,38 @@ function _finModelAutofill(){
   growth: Array.from({length:years}, (_,i)=> growthDefault[i] || {student:5,fee:5}) };
 }
 function _finBaseMonthly(m){ return (Number(m.teachingSalary)||0) + (Number(m.nonTeachingSalary)||0); }
-// Monthly cost of additional hires in a given year. y = 0 means "now" (the baseline),
-// 1..N are the projection years. A hire counts only once their start year has arrived,
-// and then rises with the annual increment from that point.
-function _finAddedMonthly(m, y){
+// Months paid to an added-staff line in a given year. Each line can carry its own
+// months-per-year, and a different figure for its joining year (someone starting in
+// October is only paid for part of that year).
+function _finStaffMonths(m, st, y){
+ const start = Math.max(0, Math.round(Number(st.startYear)||0));
+ const regular = (st.months !== undefined && st.months !== null && st.months !== '')
+   ? Number(st.months) : (Number(m.monthsPaid)||11);
+ const first = (st.firstYearMonths !== undefined && st.firstYearMonths !== null && st.firstYearMonths !== '')
+   ? Number(st.firstYearMonths) : regular;
+ return (y === start) ? first : regular;
+}
+function _finStaffCount(st){ return Math.max(1, Math.round(Number(st.count)||1)); }
+// ANNUAL cost of all additional hires in a given year. y = 0 is "now" (the baseline),
+// 1..N are the projection years. A line counts only once its start year has arrived, and
+// its salary then rises with the annual increment from that point.
+function _finAddedAnnual(m, y){
  const inc = (Number(m.salaryIncrement)||0)/100;
  return (m.addedStaff||[]).reduce((a, st) => {
   const start = Math.max(0, Math.round(Number(st.startYear)||0));
   if (start > y) return a;                       // not hired yet in this year
-  return a + (Number(st.monthly)||0) * Math.pow(1+inc, y-start);
+  const monthly = (Number(st.monthly)||0) * Math.pow(1+inc, y-start);
+  return a + _finStaffCount(st) * monthly * _finStaffMonths(m, st, y);
  }, 0);
 }
-// Headcount of additional hires active in year y, split by type (for the summary line).
+// Headcount of additional hires active in year y (counts the multiplier), optionally by type.
 function _finAddedCount(m, y, type){
- return (m.addedStaff||[]).filter(st => {
+ return (m.addedStaff||[]).reduce((a, st) => {
   const start = Math.max(0, Math.round(Number(st.startYear)||0));
-  if (start > y) return false;
-  return type ? ((st.type||'Teaching') === type) : true;
- }).length;
+  if (start > y) return a;
+  if (type && ((st.type||'Teaching') !== type)) return a;
+  return a + _finStaffCount(st);
+ }, 0);
 }
 function _finBaseTransport(m){ return (Number(m.fuel)||0)+(Number(m.maintenance)||0)+(Number(m.permits)||0)+(Number(m.transportMisc)||0); }
 function _finYearCalc(m, students, avgFee, bookFee, y, infFactor){
@@ -10847,8 +10861,7 @@ function _finYearCalc(m, students, avgFee, bookFee, y, infFactor){
  const tuition=rs*avgFee*coll, books=rs*bookFee;
  const revenue=tuition+books;
  const salFactor=Math.pow(1+(Number(m.salaryIncrement)||0)/100, y);
- const monthly=_finBaseMonthly(m)*salFactor + _finAddedMonthly(m, y);
- const salary=monthly*(Number(m.monthsPaid)||11);
+ const salary=_finBaseMonthly(m)*salFactor*(Number(m.monthsPaid)||11) + _finAddedAnnual(m, y);
  const transport=_finBaseTransport(m)*infFactor;
  const schoolMaint=(Number(m.schoolMaintenance)||0)*infFactor;
  const expenses=(Number(m.expenses)||0)*infFactor;
@@ -11030,25 +11043,39 @@ function renderFinancialModel(){
    for (let y=1; y<=(Math.round(m.years)||1); y++) o += `<option value="${y}" ${Number(sel)===y?'selected':''}>Yr ${y}</option>`;
    return o;
   };
- const staffRows=(m.addedStaff||[]).map((s,i)=>`<div class="flex gap-1 items-center">
-    <input type="text" value="${(s.label||'').replace(/"/g,'&quot;')}" placeholder="Name / role" class="finStaffLabel border rounded px-2 py-1 text-xs" style="flex:1;min-width:70px" data-i="${i}">
-    <select class="finStaffType border rounded px-1 py-1 text-xs" style="width:auto" data-i="${i}" title="Staff type">
-     ${STAFF_TYPES.map(v=>`<option value="${v}" ${((s.type||'Teaching')===v)?'selected':''}>${v==='Non-Teaching'?'Non-Teach':v}</option>`).join('')}
-    </select>
-    <input type="number" value="${s.monthly||0}" placeholder="₹/mo" class="finStaffSal border rounded px-1 py-1 text-xs" style="width:70px" data-i="${i}" title="Monthly salary">
-    <select class="finStaffYear border rounded px-1 py-1 text-xs" style="width:auto" data-i="${i}" title="Joins from">${yrOpts(s.startYear||0)}</select>
-    <button class="finStaffDel text-rose-500 hover:text-rose-700 px-1" data-i="${i}" title="Remove"><i class="fas fa-times"></i></button>
-   </div>`).join('');
+ const staffRows=(m.addedStaff||[]).map((s,i)=>{
+   const cnt=_finStaffCount(s), mo=(s.months!==undefined&&s.months!==null&&s.months!=='')?Number(s.months):(Number(m.monthsPaid)||11);
+   const fy=(s.firstYearMonths!==undefined&&s.firstYearMonths!==null&&s.firstYearMonths!=='')?Number(s.firstYearMonths):mo;
+   const annual=cnt*(Number(s.monthly)||0)*mo;
+   return `<div class="border rounded p-1.5 mb-1 bg-gray-50">
+    <div class="flex gap-1 items-center">
+     <input type="text" value="${(s.label||'').replace(/"/g,'&quot;')}" placeholder="Name / role" class="finStaffLabel border rounded px-2 py-1 text-xs" style="flex:1;min-width:60px" data-i="${i}">
+     <select class="finStaffType border rounded px-1 py-1 text-xs" style="width:auto" data-i="${i}" title="Staff type">
+      ${STAFF_TYPES.map(v=>`<option value="${v}" ${((s.type||'Teaching')===v)?'selected':''}>${v==='Non-Teaching'?'Non-Teach':v}</option>`).join('')}
+     </select>
+     <button class="finStaffDel text-rose-500 hover:text-rose-700 px-1" data-i="${i}" title="Remove"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="flex gap-1 items-center mt-1 flex-wrap">
+     <label class="text-[10px] text-gray-500">How many<input type="number" min="1" value="${cnt}" class="finStaffCount border rounded px-1 py-0.5 text-xs ml-1" style="width:46px" data-i="${i}" title="Number of staff on this line"></label>
+     <span class="text-[10px] text-gray-400">×</span>
+     <label class="text-[10px] text-gray-500">₹/mo each<input type="number" value="${s.monthly||0}" class="finStaffSal border rounded px-1 py-0.5 text-xs ml-1" style="width:70px" data-i="${i}"></label>
+     <label class="text-[10px] text-gray-500">joins<select class="finStaffYear border rounded px-1 py-0.5 text-xs ml-1" style="width:auto" data-i="${i}">${yrOpts(s.startYear||0)}</select></label>
+     <label class="text-[10px] text-gray-500">months/yr<input type="number" min="0" max="12" value="${mo}" class="finStaffMonths border rounded px-1 py-0.5 text-xs ml-1" style="width:44px" data-i="${i}" title="Months paid each full year"></label>
+     <label class="text-[10px] text-gray-500">1st yr<input type="number" min="0" max="12" value="${fy}" class="finStaffFirstMonths border rounded px-1 py-0.5 text-xs ml-1" style="width:44px" data-i="${i}" title="Months paid in their joining year (for a late start)"></label>
+     <span class="text-[10px] text-gray-500 ml-auto">= ${_inr(annual)}/yr</span>
+    </div>
+   </div>`;
+  }).join('');
  const salaries=section('Salaries (monthly)',
    `<div class="grid grid-cols-2 gap-2">
      ${_finNum('fmTeach','Teaching staff', m.teachingSalary, {key:'teachingSalary',suffix:'/mo',min:0})}
      ${_finNum('fmNonTeach','Non-teaching staff', m.nonTeachingSalary, {key:'nonTeachingSalary',suffix:'/mo',min:0})}
     </div>
-    <div class="text-xs text-gray-600 mt-1">Additional staff — set <b>when</b> each one joins ("Now", or from a future year):</div>
+    <div class="text-xs text-gray-600 mt-1">Additional staff — how many, when they join, and how many months they are paid:</div>
     <div id="finStaffList" class="space-y-1">${staffRows||'<div class="text-xs text-gray-400">none added</div>'}</div>
     <button id="fmAddStaffBtn" class="text-xs text-indigo-600 hover:text-indigo-800 font-medium"><i class="fas fa-plus mr-1"></i>Add staff salary</button>
     <div class="grid grid-cols-2 gap-2 mt-1">${_finNum('fmMonths','Months paid/year', m.monthsPaid, {key:'monthsPaid',min:1})}${_finNum('fmSalInc','Annual increment', m.salaryIncrement, {key:'salaryIncrement',suffix:'%/yr',step:'0.5'})}</div>
-    <div class="text-[11px] text-gray-500">Salary bill now: <b>${_inr(baseMonthly + _finAddedMonthly(m,0))}/mo</b> → ${_inr((baseMonthly + _finAddedMonthly(m,0))*(m.monthsPaid||11))}/yr${(()=>{
+    <div class="text-[11px] text-gray-500">Salary bill now: <b>${_inr(baseMonthly*(m.monthsPaid||11) + _finAddedAnnual(m,0))}/yr</b> (base ${_inr(baseMonthly)}/mo × ${m.monthsPaid||11} months + additional staff)${(()=>{
       const later=(m.addedStaff||[]).filter(x=>Math.round(Number(x.startYear)||0)>0);
       return later.length?`<br>${later.length} hire${later.length===1?'':'s'} scheduled for later years (not in today's cost)`:'';
      })()}</div>`);
@@ -11106,8 +11133,11 @@ function _attachFinancialModelEvents(){
  document.querySelectorAll('.finStaffSal').forEach(inp=>inp.addEventListener('input',()=>{ let v=parseFloat(inp.value); if(isNaN(v))v=0; finModel.addedStaff[+inp.dataset.i].monthly=v; _finRecalc(); }));
  document.querySelectorAll('.finStaffType').forEach(sel=>sel.addEventListener('change',()=>{ finModel.addedStaff[+sel.dataset.i].type=sel.value; _finRecalc(); }));
  document.querySelectorAll('.finStaffYear').forEach(sel=>sel.addEventListener('change',()=>{ finModel.addedStaff[+sel.dataset.i].startYear=parseInt(sel.value)||0; _finRerender(); }));
+ document.querySelectorAll('.finStaffCount').forEach(inp=>inp.addEventListener('input',()=>{ let v=parseInt(inp.value); if(isNaN(v)||v<1)v=1; finModel.addedStaff[+inp.dataset.i].count=v; _finRerender(); }));
+ document.querySelectorAll('.finStaffMonths').forEach(inp=>inp.addEventListener('input',()=>{ let v=parseFloat(inp.value); if(isNaN(v)||v<0)v=0; if(v>12)v=12; finModel.addedStaff[+inp.dataset.i].months=v; _finRerender(); }));
+ document.querySelectorAll('.finStaffFirstMonths').forEach(inp=>inp.addEventListener('input',()=>{ let v=parseFloat(inp.value); if(isNaN(v)||v<0)v=0; if(v>12)v=12; finModel.addedStaff[+inp.dataset.i].firstYearMonths=v; _finRerender(); }));
  document.querySelectorAll('.finStaffDel').forEach(b=>b.addEventListener('click',()=>{ finModel.addedStaff.splice(+b.dataset.i,1); _finRerender(); }));
- document.getElementById('fmAddStaffBtn')?.addEventListener('click',()=>{ (finModel.addedStaff=finModel.addedStaff||[]).push({label:'',monthly:0,type:'Teaching',startYear:0}); _finRerender(); });
+ document.getElementById('fmAddStaffBtn')?.addEventListener('click',()=>{ (finModel.addedStaff=finModel.addedStaff||[]).push({label:'',monthly:0,type:'Teaching',startYear:0,count:1}); _finRerender(); });
  document.getElementById('fmResetBtn')?.addEventListener('click',()=>{ finModel=_finModelAutofill(); _finRerender(); });
  document.getElementById('fmExportBtn')?.addEventListener('click',()=>{
   const {current,rows,be}=_finCompute(finModel);
@@ -11194,62 +11224,86 @@ function renderFeeDashboard(){
 // Printable class-wise fee register: every student with decided fee, paid and unpaid,
 // with per-class subtotals and a grand total. Meant for checking against the hard-copy register.
 // ===== FACULTY GAP ANALYSIS =====
-// Builds a class x subject matrix showing who covers what, and where nobody does.
-// "Required" subjects come from the exam datesheet (CLASS_SUBJECTS).
-// A teacher covers a class-subject when their subject matches AND the class is assigned to them.
-// Actual teaching activity (homework posted, marks entered) is used as a second signal, so a
-// subject someone is really teaching shows up even if their profile subject was never set.
-function _normSub(x){ return String(x||'').trim().toLowerCase(); }
+// Coverage is taken ONLY from current staff records (subject + assigned classes).
+// Nothing is inferred from homework or marks: a teacher counts for a subject only if it is
+// listed on their staff profile, so departed staff and one-off cover never appear.
+const MOTHER_TEACHER_CLASSES = ['Pre Nursery','Nursery','LKG','UKG','1','2'];
+// Short forms used on staff records mapped to the subject names in the datesheet.
+const SUBJECT_ALIASES = {
+ 'math':'Mathematics','maths':'Mathematics','mathematics':'Mathematics',
+ 'sci':'Science','science':'Science','evs':'EVS','e.v.s':'EVS',
+ 'bio':'Biology','biology':'Biology','phy':'Physics','physics':'Physics',
+ 'chem':'Chemistry','chemistry':'Chemistry',
+ 'phy.edu':'Physical Education','phy edu':'Physical Education','physical education':'Physical Education','p.ed':'Physical Education','pe':'Physical Education',
+ 'sst':'Social Science','social science':'Social Science','social studies':'Social Science','socialscience':'Social Science',
+ 'comp':'Computer','computer':'Computer','it':'Computer','computer science':'Computer',
+ 'eng':'English','english':'English','hindi':'Hindi','sanskrit':'Sanskrit',
+ 'gk':'General Knowledge','general knowledge':'General Knowledge','reasoning':'Reasoning',
+ 'draw':'Drawing','drawing':'Drawing','art':'Fine Arts','arts':'Fine Arts','fine arts':'Fine Arts',
+ 'eco':'Economics','economics':'Economics','geo':'Geography','geography':'Geography',
+ 'history':'History','pol sci':'Political Science','politics':'Political Science','political science':'Political Science'
+};
+function _normSub(x){ return String(x||'').trim().toLowerCase().replace(/\s+/g,' '); }
+function _canonSubject(raw){
+ const k = _normSub(raw);
+ if (!k) return '';
+ if (SUBJECT_ALIASES[k]) return SUBJECT_ALIASES[k];
+ const hit = Object.keys(SUBJECT_ALIASES).find(a => a === k.replace(/[.\s]/g,''));
+ return hit ? SUBJECT_ALIASES[hit] : String(raw).trim();
+}
+// A staff member may hold several subjects, written "Hindi,Sanskrit" or "Math / Sci".
+function teacherSubjects(t){
+ const raw = String((t && t.subject) || '').trim();
+ if (!raw) return [];
+ if (/^(mother\s*teacher|all\s*subjects?)$/i.test(raw)) return ['*ALL*'];
+ return raw.split(/[,/;]+/).map(x => _canonSubject(x)).filter(Boolean);
+}
+function isMotherTeacherClass(cls){ return MOTHER_TEACHER_CLASSES.includes(String(cls).trim()); }
+function teacherLabel(t){
+ const q = String(t.qualification || '').trim();
+ return t.name + (q ? ' (' + q + ')' : '');
+}
 function facultyGapData(){
- const staff = getActiveTeachers().filter(t => isAcademicStaff(t));
- const classes = ALL_CLASSES.filter(c => CLASS_SUBJECTS[c]);
- // activity: class|subject -> Set of teacher names
- const activity = {};
- const noteAct = (cls, sub, who) => {
-  if (!cls || !sub || !who) return;
-  const k = String(cls).trim() + '|' + _normSub(sub);
-  (activity[k] = activity[k] || new Set()).add(who);
- };
- (getHomeworks()||[]).forEach(h => noteAct(h.className, h.subject, h.teacher));
- const studentsById = {};
- getStudents().forEach(s => studentsById[s.id] = s);
- (getExamMarks()||[]).forEach(m => {
-  const st = studentsById[m.studentId];
-  if (st) noteAct(st.class, m.subject, m.teacher || '');
- });
- const cells = {};       // "class|subject" -> {assigned:[names], active:[names]}
+ const staff = getActiveTeachers().filter(t => isAcademicStaff(t));   // current staff only
+ const allClasses = ALL_CLASSES.filter(c => CLASS_SUBJECTS[c]);
+ // Gap analysis covers Class 3 upward. Below that a mother teacher takes every subject.
+ const classes = allClasses.filter(c => !isMotherTeacherClass(c));
+ const holds = (t, cls) => Array.isArray(t.assignedClasses) && t.assignedClasses.map(String).includes(String(cls));
+ const cells = {};
  let required = 0, covered = 0;
- const gaps = [];
- const load = {};        // teacher name -> number of class-subject slots
+ const gaps = [], load = {};
  classes.forEach(cls => {
   subjectsForClass(cls).forEach(sub => {
    required++;
-   const assigned = staff.filter(t =>
-     _normSub(t.subject) === _normSub(sub) &&
-     Array.isArray(t.assignedClasses) && t.assignedClasses.map(String).includes(String(cls)));
-   const act = Array.from(activity[String(cls)+'|'+_normSub(sub)] || []);
-   const names = assigned.map(t => t.name);
-   act.forEach(a => { if (a && !names.includes(a)) names.push(a); });
-   if (names.length) { covered++; names.forEach(nm => { load[nm] = (load[nm]||0)+1; }); }
+   const who = staff.filter(t => {
+    if (!holds(t, cls)) return false;
+    const subs = teacherSubjects(t);
+    return subs.includes('*ALL*') || subs.includes(sub);
+   });
+   if (who.length) { covered++; who.forEach(t => { load[t.name] = (load[t.name]||0)+1; }); }
    else gaps.push({ cls, sub });
-   cells[cls+'|'+sub] = { assigned: assigned.map(t=>t.name), active: act, names };
+   cells[cls+'|'+sub] = who;
   });
  });
- // Staff-level observations
- const noClass = staff.filter(t => !Array.isArray(t.assignedClasses) || !t.assignedClasses.length).map(t=>t.name);
- const noSubject = staff.filter(t => !String(t.subject||'').trim()).map(t=>t.name);
- const unused = staff.filter(t => !load[t.name]).map(t=>t.name);
- // Subjects nobody covers anywhere
+ // Mother-teacher classes: simply report who holds each one.
+ const motherClasses = allClasses.filter(isMotherTeacherClass).map(cls => ({
+   cls, teachers: staff.filter(t => holds(t, cls))
+ }));
+ const noClass   = staff.filter(t => !Array.isArray(t.assignedClasses) || !t.assignedClasses.length);
+ const noSubject = staff.filter(t => !teacherSubjects(t).length);
+ // Subjects listed on a profile that aren't in any datesheet scheme (likely a typo/short form)
+ const knownSubs = new Set(allClasses.flatMap(c => subjectsForClass(c)));
+ const unknownSubs = [];
+ staff.forEach(t => teacherSubjects(t).forEach(sb => {
+   if (sb !== '*ALL*' && !knownSubs.has(sb) && !unknownSubs.some(u => u.sub === sb)) unknownSubs.push({ name: t.name, sub: sb });
+ }));
  const allSubs = Array.from(new Set(classes.flatMap(c => subjectsForClass(c))));
- const orphanSubjects = allSubs.filter(sub =>
-   !staff.some(t => _normSub(t.subject) === _normSub(sub)) &&
-   !Object.keys(activity).some(k => k.split('|')[1] === _normSub(sub)));
- // Gaps grouped by class and by subject, biggest first
+ const orphanSubjects = allSubs.filter(sub => !staff.some(t => teacherSubjects(t).includes(sub)));
  const byClass = {}, bySubject = {};
  gaps.forEach(g => { (byClass[g.cls]=byClass[g.cls]||[]).push(g.sub); (bySubject[g.sub]=bySubject[g.sub]||[]).push(g.cls); });
- return { staff, classes, allSubs, cells, required, covered,
+ return { staff, classes, allClasses, motherClasses, allSubs, cells, required, covered,
    coveragePct: required ? Math.round(covered*100/required) : 0,
-   gaps, byClass, bySubject, load, noClass, noSubject, unused, orphanSubjects };
+   gaps, byClass, bySubject, load, noClass, noSubject, unknownSubs, orphanSubjects };
 }
 function renderFacultyGap(){
  const d = facultyGapData();
@@ -11258,10 +11312,9 @@ function renderFacultyGap(){
  const cellHTML = (cls, sub) => {
   const c = d.cells[cls+'|'+sub];
   if (!c) return `<td class="px-1 py-1 text-center text-gray-200">·</td>`;
-  if (!c.names.length) return `<td class="px-1 py-1 text-center bg-rose-50 text-rose-600 font-semibold" title="No teacher for ${escapeHTML(sub)} in ${escapeHTML(cls)}">GAP</td>`;
-  const inferred = !c.assigned.length;
-  return `<td class="px-1 py-1 text-center ${inferred?'bg-amber-50':'bg-emerald-50'}" title="${escapeHTML(c.names.join(', '))}${inferred?' (from activity, not formally assigned)':''}">
-    <span class="text-[10px] ${inferred?'text-amber-800':'text-emerald-800'}">${escapeHTML(c.names.map(n=>n.split(' ')[0]).join(', '))}</span></td>`;
+  if (!c.length) return `<td class="px-1 py-1 text-center bg-rose-50 text-rose-600 font-semibold" title="No teacher for ${escapeHTML(sub)} in ${escapeHTML(cls)}">GAP</td>`;
+  return `<td class="px-1 py-1 text-center bg-emerald-50" title="${escapeHTML(c.map(teacherLabel).join(', '))}">
+    <span class="text-[10px] text-emerald-900">${c.map(t=>`${escapeHTML(t.name.split(' ')[0])}${t.qualification?`<span class="text-emerald-700"> (${escapeHTML(t.qualification)})</span>`:''}`).join('<br>')}</span></td>`;
  };
  const matrix = `<div class="bg-white rounded-xl border overflow-hidden"><div class="overflow-x-auto">
    <table class="text-xs w-full"><thead class="bg-gray-50"><tr>
@@ -11274,10 +11327,10 @@ function renderFacultyGap(){
     </tr>`).join('')}
    </tbody></table></div>
    <div class="px-3 py-2 text-[11px] text-gray-500 border-t">
-    <span class="inline-block w-3 h-3 align-middle bg-emerald-50 border"></span> assigned teacher &nbsp;
-    <span class="inline-block w-3 h-3 align-middle bg-amber-50 border"></span> teaching it, but not formally assigned &nbsp;
-    <span class="inline-block w-3 h-3 align-middle bg-rose-50 border"></span> no one &nbsp;
-    <span class="text-gray-400">–</span> not in that class's scheme
+    <span class="inline-block w-3 h-3 align-middle bg-emerald-50 border"></span> teacher assigned (qualification in brackets) &nbsp;
+    <span class="inline-block w-3 h-3 align-middle bg-rose-50 border"></span> no one assigned &nbsp;
+    <span class="text-gray-400">–</span> not in that class's scheme &nbsp;
+    · Classes Pre Nursery–2 are excluded: a mother teacher takes every subject there.
    </div></div>`;
  const listBox = (title, items, empty, color) => `<div class="bg-white rounded-xl border p-3">
    <div class="text-sm font-bold mb-1" style="color:${color}">${title}</div>
@@ -11287,15 +11340,20 @@ function renderFacultyGap(){
  const gapBySubject = Object.keys(d.bySubject).sort((a,b)=>d.bySubject[b].length-d.bySubject[a].length)
    .map(s2=>`<b>${escapeHTML(s2)}</b> — uncovered in ${d.bySubject[s2].length} class${d.bySubject[s2].length===1?'':'es'}: ${escapeHTML(d.bySubject[s2].join(', '))}`);
  const loadList = Object.keys(d.load).sort((a,b)=>d.load[b]-d.load[a])
-   .map(n=>`${escapeHTML(n)} — ${d.load[n]} class-subject slot${d.load[n]===1?'':'s'}`);
+   .map(n=>{ const t=d.staff.find(x=>x.name===n); return `${escapeHTML(teacherLabel(t||{name:n}))} — ${d.load[n]} class-subject slot${d.load[n]===1?'':'s'}`; });
+ const motherPanel = `<div class="bg-white rounded-xl border p-3">
+   <div class="text-sm font-bold mb-1 text-purple-700">Mother teachers (Pre Nursery – Class 2)</div>
+   <div class="text-[11px] text-gray-500 mb-1">One teacher takes every subject in these classes, so they are not part of the gap count.</div>
+   <ul class="text-xs space-y-0.5">${d.motherClasses.map(mc=>`<li>• <b>${/^\d+$/.test(mc.cls)?'Class '+mc.cls:escapeHTML(mc.cls)}</b> — ${mc.teachers.length?escapeHTML(mc.teachers.map(teacherLabel).join(', ')):'<span class="text-rose-600">no teacher assigned</span>'}</li>`).join('')}</ul>
+  </div>`;
  return `<div class="space-y-3">
    <div><h2 class="text-lg font-bold"><i class="fas fa-table-cells text-indigo-600 mr-2"></i>Faculty Gap Analysis</h2>
-    <p class="text-sm text-gray-600">Which teacher covers each subject in each class, and where you need to hire or reassign. Required subjects come from the exam datesheet.</p></div>
+    <p class="text-sm text-gray-600">Which teacher covers each subject from <b>Class 3 to Class 12</b>, and where you are short. Subjects come from the exam datesheet; coverage comes only from current staff records.</p></div>
    <div class="grid grid-cols-2 lg:grid-cols-4 gap-2">
-    ${card('Subject Slots', d.required, 'across '+d.classes.length+' classes', '#7a1e2e')}
+    ${card('Subject Slots', d.required, 'Classes 3–12 ('+d.classes.length+' classes)', '#7a1e2e')}
     ${card('Covered', d.covered, d.coveragePct+'% of slots', '#1f8f4e')}
     ${card('Gaps', d.gaps.length, 'no teacher assigned', d.gaps.length?'#b3261e':'#1f8f4e')}
-    ${card('Academic Staff', d.staff.length, 'teachers + principal', '#4f46e5')}
+    ${card('Academic Staff', d.staff.length, 'current teachers + principal', '#4f46e5')}
    </div>
    <div class="bg-white rounded-xl border p-3"><div class="text-xs text-gray-500 mb-1">Overall coverage</div>
     <div class="bg-gray-100 rounded-full h-2.5 overflow-hidden"><div style="width:${d.coveragePct}%;background:${clr}" class="h-2.5"></div></div>
@@ -11306,16 +11364,18 @@ function renderFacultyGap(){
     ${listBox('Subjects short of teachers', gapBySubject, 'No subject is short.', '#b45309')}
     ${listBox('Teacher load', loadList, 'No teacher is assigned to any class-subject yet.', '#4f46e5')}
     ${listBox('Fix these staff records', [].concat(
-       d.noClass.map(n=>escapeHTML(n)+' — no classes assigned'),
-       d.noSubject.map(n=>escapeHTML(n)+' — no subject set'),
+       d.noClass.map(t=>escapeHTML(teacherLabel(t))+' — no classes assigned'),
+       d.noSubject.map(t=>escapeHTML(teacherLabel(t))+' — no subject set'),
+       d.unknownSubs.map(u=>escapeHTML(u.name)+' — subject "'+escapeHTML(u.sub)+'" is not in any class scheme (check the spelling)'),
        d.orphanSubjects.map(s2=>'No teacher anywhere for <b>'+escapeHTML(s2)+'</b>')
       ), 'All staff records are complete.', '#0d9488')}
    </div>
+   ${motherPanel}
    <div class="flex justify-end gap-2">
     <button id="gapPrintBtn" class="bg-slate-700 hover:bg-slate-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-print mr-1"></i>Print</button>
     <button id="gapXlsBtn" class="bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-file-excel mr-1"></i>XLSX</button>
    </div>
-   <p class="text-xs text-gray-400">A teacher counts as covering a subject when their profile subject matches and the class is assigned to them. Amber cells mean they are actually teaching it (homework/marks recorded) without a formal assignment — worth tidying up in the Staff page.</p>
+   <p class="text-xs text-gray-400">A teacher counts only when the subject is listed on their staff profile and the class is assigned to them. Multiple subjects can be written as "Hindi, Sanskrit". Archived staff and one-off homework cover are never counted.</p>
   </div>`;
 }
 function _gapTableHTML(){
@@ -11324,7 +11384,7 @@ function _gapTableHTML(){
  const rows = d.allSubs.map(sub => [sub].concat(d.classes.map(c => {
    if (!subjectsForClass(c).includes(sub)) return '';
    const cell = d.cells[c+'|'+sub];
-   return (cell && cell.names.length) ? cell.names.join(', ') : 'GAP';
+   return (cell && cell.length) ? cell.map(teacherLabel).join(', ') : 'GAP';
  })));
  return `<table><tr>${head.map(h=>`<th>${escapeHTML(h)}</th>`).join('')}</tr>
    ${rows.map(r=>`<tr>${r.map(v=>`<td>${escapeHTML(v)}</td>`).join('')}</tr>`).join('')}
@@ -11348,19 +11408,26 @@ function printFacultyGap(){
   @media print{.noprint{display:none}}</style></head><body>
   <div class="noprint"><button onclick="window.print()">Print / Save as PDF</button></div>
   <div class="head"><div class="sch">${escapeHTML((SCHOOL_INFO.name||'').toUpperCase())}</div>
-   <div class="ttl">Faculty Gap Analysis — ${escapeHTML(currentSession())}</div>
+   <div class="ttl">Faculty Gap Analysis (Classes 3–12) — ${escapeHTML(currentSession())}</div>
    <div style="font-size:9px">Coverage ${d.covered}/${d.required} slots (${d.coveragePct}%) · ${d.gaps.length} gap(s) · Printed ${today}</div></div>
   <table><tr><th style="text-align:left">Subject</th>${d.classes.map(c=>`<th>${/^\d+$/.test(c)?c:escapeHTML(c)}</th>`).join('')}</tr>
    ${d.allSubs.map(sub=>`<tr><td class="sub">${escapeHTML(sub)}</td>${d.classes.map(c=>{
      if(!subjectsForClass(c).includes(sub)) return '<td style="color:#ddd">–</td>';
      const cell=d.cells[c+'|'+sub];
-     return (cell&&cell.names.length)?`<td>${escapeHTML(cell.names.map(n=>n.split(' ')[0]).join(', '))}</td>`:'<td class="gap">GAP</td>';
+     return (cell&&cell.length)?`<td>${escapeHTML(cell.map(t=>t.name.split(' ')[0]+(t.qualification?' ('+t.qualification+')':'')).join(', '))}</td>`:'<td class="gap">GAP</td>';
     }).join('')}</tr>`).join('')}
   </table>
   <h3>Where teachers are needed</h3>
   <ul>${Object.keys(d.byClass).sort((a,b)=>d.byClass[b].length-d.byClass[a].length).map(c=>`<li><b>${/^\d+$/.test(c)?'Class '+c:escapeHTML(c)}</b>: ${escapeHTML(d.byClass[c].join(', '))}</li>`).join('')||'<li>None — all covered.</li>'}</ul>
   <h3>Records to fix</h3>
-  <ul>${[].concat(d.noClass.map(n=>escapeHTML(n)+' — no classes assigned'),d.noSubject.map(n=>escapeHTML(n)+' — no subject set'),d.orphanSubjects.map(s=>'No teacher anywhere for '+escapeHTML(s))).map(x=>`<li>${x}</li>`).join('')||'<li>All complete.</li>'}</ul>
+  <ul>${[].concat(
+      d.noClass.map(t=>escapeHTML(teacherLabel(t))+' — no classes assigned'),
+      d.noSubject.map(t=>escapeHTML(teacherLabel(t))+' — no subject set'),
+      d.unknownSubs.map(u=>escapeHTML(u.name)+' — subject "'+escapeHTML(u.sub)+'" not in any class scheme'),
+      d.orphanSubjects.map(s=>'No teacher anywhere for '+escapeHTML(s))
+    ).map(x=>`<li>${x}</li>`).join('')||'<li>All complete.</li>'}</ul>
+  <h3>Mother teachers (Pre Nursery – Class 2, all subjects)</h3>
+  <ul>${d.motherClasses.map(mc=>`<li><b>${/^\d+$/.test(mc.cls)?'Class '+mc.cls:escapeHTML(mc.cls)}</b>: ${mc.teachers.length?escapeHTML(mc.teachers.map(teacherLabel).join(', ')):'no teacher assigned'}</li>`).join('')}</ul>
   <div style="margin-top:16px;font-size:9px;display:flex;justify-content:space-between"><div>Prepared by ____________</div><div>Principal ____________</div></div>
  </body></html>`;
  const w = window.open('', '_blank');
