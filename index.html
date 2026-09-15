@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1789482216 - Excel exports alongside every print option: full student details (all KYC fields, class-filtered), full staff records (scope-filtered), and the class-wise fee register with subtotals & grand total; all respect SR/UDISE/salary permissions -->
+<!-- BUILD: v-1789484876 - Faculty Gap Analysis: class x subject matrix of who teaches what (from assignments plus actual homework/marks activity), coverage %, gaps grouped by class and by subject, teacher load, staff records needing fixes - on Owner and Principal, printable landscape and exportable to XLSX -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -2839,6 +2839,28 @@ function getTeachers(){ return DB.getAll('teachers'); }
 // Current staff only — archived (left the school) records are kept for history but excluded
 // from rosters, salary lists, counts and assignment dropdowns.
 function getActiveTeachers(){ return DB.getAll('teachers').filter(t => !t.archived); }
+// The kinds of staff the school employs. Principal and Manager are tracked separately from
+// general teaching/non-teaching so headcounts and reports read correctly.
+const STAFF_TYPES = ['Teaching','Non-Teaching','Principal','Manager'];
+const STAFF_TYPE_LABELS = {'Teaching':'Teaching Staff','Non-Teaching':'Non-Teaching Staff','Principal':'Principal','Manager':'Manager'};
+function staffTypeOf(t){ const v = (t && t.staffType) || 'Teaching'; return STAFF_TYPES.includes(v) ? v : 'Teaching'; }
+// Principal and teachers are the academic side — they can be assigned classes.
+function isAcademicStaff(t){ const v = staffTypeOf(t); return v === 'Teaching' || v === 'Principal'; }
+function staffTypeCounts(list){
+ const c = {}; STAFF_TYPES.forEach(k => c[k] = 0);
+ (list||[]).forEach(t => { c[staffTypeOf(t)]++; });
+ return c;
+}
+// Compact readable breakdown, e.g. "21 teaching · 6 non-teaching · 1 principal"
+function staffCountLabel(list){
+ const c = staffTypeCounts(list);
+ const bits = [];
+ if (c['Teaching']) bits.push(c['Teaching']+' teaching');
+ if (c['Non-Teaching']) bits.push(c['Non-Teaching']+' non-teaching');
+ if (c['Principal']) bits.push(c['Principal']+' principal');
+ if (c['Manager']) bits.push(c['Manager']+(c['Manager']===1?' manager':' managers'));
+ return bits.join(' · ');
+}
 // Everything the school holds on one staff member, for the archive view.
 function staffHistory(teacherId){
  const id = parseInt(teacherId);
@@ -3743,7 +3765,31 @@ function fmtTime(d){return new Date(d).toLocaleTimeString('en-IN',{hour:'2-digit
 function initials(n){return(n||'?').split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase()}
 function daysUntil(d){if(!d)return 1/0;return Math.ceil((new Date(d)-new Date())/(1000*60*60*24))}
 function escapeHTML(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-function downloadExcel(html,name){const b=new Blob([html],{type:'application/vnd.ms-excel'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name+'.xls';a.click();URL.revokeObjectURL(a.href)}
+// Exports a real .xlsx workbook. Callers pass an HTML table (the format used across the app);
+// SheetJS converts it to a genuine spreadsheet, so Excel no longer warns that the extension
+// doesn't match the contents. Falls back to the legacy HTML .xls only if SheetJS is missing.
+function downloadExcel(html, name, sheetName){
+ const fname = String(name || 'export').replace(/[\\/:*?"<>|]/g,'-');
+ try {
+  if (typeof XLSX !== 'undefined' && XLSX.utils && XLSX.utils.table_to_book) {
+   const holder = document.createElement('div');
+   holder.style.display = 'none';
+   holder.innerHTML = html;
+   const table = holder.querySelector('table');
+   if (table) {
+    document.body.appendChild(holder);           // must be in the DOM for table parsing
+    const wb = XLSX.utils.table_to_book(table, { sheet: (sheetName || 'Sheet1').slice(0,31), raw: false });
+    document.body.removeChild(holder);
+    XLSX.writeFile(wb, fname + '.xlsx');
+    return;
+   }
+  }
+ } catch (e) { /* fall through to the legacy path below */ }
+ const b = new Blob([html], {type:'application/vnd.ms-excel'});
+ const a = document.createElement('a');
+ a.href = URL.createObjectURL(b); a.download = fname + '.xls'; a.click();
+ URL.revokeObjectURL(a.href);
+}
 
 // ===== FULL DATA BACKUP & RESTORE =====
 // Dumps every localStorage key (all tables + settings) into a single JSON file the user keeps.
@@ -4062,6 +4108,20 @@ function renderOwnerDashboard(){
   </div>`;
  }
 
+ if (ownerView === 'facultygap') {
+  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+    <div>
+     <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
+     <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-crown text-amber-500 mr-2"></i>${currentUser.role==='managing_director'?'Managing Director':currentUser.role==='trustee'?'Trustee':'Owner'} · Faculty Gap Analysis</h1>
+     <p class="text-gray-600 text-xs">${currentUser.name}</p>
+    </div>
+    <button id="logoutBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
+   </div>
+   ${renderFacultyGap()}
+  </div>`;
+ }
+
  if (ownerView === 'finmodel') {
   return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
@@ -4167,7 +4227,7 @@ function renderOwnerDashboard(){
   <div class="grid grid-cols-2 md:grid-cols-4 gap-4 my-6">
    <div class="bg-white p-4 rounded-xl shadow-sm card-hover border"><i class="fas fa-rupee-sign text-green-600 text-xl"></i><p class="text-xs text-gray-500 mt-2">Outstanding Fees</p><p class="text-2xl font-bold text-gray-900">Rs.${tot.toLocaleString('en-IN')}</p></div>
    <div class="bg-white p-4 rounded-xl shadow-sm card-hover border"><i class="fas fa-user-graduate text-indigo-600 text-xl"></i><p class="text-xs text-gray-500 mt-2">Current Students</p><p class="text-2xl font-bold text-gray-900">${st.length}</p>${(()=>{const a=getStudents().filter(x=>x.archived).length; return a?`<p class="text-[11px] text-gray-500 mt-0.5">${a} archived (TC issued) — not counted above</p>`:'';})()}</div>
-   <div class="bg-white p-4 rounded-xl shadow-sm card-hover border"><i class="fas fa-chalkboard-teacher text-purple-600 text-xl"></i><p class="text-xs text-gray-500 mt-2">Staff</p><p class="text-2xl font-bold text-gray-900">${tc.length}</p>${(() => { const teach=tc.filter(t=>(t.staffType||'Teaching')!=='Non-Teaching').length; const non=tc.length-teach; return `<p class="text-[11px] text-gray-500 mt-0.5">${teach} teaching · ${non} non-teaching</p>`; })()}</div>
+   <div class="bg-white p-4 rounded-xl shadow-sm card-hover border"><i class="fas fa-chalkboard-teacher text-purple-600 text-xl"></i><p class="text-xs text-gray-500 mt-2">Staff</p><p class="text-2xl font-bold text-gray-900">${tc.length}</p><p class="text-[11px] text-gray-500 mt-0.5">${staffCountLabel(tc)}</p></div>
    <div class="bg-white p-4 rounded-xl shadow-sm card-hover border"><i class="fas fa-exclamation-triangle text-orange-500 text-xl"></i><p class="text-xs text-gray-500 mt-2">Open Complaints</p><p class="text-2xl font-bold text-gray-900">${pend}</p></div>
   </div>
   <div class="bg-white rounded-xl shadow-sm p-5 mb-6 border-l-4 border-emerald-500">
@@ -4309,7 +4369,7 @@ var ADMIN_CATEGORIES = [
 ];
 var PRINCIPAL_CATEGORIES = [
  {key:'main',       label:'Dashboard',   icon:'gauge-high',     tabs:['dashboard']},
- {key:'people',     label:'People',      icon:'users',          tabs:['students','teachers','appraisal']},
+ {key:'people',     label:'People',      icon:'users',          tabs:['students','teachers','appraisal','facultygap']},
  {key:'academics',  label:'Academics',   icon:'graduation-cap', tabs:['homework','reportcards','resources','ptm','activities','gallery','calendar']},
  {key:'attendance', label:'Attendance',  icon:'calendar-check', tabs:['studentattendance','staffattendance','attendance']},
  {key:'finance',    label:'Fees',        icon:'chart-column',   tabs:['feedashboard']},
@@ -4426,7 +4486,7 @@ function renderAdminDashboardTab(){
   <h2 class="text-lg font-bold mb-4">At a glance</h2>
   <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
    <div class="bg-indigo-50 p-4 rounded-lg"><div class="text-xs text-indigo-700 font-semibold">CURRENT STUDENTS</div><div class="text-2xl font-bold text-indigo-900">${s.length}</div>${(()=>{const a=getStudents().filter(x=>x.archived).length;return a?`<div class="text-[11px] text-indigo-700/70 mt-0.5">${a} archived separately</div>`:'';})()}</div>
-   <div class="bg-purple-50 p-4 rounded-lg"><div class="text-xs text-purple-700 font-semibold">STAFF</div><div class="text-2xl font-bold text-purple-900">${t.length}</div><div class="text-[11px] text-purple-700/70 mt-0.5">${t.filter(x=>(x.staffType||'Teaching')!=='Non-Teaching').length} teaching · ${t.filter(x=>(x.staffType||'Teaching')==='Non-Teaching').length} non-teaching</div></div>
+   <div class="bg-purple-50 p-4 rounded-lg"><div class="text-xs text-purple-700 font-semibold">STAFF</div><div class="text-2xl font-bold text-purple-900">${t.length}</div><div class="text-[11px] text-purple-700/70 mt-0.5">${staffCountLabel(t)}</div></div>
    <div class="bg-amber-50 p-4 rounded-lg"><div class="text-xs text-amber-700 font-semibold">OPEN COMPLAINTS</div><div class="text-2xl font-bold text-amber-900">${c.filter(x=>x.status==='open').length}</div></div>
    <div class="bg-emerald-50 p-4 rounded-lg"><div class="text-xs text-emerald-700 font-semibold">COMPLIANT</div><div class="text-2xl font-bold text-emerald-900">${comp.filter(x=>x.enabled&&x.status==='compliant').length}/${comp.filter(x=>x.enabled).length}</div></div>
   </div>
@@ -4487,7 +4547,7 @@ function renderStudentsTab(){
     <input type="file" id="bulkImportStudentsFile" class="hidden" accept=".xlsx,.xls,.csv">
     <button id="exportStudentsBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-file-excel mr-1"></i>Export</button>
     <button id="printStudentKycBtn" class="bg-slate-700 hover:bg-slate-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Print full KYC sheets for the selected class (or all)"><i class="fas fa-print mr-1"></i>Print KYC</button>
-    <button id="xlsStudentKycBtn" class="bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Export every detail to Excel for the selected class (or all)"><i class="fas fa-file-excel mr-1"></i>Full Details XLS</button>
+    <button id="xlsStudentKycBtn" class="bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Export every detail to Excel for the selected class (or all)"><i class="fas fa-file-excel mr-1"></i>Full Details XLSX</button>
     <button id="promoteStudentsBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-arrow-up mr-1"></i>Promote</button>
     <button id="assignRollBtn" class="bg-teal-600 hover:bg-teal-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Auto-number roll numbers alphabetically within each class"><i class="fas fa-sort-alpha-down mr-1"></i>Assign Roll Nos</button>
     <button id="viewArchiveBtn" class="bg-gray-600 hover:bg-gray-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="View students who left (TC issued)"><i class="fas fa-box-archive mr-1"></i>Archive${archivedCount?` (${archivedCount})`:''}</button>
@@ -5384,10 +5444,10 @@ function renderTeachersTab(){
  const ts = allStaff.filter(t => !t.archived);
  const archivedStaff = allStaff.filter(t => t.archived);
  const auditLog = getTeacherAuditLog().sort((a,b) => (b.at||'').localeCompare(a.at||''));
- const teaching = ts.filter(t => (t.staffType||'Teaching') === 'Teaching');
- const nonTeaching = ts.filter(t => (t.staffType||'Teaching') === 'Non-Teaching');
+ const byType = {}; STAFF_TYPES.forEach(k => byType[k] = ts.filter(t => staffTypeOf(t) === k));
+ const teaching = byType['Teaching'], nonTeaching = byType['Non-Teaching'];
  const inStaffArchive = (typeof _staffArchiveView !== 'undefined') && _staffArchiveView;
- const staffRow = t => `<tr><td>${t.photo?`<img src="${t.photo}" class="w-9 h-9 rounded-full object-cover" alt="">`:`<div class="w-9 h-9 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold">${initials(t.name)}</div>`}</td><td class="font-medium">${t.name}</td><td>${t.subject||'-'}</td><td class="text-xs">${(t.staffType||'Teaching')==='Teaching'?((Array.isArray(t.assignedClasses)&&t.assignedClasses.length)?t.assignedClasses.join(', '):'<span class="text-amber-600">none</span>'):'<span class="text-gray-300">—</span>'}</td><td>${t.qualification||'-'}</td><td>${t.employeeId || t.udiseTeacherId || '-'}</td><td>${t.trainingDate?fmtDate(t.trainingDate):'-'}</td>${canSeeSalary()?`<td>Rs.${(t.salary||0).toLocaleString('en-IN')}</td>`:''}<td>${t.phone||'-'}</td><td class="whitespace-nowrap"><button class="editTeacherBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${t.id}" title="Edit"><i class="fas fa-edit"></i></button> <button class="staffKycBtn bg-slate-600 hover:bg-slate-700 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Print staff record / KYC"><i class="fas fa-print"></i></button><button class="archiveTeacherBtn bg-amber-500 hover:bg-amber-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Archive (keeps full record & salary history)"><i class="fas fa-box-archive"></i></button>${currentUser&&currentUser.role==='owner'?` <button class="delTeacherBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Delete permanently (Owner only)"><i class="fas fa-trash"></i></button>`:''}</td></tr>`;
+ const staffRow = t => `<tr><td>${t.photo?`<img src="${t.photo}" class="w-9 h-9 rounded-full object-cover" alt="">`:`<div class="w-9 h-9 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold">${initials(t.name)}</div>`}</td><td class="font-medium">${t.name}</td><td>${t.subject||'-'}</td><td class="text-xs">${isAcademicStaff(t)?((Array.isArray(t.assignedClasses)&&t.assignedClasses.length)?t.assignedClasses.join(', '):'<span class="text-amber-600">none</span>'):'<span class="text-gray-300">—</span>'}</td><td>${t.qualification||'-'}</td><td>${t.employeeId || t.udiseTeacherId || '-'}</td><td>${t.trainingDate?fmtDate(t.trainingDate):'-'}</td>${canSeeSalary()?`<td>Rs.${(t.salary||0).toLocaleString('en-IN')}</td>`:''}<td>${t.phone||'-'}</td><td class="whitespace-nowrap"><button class="editTeacherBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${t.id}" title="Edit"><i class="fas fa-edit"></i></button> <button class="staffKycBtn bg-slate-600 hover:bg-slate-700 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Print staff record / KYC"><i class="fas fa-print"></i></button><button class="archiveTeacherBtn bg-amber-500 hover:bg-amber-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Archive (keeps full record & salary history)"><i class="fas fa-box-archive"></i></button>${currentUser&&currentUser.role==='owner'?` <button class="delTeacherBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Delete permanently (Owner only)"><i class="fas fa-trash"></i></button>`:''}</td></tr>`;
  // Archived staff row: shows when they left, why, and their salary history at a glance.
  const archivedRow = t => { const h = staffHistory(t.id); return `<tr class="bg-gray-50">
    <td class="font-medium">${escapeHTML(t.name||'')}</td>
@@ -5407,13 +5467,13 @@ function renderTeachersTab(){
   <div class="flex justify-between items-center mb-4">
    <div>
     <h2 class="text-lg font-bold"><i class="fas fa-users text-purple-600 mr-1"></i>Staff${inStaffArchive?' <span class="text-sm font-normal text-gray-500">— Archive (left the school)</span>':''}</h2>
-    <div class="text-xs text-gray-600 mt-0.5"><span class="pill pill-green">${ts.length} current</span> <span class="text-gray-500 ml-1">${teaching.length} teaching · ${nonTeaching.length} non-teaching</span> <span class="pill pill-gray ml-1">${archivedStaff.length} archived</span></div>
+    <div class="text-xs text-gray-600 mt-0.5"><span class="pill pill-green">${ts.length} current</span> <span class="text-gray-500 ml-1">${staffCountLabel(ts)}</span> <span class="pill pill-gray ml-1">${archivedStaff.length} archived</span></div>
    </div>
    <div class="flex gap-2">
     <button id="staffArchiveToggleBtn" class="bg-gray-600 hover:bg-gray-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Staff who have left — records kept">${inStaffArchive?'<i class="fas fa-arrow-left mr-1"></i>Back to Current Staff':`<i class="fas fa-box-archive mr-1"></i>Archive${archivedStaff.length?` (${archivedStaff.length})`:''}`}</button>
-    <select id="staffKycScope" class="border rounded-lg px-2 py-1.5 text-sm" style="width:auto"><option value="all">All current staff</option><option value="teaching">Teaching only</option><option value="nonteaching">Non-teaching only</option><option value="archived">Archived staff</option></select>
+    <select id="staffKycScope" class="border rounded-lg px-2 py-1.5 text-sm" style="width:auto"><option value="all">All current staff</option><option value="teaching">Teaching only</option><option value="nonteaching">Non-teaching only</option><option value="principal">Principal</option><option value="manager">Manager</option><option value="archived">Archived staff</option></select>
     <button id="printStaffKycBtn" class="bg-slate-700 hover:bg-slate-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Print staff records & KYC"><i class="fas fa-print mr-1"></i>Print Records</button>
-    <button id="xlsStaffBtn" class="bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Export staff records to Excel"><i class="fas fa-file-excel mr-1"></i>XLS</button>
+    <button id="xlsStaffBtn" class="bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Export staff records to Excel"><i class="fas fa-file-excel mr-1"></i>XLSX</button>
     <button id="addTeacherBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-plus mr-1"></i>Add Staff</button>
    </div>
   </div>
@@ -5422,16 +5482,31 @@ function renderTeachersTab(){
     <table class="border text-sm w-full"><thead><tr><th>Name</th><th>Type</th><th>Joined</th><th>Left</th><th>Reason</th>${canSeeSalary()?'<th class="text-right">Last Salary</th><th class="text-right">Payments</th><th class="text-right">Total Paid</th>':''}<th>Actions</th></tr></thead>
     <tbody>${archivedStaff.length?archivedStaff.map(archivedRow).join(''):'<tr><td colspan="${canSeeSalary()?9:6}" class="text-center text-gray-400 py-3">No archived staff</td></tr>'}</tbody></table>
    </div>` : `
-  <div class="overflow-x-auto mb-6">
-   <div class="text-sm font-semibold text-purple-700 mb-1"><i class="fas fa-chalkboard-teacher mr-1"></i>Teaching Staff</div>
-   <table class="border text-sm w-full"><thead><tr><th>Photo</th><th>Name</th><th>Subject</th><th>Classes</th><th>Qualification</th><th>Emp. ID</th><th>Joined</th>${canSeeSalary()?'<th>Salary</th>':''}<th>Phone</th><th>Actions</th></tr></thead>
-   <tbody>${teaching.length?teaching.map(staffRow).join(''):'<tr><td colspan="${canSeeSalary()?10:9}" class="text-center text-gray-400 py-3">No teaching staff added yet</td></tr>'}</tbody></table>
-  </div>
-  <div class="overflow-x-auto mb-6">
-   <div class="text-sm font-semibold text-teal-700 mb-1"><i class="fas fa-user-tie mr-1"></i>Non-Teaching Staff <span class="font-normal text-gray-400">(principal, drivers, guards, office, support)</span></div>
-   <table class="border text-sm w-full"><thead><tr><th>Photo</th><th>Name</th><th>Designation</th><th>—</th><th>Qualification</th><th>Emp. ID</th><th>Joined</th>${canSeeSalary()?'<th>Salary</th>':''}<th>Phone</th><th>Actions</th></tr></thead>
-   <tbody>${nonTeaching.length?nonTeaching.map(staffRow).join(''):'<tr><td colspan="${canSeeSalary()?10:9}" class="text-center text-gray-400 py-3">No non-teaching staff yet. Click "Add Staff" and choose "Non-Teaching Staff" to add drivers, guards, office staff, etc.</td></tr>'}</tbody></table>
-  </div>`}
+  ${(() => {
+   // One table per staff type. Teaching and Non-Teaching always show (so the school can see
+   // they are empty); Principal and Manager appear once someone is assigned that type.
+   const meta = {
+    'Principal':   {icon:'user-tie',            color:'text-rose-700',   note:'head of school'},
+    'Teaching':    {icon:'chalkboard-teacher',  color:'text-purple-700', note:''},
+    'Manager':     {icon:'user-gear',           color:'text-amber-700',  note:'staff attendance, vehicles, maintenance'},
+    'Non-Teaching':{icon:'people-roof',         color:'text-teal-700',   note:'drivers, guards, office, support'}
+   };
+   const order = ['Principal','Teaching','Manager','Non-Teaching'];
+   const cols = canSeeSalary()?10:9;
+   return order.map(k => {
+    const list = byType[k] || [];
+    const alwaysShow = (k === 'Teaching' || k === 'Non-Teaching');
+    if (!list.length && !alwaysShow) return '';
+    const m2 = meta[k];
+    const secondCol = isAcademicStaff({staffType:k}) ? '<th>Subject</th><th>Classes</th>' : '<th>Designation</th><th>—</th>';
+    return `<div class="overflow-x-auto mb-6">
+      <div class="text-sm font-semibold ${m2.color} mb-1"><i class="fas fa-${m2.icon} mr-1"></i>${STAFF_TYPE_LABELS[k]}
+       <span class="font-normal text-gray-400">(${list.length})${m2.note?' · '+m2.note:''}</span></div>
+      <table class="border text-sm w-full"><thead><tr><th>Photo</th><th>Name</th>${secondCol}<th>Qualification</th><th>Emp. ID</th><th>Joined</th>${canSeeSalary()?'<th>Salary</th>':''}<th>Phone</th><th>Actions</th></tr></thead>
+      <tbody>${list.length?list.map(staffRow).join(''):`<tr><td colspan="${cols}" class="text-center text-gray-400 py-3">No ${STAFF_TYPE_LABELS[k].toLowerCase()} added yet</td></tr>`}</tbody></table>
+     </div>`;
+   }).join('');
+  })()}`}
 
   <!-- Teacher Activity Audit Log (admin oversight) -->
   <div class="bg-white border-2 border-purple-200 rounded-lg p-4 mt-6">
@@ -5476,7 +5551,7 @@ function renderTeachersTab(){
    </div>
    <div class="grid grid-cols-2 gap-3">
     <div><label class="text-xs">Name *</label><input id="tchName"></div>
-    <div><label class="text-xs">Staff Type *</label><select id="tchStaffType"><option value="Teaching">Teaching Staff</option><option value="Non-Teaching">Non-Teaching Staff</option></select></div>
+    <div><label class="text-xs">Staff Type *</label><select id="tchStaffType">${STAFF_TYPES.map(v=>`<option value="${v}">${STAFF_TYPE_LABELS[v]}</option>`).join('')}</select></div>
     <div><label class="text-xs" id="tchSubjectLabel">Subject</label><input id="tchSubject" placeholder="e.g. Mathematics"></div>
     <div><label class="text-xs">Qualification</label><input id="tchQual"></div>
     <div><label class="text-xs">Employee ID</label><input id="tchEmpId" placeholder="e.g. MDB-T-001"></div>
@@ -7239,6 +7314,7 @@ const PRINCIPAL_TAB_INFO = {
  students:{label:'Students', icon:'user-graduate', color:'#4f46e5', action:'View Students', desc:'All student records, profiles, fees, SR numbers and Transfer Certificates.'},
  teachers:{label:'Staff', icon:'users', color:'#7c3aed', action:'Manage Staff', desc:'Teaching and non-teaching staff, with archive and full service records.'},
  appraisal:{label:'Teacher Appraisal', icon:'clipboard-user', color:'#0d9488', action:'Open Appraisal', desc:'Review teachers on curriculum completion plus your own assessment.'},
+ facultygap:{label:'Faculty Gap Analysis', icon:'table-cells', color:'#4f46e5', action:'Open Gap Analysis', desc:'Class x subject matrix of who teaches what — and exactly where you are short of teachers.'},
  homework:{label:'Homework', icon:'book-open', color:'#d97706', action:'Review Homework', desc:'See what every teacher has posted, with attachments. Filter by class or teacher.'},
  reportcards:{label:'Report Cards', icon:'file-lines', color:'#7c3aed', action:'Report Cards', desc:'Generate and print term report cards for any class.'},
  resources:{label:'Syllabus & Resources', icon:'book-open-reader', color:'#4f46e5', action:'Open Catalog', desc:'CBSE/NCERT syllabus links and the school\u2019s own resource library.'},
@@ -7278,8 +7354,8 @@ function _principalSectionCards(secKey){
  if (!cat) return '';
  const nStud = getActiveStudents().length;
  const ts = getActiveTeachers();
- const nonT = ts.filter(t => (t.staffType||'Teaching')==='Non-Teaching').length;
- const meta = { students:`${nStud} students enrolled`, teachers:`${ts.length-nonT} teaching · ${nonT} non-teaching` };
+ const staffLabel = staffCountLabel(ts);
+ const meta = { students:`${nStud} students enrolled`, teachers:staffLabel };
  const card = id => { const i = PRINCIPAL_TAB_INFO[id]; if (!i) return '';
   return `<div class="bg-white border-2 rounded-xl p-5 flex flex-col" style="border-color:${i.color}33">
     <h2 class="font-semibold mb-1"><i class="fas fa-${i.icon} mr-2" style="color:${i.color}"></i>${i.label}</h2>
@@ -7295,6 +7371,7 @@ function renderPrincipalPanel(){
   {id:'students',label:'Students',icon:'user-graduate'},
   {id:'teachers',label:'Staff',icon:'users'},
   {id:'appraisal',label:'Teacher Appraisal',icon:'clipboard-user'},
+  {id:'facultygap',label:'Faculty Gap Analysis',icon:'table-cells'},
   {id:'homework',label:'Homework',icon:'book-open'},
   {id:'reportcards',label:'Report Cards',icon:'file-lines'},
   {id:'resources',label:'Syllabus & Resources',icon:'book-open-reader'},
@@ -7351,7 +7428,7 @@ function renderPrincipalTabContent(){
    <h2 class="text-lg font-bold mb-4">Welcome, ${currentUser.name}</h2>
    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
     <div class="bg-indigo-50 p-4 rounded-lg"><div class="text-xs font-semibold text-indigo-700">CURRENT STUDENTS</div><div class="text-2xl font-bold">${s.length}</div>${(()=>{const a=getStudents().filter(x=>x.archived).length;return a?`<div class="text-[11px] text-indigo-700/70 mt-0.5">${a} archived separately</div>`:'';})()}</div>
-    <div class="bg-purple-50 p-4 rounded-lg"><div class="text-xs font-semibold text-purple-700">STAFF</div><div class="text-2xl font-bold">${t.length}</div><div class="text-[11px] text-purple-700/70 mt-0.5">${t.filter(x=>(x.staffType||'Teaching')!=='Non-Teaching').length} teaching · ${t.filter(x=>(x.staffType||'Teaching')==='Non-Teaching').length} non-teaching</div></div>
+    <div class="bg-purple-50 p-4 rounded-lg"><div class="text-xs font-semibold text-purple-700">STAFF</div><div class="text-2xl font-bold">${t.length}</div><div class="text-[11px] text-purple-700/70 mt-0.5">${staffCountLabel(t)}</div></div>
     <div class="bg-amber-50 p-4 rounded-lg"><div class="text-xs font-semibold text-amber-700">EVENTS</div><div class="text-2xl font-bold">${ev.length}</div></div>
     <div class="bg-emerald-50 p-4 rounded-lg"><div class="text-xs font-semibold text-emerald-700">COMPLIANT</div><div class="text-2xl font-bold">${comp.filter(x=>x.enabled&&x.status==='compliant').length}</div></div>
    </div>
@@ -7362,6 +7439,7 @@ function renderPrincipalTabContent(){
    ${_principalCategoryTiles()}
   </div>`;
  } else if(activePrincipalTab==='students')return renderStudentsTab();
+ else if(activePrincipalTab==='facultygap')return renderFacultyGap();
  else if(activePrincipalTab==='homework')return renderHomeworkOversight();
  else if(activePrincipalTab==='resources')return renderResourceCatalog();
  else if(activePrincipalTab==='activities')return renderActivitiesPage();
@@ -10722,8 +10800,9 @@ function _finModelAutofill(){
  const avgFee = n ? Math.round(totalDecided/n) : 15000;
  const collRate = totalDecided>0 ? Math.round((totalDecided-totalBal)/totalDecided*100) : 100;
  const teachers = (typeof getTeachers==='function'?getTeachers():[]).filter(t=>!t.archived);
- const teachingSalary = _sumSalary(teachers.filter(t=>(t.staffType||'Teaching')==='Teaching')) || 180000;
- const nonTeachingSalary = _sumSalary(teachers.filter(t=>(t.staffType||'Teaching')!=='Teaching')) || 68000;
+ // Principal sits with the academic salary bill; Manager with the non-teaching bill.
+ const teachingSalary = _sumSalary(teachers.filter(t=>isAcademicStaff(t))) || 180000;
+ const nonTeachingSalary = _sumSalary(teachers.filter(t=>!isAcademicStaff(t))) || 68000;
  // transport / maintenance / expenses: seed from recorded expenses where present, else sensible estimates
  let fuel=550000, maintenance=200000, permits=80000, transportMisc=20000, schoolMaintenance=150000, expenses=250000;
  try {
@@ -10741,14 +10820,35 @@ function _finModelAutofill(){
   salaryIncrement:8, inflation:6, years,
   growth: Array.from({length:years}, (_,i)=> growthDefault[i] || {student:5,fee:5}) };
 }
-function _finBaseMonthly(m){ return (Number(m.teachingSalary)||0) + (Number(m.nonTeachingSalary)||0) + (m.addedStaff||[]).reduce((a,s)=>a+(Number(s.monthly)||0),0); }
+function _finBaseMonthly(m){ return (Number(m.teachingSalary)||0) + (Number(m.nonTeachingSalary)||0); }
+// Monthly cost of additional hires in a given year. y = 0 means "now" (the baseline),
+// 1..N are the projection years. A hire counts only once their start year has arrived,
+// and then rises with the annual increment from that point.
+function _finAddedMonthly(m, y){
+ const inc = (Number(m.salaryIncrement)||0)/100;
+ return (m.addedStaff||[]).reduce((a, st) => {
+  const start = Math.max(0, Math.round(Number(st.startYear)||0));
+  if (start > y) return a;                       // not hired yet in this year
+  return a + (Number(st.monthly)||0) * Math.pow(1+inc, y-start);
+ }, 0);
+}
+// Headcount of additional hires active in year y, split by type (for the summary line).
+function _finAddedCount(m, y, type){
+ return (m.addedStaff||[]).filter(st => {
+  const start = Math.max(0, Math.round(Number(st.startYear)||0));
+  if (start > y) return false;
+  return type ? ((st.type||'Teaching') === type) : true;
+ }).length;
+}
 function _finBaseTransport(m){ return (Number(m.fuel)||0)+(Number(m.maintenance)||0)+(Number(m.permits)||0)+(Number(m.transportMisc)||0); }
-function _finYearCalc(m, students, avgFee, bookFee, salFactor, infFactor){
+function _finYearCalc(m, students, avgFee, bookFee, y, infFactor){
  const coll=(m.collRate||0)/100;
  const rs=Math.round(students);
  const tuition=rs*avgFee*coll, books=rs*bookFee;
  const revenue=tuition+books;
- const salary=_finBaseMonthly(m)*salFactor*(Number(m.monthsPaid)||11);
+ const salFactor=Math.pow(1+(Number(m.salaryIncrement)||0)/100, y);
+ const monthly=_finBaseMonthly(m)*salFactor + _finAddedMonthly(m, y);
+ const salary=monthly*(Number(m.monthsPaid)||11);
  const transport=_finBaseTransport(m)*infFactor;
  const schoolMaint=(Number(m.schoolMaintenance)||0)*infFactor;
  const expenses=(Number(m.expenses)||0)*infFactor;
@@ -10759,7 +10859,7 @@ function _finYearCalc(m, students, avgFee, bookFee, salFactor, infFactor){
 function _finCompute(m){
  const yrs=Math.max(1, Math.min(15, Math.round(m.years)||1));
  // Current (baseline, no growth) for reference + break-even
- const current=_finYearCalc(m, Number(m.students)||0, Number(m.avgFee)||0, Number(m.bookFee)||0, 1, 1);
+ const current=_finYearCalc(m, Number(m.students)||0, Number(m.avgFee)||0, Number(m.bookFee)||0, 0, 1);
  const rows=[];
  let students=Number(m.students)||0, avgFee=Number(m.avgFee)||0, bookFee=Number(m.bookFee)||0;
  for (let i=0;i<yrs;i++){
@@ -10767,9 +10867,9 @@ function _finCompute(m){
   students=students*(1+(Number(g.student)||0)/100);
   avgFee=avgFee*(1+(Number(g.fee)||0)/100);
   bookFee=bookFee*(1+(Number(g.fee)||0)/100);
-  const salF=Math.pow(1+(Number(m.salaryIncrement)||0)/100, i+1);
   const infF=Math.pow(1+(Number(m.inflation)||0)/100, i+1);
-  const row=_finYearCalc(m, students, avgFee, bookFee, salF, infF);
+  const row=_finYearCalc(m, students, avgFee, bookFee, i+1, infF);
+  row.newHires=_finAddedCount(m, i+1);
   row.year=i+1; rows.push(row);
  }
  const coll=(m.collRate||0)/100;
@@ -10818,7 +10918,7 @@ function _finResultsHTML(){
    <td class="px-2 py-1 text-right">${r.students}</td>
    <td class="px-2 py-1 text-right">${_inr(r.avgFee)}</td>
    <td class="px-2 py-1 text-right text-emerald-700">${_inr(r.revenue)}</td>
-   <td class="px-2 py-1 text-right">${_inr(r.salary)}</td>
+   <td class="px-2 py-1 text-right">${_inr(r.salary)}${r.newHires?`<span class="text-[10px] text-indigo-600"> (+${r.newHires})</span>`:''}</td>
    <td class="px-2 py-1 text-right">${_inr(r.transport)}</td>
    <td class="px-2 py-1 text-right">${_inr(r.schoolMaint)}</td>
    <td class="px-2 py-1 text-right">${_inr(r.expenses)}</td>
@@ -10826,7 +10926,7 @@ function _finResultsHTML(){
    <td class="px-2 py-1 text-right font-semibold" style="color:${r.surplus>=0?'#1f8f4e':'#b3261e'}">${_inr(r.surplus)}</td>
    <td class="px-2 py-1 text-right">${(r.margin*100).toFixed(1)}%</td></tr>`;
  const table=`<div class="bg-white rounded-xl border overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-xs md:text-sm">
-   <thead class="bg-gray-50 text-gray-600"><tr>${th('Period')}${th('Students',1)}${th('Avg Fee',1)}${th('Revenue',1)}${th('Salary',1)}${th('Transport',1)}${th('Sch. Maint',1)}${th('Expenses',1)}${th('Total Cost',1)}${th('Surplus',1)}${th('Margin',1)}</tr></thead>
+   <thead class="bg-gray-50 text-gray-600"><tr>${th('Period')}${th('Students',1)}${th('Avg Fee',1)}${th('Revenue',1)}${th('Salary (+hires)',1)}${th('Transport',1)}${th('Sch. Maint',1)}${th('Expenses',1)}${th('Total Cost',1)}${th('Surplus',1)}${th('Margin',1)}</tr></thead>
    <tbody>${rowHtml('Now (current)',current,true)}${rows.map(r=>rowHtml('Year '+r.year,r,false)).join('')}</tbody></table></div></div>`;
  return summary+beNote+chart+table;
 }
@@ -10866,7 +10966,7 @@ function _ownerCard(o){
 }
 function _ownerSectionCards(section){
  const nStud = getStudents().filter(s=>!s.archived).length;
- const ts = getTeachers().filter(t=>!t.archived); const nt = ts.filter(t=>(t.staffType||'Teaching')==='Non-Teaching').length;
+ const ts = getTeachers().filter(t=>!t.archived);
  const pendReq = getCorrectionRequests().filter(r=>r.status==='pending').length;
  const users = getUsers(); const defPw = users.filter(u=>u.defaultPw||u.password==='CHANGE_ME').length;
  const cards = {
@@ -10886,8 +10986,9 @@ function _ownerSectionCards(section){
   ],
   people: [
    {btn:'ownerOpenStudentsBtn', title:'Students', icon:'user-graduate', color:'#4f46e5', action:'View Students', desc:'All student details, photos, ID cards, fees and profiles.', meta:`${nStud} students enrolled`},
-   {btn:'ownerOpenStaffBtn', title:'Staff', icon:'users', color:'#7c3aed', action:'Manage Staff', desc:'Add and edit teaching & non-teaching staff; set salaries and details.', meta:`${ts.length-nt} teaching · ${nt} non-teaching`},
+   {btn:'ownerOpenStaffBtn', title:'Staff', icon:'users', color:'#7c3aed', action:'Manage Staff', desc:'Add and edit teaching & non-teaching staff; set salaries and details.', meta:staffCountLabel(ts)},
    {btn:'ownerOpenAppraisalBtn', title:'Teacher Appraisal', icon:'clipboard-user', color:'#0d9488', action:'Teacher Appraisal', desc:'Review teachers by curriculum completion plus your assessment.'},
+   {btn:'ownerOpenGapBtn', title:'Faculty Gap Analysis', icon:'table-cells', color:'#4f46e5', action:'Open Gap Analysis', desc:'Class x subject matrix of who teaches what — and where you are short of teachers.'},
   ],
   attendance: [
    {btn:'ownerOpenStudentAttBtn', title:'Student Attendance', icon:'calendar-check', color:'#2563eb', action:'Open Student Attendance', desc:'School-wide student attendance by class, with today\u2019s summary and exports.'},
@@ -10924,9 +11025,18 @@ function renderFinancialModel(){
  const baseMonthly=_finBaseMonthly(m), baseTransport=_finBaseTransport(m);
  const section=(title,inner,extra)=>`<div class="bg-white rounded-xl border p-3 space-y-2"><div class="flex items-center justify-between"><div class="text-sm font-bold text-gray-800">${title}</div>${extra||''}</div>${inner}</div>`;
  // Salaries: teaching + non-teaching + added staff rows
+ const yrOpts = (sel) => {
+   let o = `<option value="0" ${Number(sel)===0?'selected':''}>Now</option>`;
+   for (let y=1; y<=(Math.round(m.years)||1); y++) o += `<option value="${y}" ${Number(sel)===y?'selected':''}>Yr ${y}</option>`;
+   return o;
+  };
  const staffRows=(m.addedStaff||[]).map((s,i)=>`<div class="flex gap-1 items-center">
-    <input type="text" value="${(s.label||'').replace(/"/g,'&quot;')}" placeholder="Name / role" class="finStaffLabel border rounded px-2 py-1 text-xs flex-1" data-i="${i}">
-    <input type="number" value="${s.monthly||0}" placeholder="₹/mo" class="finStaffSal border rounded px-2 py-1 text-xs w-24" data-i="${i}">
+    <input type="text" value="${(s.label||'').replace(/"/g,'&quot;')}" placeholder="Name / role" class="finStaffLabel border rounded px-2 py-1 text-xs" style="flex:1;min-width:70px" data-i="${i}">
+    <select class="finStaffType border rounded px-1 py-1 text-xs" style="width:auto" data-i="${i}" title="Staff type">
+     ${STAFF_TYPES.map(v=>`<option value="${v}" ${((s.type||'Teaching')===v)?'selected':''}>${v==='Non-Teaching'?'Non-Teach':v}</option>`).join('')}
+    </select>
+    <input type="number" value="${s.monthly||0}" placeholder="₹/mo" class="finStaffSal border rounded px-1 py-1 text-xs" style="width:70px" data-i="${i}" title="Monthly salary">
+    <select class="finStaffYear border rounded px-1 py-1 text-xs" style="width:auto" data-i="${i}" title="Joins from">${yrOpts(s.startYear||0)}</select>
     <button class="finStaffDel text-rose-500 hover:text-rose-700 px-1" data-i="${i}" title="Remove"><i class="fas fa-times"></i></button>
    </div>`).join('');
  const salaries=section('Salaries (monthly)',
@@ -10934,11 +11044,14 @@ function renderFinancialModel(){
      ${_finNum('fmTeach','Teaching staff', m.teachingSalary, {key:'teachingSalary',suffix:'/mo',min:0})}
      ${_finNum('fmNonTeach','Non-teaching staff', m.nonTeachingSalary, {key:'nonTeachingSalary',suffix:'/mo',min:0})}
     </div>
-    <div class="text-xs text-gray-600 mt-1">Additional staff (e.g. new principal, new teachers):</div>
+    <div class="text-xs text-gray-600 mt-1">Additional staff — set <b>when</b> each one joins ("Now", or from a future year):</div>
     <div id="finStaffList" class="space-y-1">${staffRows||'<div class="text-xs text-gray-400">none added</div>'}</div>
     <button id="fmAddStaffBtn" class="text-xs text-indigo-600 hover:text-indigo-800 font-medium"><i class="fas fa-plus mr-1"></i>Add staff salary</button>
     <div class="grid grid-cols-2 gap-2 mt-1">${_finNum('fmMonths','Months paid/year', m.monthsPaid, {key:'monthsPaid',min:1})}${_finNum('fmSalInc','Annual increment', m.salaryIncrement, {key:'salaryIncrement',suffix:'%/yr',step:'0.5'})}</div>
-    <div class="text-[11px] text-gray-500">Total salary bill: <b>${_inr(baseMonthly)}/mo</b> → ${_inr(baseMonthly*(m.monthsPaid||11))}/yr</div>`);
+    <div class="text-[11px] text-gray-500">Salary bill now: <b>${_inr(baseMonthly + _finAddedMonthly(m,0))}/mo</b> → ${_inr((baseMonthly + _finAddedMonthly(m,0))*(m.monthsPaid||11))}/yr${(()=>{
+      const later=(m.addedStaff||[]).filter(x=>Math.round(Number(x.startYear)||0)>0);
+      return later.length?`<br>${later.length} hire${later.length===1?'':'s'} scheduled for later years (not in today's cost)`:'';
+     })()}</div>`);
  const transport=section('Transport (per year)',
    `<div class="grid grid-cols-2 gap-2">
      ${_finNum('fmFuel','Fuel / diesel', m.fuel, {key:'fuel',min:0})}
@@ -10991,8 +11104,10 @@ function _attachFinancialModelEvents(){
  document.querySelectorAll('.finGrowF').forEach(inp=>inp.addEventListener('input',()=>{ const i=+inp.dataset.i; let v=parseFloat(inp.value); if(isNaN(v))v=0; finModel.growth[i].fee=v; _finRecalc(); }));
  document.querySelectorAll('.finStaffLabel').forEach(inp=>inp.addEventListener('input',()=>{ finModel.addedStaff[+inp.dataset.i].label=inp.value; }));
  document.querySelectorAll('.finStaffSal').forEach(inp=>inp.addEventListener('input',()=>{ let v=parseFloat(inp.value); if(isNaN(v))v=0; finModel.addedStaff[+inp.dataset.i].monthly=v; _finRecalc(); }));
+ document.querySelectorAll('.finStaffType').forEach(sel=>sel.addEventListener('change',()=>{ finModel.addedStaff[+sel.dataset.i].type=sel.value; _finRecalc(); }));
+ document.querySelectorAll('.finStaffYear').forEach(sel=>sel.addEventListener('change',()=>{ finModel.addedStaff[+sel.dataset.i].startYear=parseInt(sel.value)||0; _finRerender(); }));
  document.querySelectorAll('.finStaffDel').forEach(b=>b.addEventListener('click',()=>{ finModel.addedStaff.splice(+b.dataset.i,1); _finRerender(); }));
- document.getElementById('fmAddStaffBtn')?.addEventListener('click',()=>{ (finModel.addedStaff=finModel.addedStaff||[]).push({label:'',monthly:0}); _finRerender(); });
+ document.getElementById('fmAddStaffBtn')?.addEventListener('click',()=>{ (finModel.addedStaff=finModel.addedStaff||[]).push({label:'',monthly:0,type:'Teaching',startYear:0}); _finRerender(); });
  document.getElementById('fmResetBtn')?.addEventListener('click',()=>{ finModel=_finModelAutofill(); _finRerender(); });
  document.getElementById('fmExportBtn')?.addEventListener('click',()=>{
   const {current,rows,be}=_finCompute(finModel);
@@ -11070,7 +11185,7 @@ function renderFeeDashboard(){
   <div class="flex justify-end">
    <select id="feeRegClass" class="border rounded-lg px-2 py-1.5 text-sm" style="width:auto"><option value="">All classes</option>${ALL_CLASSES.map(c=>`<option value="${c}">${/^\d+$/.test(c)?'Class '+c:c}</option>`).join('')}</select>
    <button id="feeRegPrintBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium ml-2"><i class="fas fa-print mr-1"></i>Print Fee Register</button>
-   <button id="feeRegXlsBtn" class="bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium ml-2" title="Fee register as an Excel file"><i class="fas fa-file-excel mr-1"></i>Fee Register XLS</button>
+   <button id="feeRegXlsBtn" class="bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium ml-2" title="Fee register as an Excel file"><i class="fas fa-file-excel mr-1"></i>Fee Register XLSX</button>
    <button id="feeDashExportBtn" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-sm font-medium ml-2"><i class="fas fa-download mr-1"></i>Export CSV</button>
   </div>
   <p class="text-xs text-gray-400">Note: "Paid" is derived from outstanding balances (Total − Unpaid), which reflects what the school has recorded as collected. This can differ from receipts in the Ledger if balances were entered directly.</p>
@@ -11078,6 +11193,186 @@ function renderFeeDashboard(){
 }
 // Printable class-wise fee register: every student with decided fee, paid and unpaid,
 // with per-class subtotals and a grand total. Meant for checking against the hard-copy register.
+// ===== FACULTY GAP ANALYSIS =====
+// Builds a class x subject matrix showing who covers what, and where nobody does.
+// "Required" subjects come from the exam datesheet (CLASS_SUBJECTS).
+// A teacher covers a class-subject when their subject matches AND the class is assigned to them.
+// Actual teaching activity (homework posted, marks entered) is used as a second signal, so a
+// subject someone is really teaching shows up even if their profile subject was never set.
+function _normSub(x){ return String(x||'').trim().toLowerCase(); }
+function facultyGapData(){
+ const staff = getActiveTeachers().filter(t => isAcademicStaff(t));
+ const classes = ALL_CLASSES.filter(c => CLASS_SUBJECTS[c]);
+ // activity: class|subject -> Set of teacher names
+ const activity = {};
+ const noteAct = (cls, sub, who) => {
+  if (!cls || !sub || !who) return;
+  const k = String(cls).trim() + '|' + _normSub(sub);
+  (activity[k] = activity[k] || new Set()).add(who);
+ };
+ (getHomeworks()||[]).forEach(h => noteAct(h.className, h.subject, h.teacher));
+ const studentsById = {};
+ getStudents().forEach(s => studentsById[s.id] = s);
+ (getExamMarks()||[]).forEach(m => {
+  const st = studentsById[m.studentId];
+  if (st) noteAct(st.class, m.subject, m.teacher || '');
+ });
+ const cells = {};       // "class|subject" -> {assigned:[names], active:[names]}
+ let required = 0, covered = 0;
+ const gaps = [];
+ const load = {};        // teacher name -> number of class-subject slots
+ classes.forEach(cls => {
+  subjectsForClass(cls).forEach(sub => {
+   required++;
+   const assigned = staff.filter(t =>
+     _normSub(t.subject) === _normSub(sub) &&
+     Array.isArray(t.assignedClasses) && t.assignedClasses.map(String).includes(String(cls)));
+   const act = Array.from(activity[String(cls)+'|'+_normSub(sub)] || []);
+   const names = assigned.map(t => t.name);
+   act.forEach(a => { if (a && !names.includes(a)) names.push(a); });
+   if (names.length) { covered++; names.forEach(nm => { load[nm] = (load[nm]||0)+1; }); }
+   else gaps.push({ cls, sub });
+   cells[cls+'|'+sub] = { assigned: assigned.map(t=>t.name), active: act, names };
+  });
+ });
+ // Staff-level observations
+ const noClass = staff.filter(t => !Array.isArray(t.assignedClasses) || !t.assignedClasses.length).map(t=>t.name);
+ const noSubject = staff.filter(t => !String(t.subject||'').trim()).map(t=>t.name);
+ const unused = staff.filter(t => !load[t.name]).map(t=>t.name);
+ // Subjects nobody covers anywhere
+ const allSubs = Array.from(new Set(classes.flatMap(c => subjectsForClass(c))));
+ const orphanSubjects = allSubs.filter(sub =>
+   !staff.some(t => _normSub(t.subject) === _normSub(sub)) &&
+   !Object.keys(activity).some(k => k.split('|')[1] === _normSub(sub)));
+ // Gaps grouped by class and by subject, biggest first
+ const byClass = {}, bySubject = {};
+ gaps.forEach(g => { (byClass[g.cls]=byClass[g.cls]||[]).push(g.sub); (bySubject[g.sub]=bySubject[g.sub]||[]).push(g.cls); });
+ return { staff, classes, allSubs, cells, required, covered,
+   coveragePct: required ? Math.round(covered*100/required) : 0,
+   gaps, byClass, bySubject, load, noClass, noSubject, unused, orphanSubjects };
+}
+function renderFacultyGap(){
+ const d = facultyGapData();
+ const card = (l,v,sub,clr) => `<div class="bg-white rounded-xl border p-3"><div class="text-[11px] text-gray-500 uppercase tracking-wide">${l}</div><div class="text-xl font-bold mt-0.5" style="color:${clr||'#111'}">${v}</div>${sub?`<div class="text-[11px] text-gray-500">${sub}</div>`:''}</div>`;
+ const clr = d.coveragePct>=90?'#1f8f4e':d.coveragePct>=70?'#c8860d':'#b3261e';
+ const cellHTML = (cls, sub) => {
+  const c = d.cells[cls+'|'+sub];
+  if (!c) return `<td class="px-1 py-1 text-center text-gray-200">·</td>`;
+  if (!c.names.length) return `<td class="px-1 py-1 text-center bg-rose-50 text-rose-600 font-semibold" title="No teacher for ${escapeHTML(sub)} in ${escapeHTML(cls)}">GAP</td>`;
+  const inferred = !c.assigned.length;
+  return `<td class="px-1 py-1 text-center ${inferred?'bg-amber-50':'bg-emerald-50'}" title="${escapeHTML(c.names.join(', '))}${inferred?' (from activity, not formally assigned)':''}">
+    <span class="text-[10px] ${inferred?'text-amber-800':'text-emerald-800'}">${escapeHTML(c.names.map(n=>n.split(' ')[0]).join(', '))}</span></td>`;
+ };
+ const matrix = `<div class="bg-white rounded-xl border overflow-hidden"><div class="overflow-x-auto">
+   <table class="text-xs w-full"><thead class="bg-gray-50"><tr>
+    <th class="px-2 py-1.5 text-left sticky left-0 bg-gray-50">Subject</th>
+    ${d.classes.map(c=>`<th class="px-1 py-1.5 whitespace-nowrap">${/^\d+$/.test(c)?c:escapeHTML(c)}</th>`).join('')}
+   </tr></thead><tbody>
+   ${d.allSubs.map(sub=>`<tr class="border-t">
+     <td class="px-2 py-1 font-medium whitespace-nowrap sticky left-0 bg-white">${escapeHTML(sub)}</td>
+     ${d.classes.map(c=>subjectsForClass(c).includes(sub)?cellHTML(c,sub):`<td class="px-1 py-1 text-center text-gray-200">–</td>`).join('')}
+    </tr>`).join('')}
+   </tbody></table></div>
+   <div class="px-3 py-2 text-[11px] text-gray-500 border-t">
+    <span class="inline-block w-3 h-3 align-middle bg-emerald-50 border"></span> assigned teacher &nbsp;
+    <span class="inline-block w-3 h-3 align-middle bg-amber-50 border"></span> teaching it, but not formally assigned &nbsp;
+    <span class="inline-block w-3 h-3 align-middle bg-rose-50 border"></span> no one &nbsp;
+    <span class="text-gray-400">–</span> not in that class's scheme
+   </div></div>`;
+ const listBox = (title, items, empty, color) => `<div class="bg-white rounded-xl border p-3">
+   <div class="text-sm font-bold mb-1" style="color:${color}">${title}</div>
+   ${items.length?`<ul class="text-xs space-y-0.5">${items.map(i=>`<li>• ${i}</li>`).join('')}</ul>`:`<div class="text-xs text-gray-400">${empty}</div>`}</div>`;
+ const gapByClass = Object.keys(d.byClass).sort((a,b)=>d.byClass[b].length-d.byClass[a].length)
+   .map(c=>`<b>${/^\d+$/.test(c)?'Class '+c:escapeHTML(c)}</b> — ${d.byClass[c].length} gap${d.byClass[c].length===1?'':'s'}: ${escapeHTML(d.byClass[c].join(', '))}`);
+ const gapBySubject = Object.keys(d.bySubject).sort((a,b)=>d.bySubject[b].length-d.bySubject[a].length)
+   .map(s2=>`<b>${escapeHTML(s2)}</b> — uncovered in ${d.bySubject[s2].length} class${d.bySubject[s2].length===1?'':'es'}: ${escapeHTML(d.bySubject[s2].join(', '))}`);
+ const loadList = Object.keys(d.load).sort((a,b)=>d.load[b]-d.load[a])
+   .map(n=>`${escapeHTML(n)} — ${d.load[n]} class-subject slot${d.load[n]===1?'':'s'}`);
+ return `<div class="space-y-3">
+   <div><h2 class="text-lg font-bold"><i class="fas fa-table-cells text-indigo-600 mr-2"></i>Faculty Gap Analysis</h2>
+    <p class="text-sm text-gray-600">Which teacher covers each subject in each class, and where you need to hire or reassign. Required subjects come from the exam datesheet.</p></div>
+   <div class="grid grid-cols-2 lg:grid-cols-4 gap-2">
+    ${card('Subject Slots', d.required, 'across '+d.classes.length+' classes', '#7a1e2e')}
+    ${card('Covered', d.covered, d.coveragePct+'% of slots', '#1f8f4e')}
+    ${card('Gaps', d.gaps.length, 'no teacher assigned', d.gaps.length?'#b3261e':'#1f8f4e')}
+    ${card('Academic Staff', d.staff.length, 'teachers + principal', '#4f46e5')}
+   </div>
+   <div class="bg-white rounded-xl border p-3"><div class="text-xs text-gray-500 mb-1">Overall coverage</div>
+    <div class="bg-gray-100 rounded-full h-2.5 overflow-hidden"><div style="width:${d.coveragePct}%;background:${clr}" class="h-2.5"></div></div>
+    <div class="text-xs mt-1" style="color:${clr}">${d.coveragePct}% of class-subject slots have a teacher</div></div>
+   ${matrix}
+   <div class="grid md:grid-cols-2 gap-3">
+    ${listBox('Where you need teachers (by class)', gapByClass, 'Every class is fully covered.', '#b3261e')}
+    ${listBox('Subjects short of teachers', gapBySubject, 'No subject is short.', '#b45309')}
+    ${listBox('Teacher load', loadList, 'No teacher is assigned to any class-subject yet.', '#4f46e5')}
+    ${listBox('Fix these staff records', [].concat(
+       d.noClass.map(n=>escapeHTML(n)+' — no classes assigned'),
+       d.noSubject.map(n=>escapeHTML(n)+' — no subject set'),
+       d.orphanSubjects.map(s2=>'No teacher anywhere for <b>'+escapeHTML(s2)+'</b>')
+      ), 'All staff records are complete.', '#0d9488')}
+   </div>
+   <div class="flex justify-end gap-2">
+    <button id="gapPrintBtn" class="bg-slate-700 hover:bg-slate-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-print mr-1"></i>Print</button>
+    <button id="gapXlsBtn" class="bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-file-excel mr-1"></i>XLSX</button>
+   </div>
+   <p class="text-xs text-gray-400">A teacher counts as covering a subject when their profile subject matches and the class is assigned to them. Amber cells mean they are actually teaching it (homework/marks recorded) without a formal assignment — worth tidying up in the Staff page.</p>
+  </div>`;
+}
+function _gapTableHTML(){
+ const d = facultyGapData();
+ const head = ['Subject'].concat(d.classes.map(c=>/^\d+$/.test(c)?'Class '+c:c));
+ const rows = d.allSubs.map(sub => [sub].concat(d.classes.map(c => {
+   if (!subjectsForClass(c).includes(sub)) return '';
+   const cell = d.cells[c+'|'+sub];
+   return (cell && cell.names.length) ? cell.names.join(', ') : 'GAP';
+ })));
+ return `<table><tr>${head.map(h=>`<th>${escapeHTML(h)}</th>`).join('')}</tr>
+   ${rows.map(r=>`<tr>${r.map(v=>`<td>${escapeHTML(v)}</td>`).join('')}</tr>`).join('')}
+   <tr></tr><tr><td colspan="2">Coverage</td><td>${d.covered} of ${d.required} slots (${d.coveragePct}%)</td></tr>
+   <tr><td colspan="2">Gaps</td><td>${d.gaps.length}</td></tr></table>`;
+}
+function printFacultyGap(){
+ const d = facultyGapData();
+ const today = new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
+ const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Faculty Gap Analysis</title><style>
+  @page{size:A4 landscape;margin:8mm}body{font-family:Arial;color:#111;margin:0;font-size:10px}
+  .head{text-align:center;border-bottom:2px solid #7a1e2e;padding-bottom:5px;margin-bottom:8px}
+  .sch{font-size:15px;font-weight:bold;color:#7a1e2e}.ttl{font-size:12px;font-weight:bold;margin-top:3px}
+  table{width:100%;border-collapse:collapse;margin-bottom:10px}
+  th,td{border:1px solid #bbb;padding:2px 3px;font-size:8.5px;text-align:center}
+  th{background:#efefef}td.sub{text-align:left;font-weight:bold;background:#fafafa}
+  td.gap{background:#ffe3e3;color:#b3261e;font-weight:bold}
+  h3{font-size:11px;margin:8px 0 3px;color:#7a1e2e}
+  ul{margin:0;padding-left:16px;font-size:9px}
+  .noprint{text-align:center;margin:8px 0}button{padding:7px 16px;border:none;border-radius:5px;background:#7a1e2e;color:#fff;cursor:pointer}
+  @media print{.noprint{display:none}}</style></head><body>
+  <div class="noprint"><button onclick="window.print()">Print / Save as PDF</button></div>
+  <div class="head"><div class="sch">${escapeHTML((SCHOOL_INFO.name||'').toUpperCase())}</div>
+   <div class="ttl">Faculty Gap Analysis — ${escapeHTML(currentSession())}</div>
+   <div style="font-size:9px">Coverage ${d.covered}/${d.required} slots (${d.coveragePct}%) · ${d.gaps.length} gap(s) · Printed ${today}</div></div>
+  <table><tr><th style="text-align:left">Subject</th>${d.classes.map(c=>`<th>${/^\d+$/.test(c)?c:escapeHTML(c)}</th>`).join('')}</tr>
+   ${d.allSubs.map(sub=>`<tr><td class="sub">${escapeHTML(sub)}</td>${d.classes.map(c=>{
+     if(!subjectsForClass(c).includes(sub)) return '<td style="color:#ddd">–</td>';
+     const cell=d.cells[c+'|'+sub];
+     return (cell&&cell.names.length)?`<td>${escapeHTML(cell.names.map(n=>n.split(' ')[0]).join(', '))}</td>`:'<td class="gap">GAP</td>';
+    }).join('')}</tr>`).join('')}
+  </table>
+  <h3>Where teachers are needed</h3>
+  <ul>${Object.keys(d.byClass).sort((a,b)=>d.byClass[b].length-d.byClass[a].length).map(c=>`<li><b>${/^\d+$/.test(c)?'Class '+c:escapeHTML(c)}</b>: ${escapeHTML(d.byClass[c].join(', '))}</li>`).join('')||'<li>None — all covered.</li>'}</ul>
+  <h3>Records to fix</h3>
+  <ul>${[].concat(d.noClass.map(n=>escapeHTML(n)+' — no classes assigned'),d.noSubject.map(n=>escapeHTML(n)+' — no subject set'),d.orphanSubjects.map(s=>'No teacher anywhere for '+escapeHTML(s))).map(x=>`<li>${x}</li>`).join('')||'<li>All complete.</li>'}</ul>
+  <div style="margin-top:16px;font-size:9px;display:flex;justify-content:space-between"><div>Prepared by ____________</div><div>Principal ____________</div></div>
+ </body></html>`;
+ const w = window.open('', '_blank');
+ if (!w) { alert('Please allow pop-ups to print.'); return; }
+ w.document.write(html); w.document.close();
+}
+function _attachFacultyGapEvents(){
+ document.getElementById('gapPrintBtn')?.addEventListener('click', printFacultyGap);
+ document.getElementById('gapXlsBtn')?.addEventListener('click', () =>
+   downloadExcel(_gapTableHTML(), 'MDBV_Faculty_Gap_Analysis_'+new Date().toISOString().slice(0,10), 'Faculty Gap'));
+}
+
 // ===== EXCEL EXPORTS (full detail) =====
 // Builds an .xls workbook from a header row + data rows. Values are escaped; numbers stay numeric.
 function _xlsSheet(title, headers, rows){
@@ -11126,8 +11421,10 @@ function exportStudentKYCExcel(cls){
 function exportStaffExcel(which){
  const all = getTeachers();
  let list = (which === 'archived') ? all.filter(t=>t.archived) : all.filter(t=>!t.archived);
- if (which === 'teaching') list = list.filter(t => (t.staffType||'Teaching') !== 'Non-Teaching');
- if (which === 'nonteaching') list = list.filter(t => (t.staffType||'Teaching') === 'Non-Teaching');
+ if (which === 'teaching') list = list.filter(t => staffTypeOf(t) === 'Teaching');
+ if (which === 'nonteaching') list = list.filter(t => staffTypeOf(t) === 'Non-Teaching');
+ if (which === 'principal') list = list.filter(t => staffTypeOf(t) === 'Principal');
+ if (which === 'manager') list = list.filter(t => staffTypeOf(t) === 'Manager');
  if (!list.length) { alert('No staff found for that selection.'); return; }
  list.sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
  const pay = canSeeSalary();
@@ -11145,7 +11442,7 @@ function exportStaffExcel(which){
      t.archived?'Archived':'Current', t.archivedDate||'', t.archiveReason||'',
      (t.qualificationDocs||[]).map(d=>d.title||'Document').join(', ')]);
  });
- const titles = {archived:'Archived Staff Records', teaching:'Teaching Staff Records', nonteaching:'Non-Teaching Staff Records'};
+ const titles = {archived:'Archived Staff Records', teaching:'Teaching Staff Records', nonteaching:'Non-Teaching Staff Records', principal:'Principal Record', manager:'Manager Records'};
  downloadExcel(_xlsSheet(titles[which]||'Staff Records', headers, rows), 'MDBV_Staff_'+(which||'all')+'_'+_stamp());
 }
 // Class-wise fee register, with per-class subtotals and a grand total row.
@@ -11333,11 +11630,13 @@ function printStaffKYC(teacherId){
 function printStaffKYCBulk(which){
  const all = getTeachers();
  let list = (which === 'archived') ? all.filter(t=>t.archived) : all.filter(t=>!t.archived);
- if (which === 'teaching') list = list.filter(t => (t.staffType||'Teaching') !== 'Non-Teaching');
- if (which === 'nonteaching') list = list.filter(t => (t.staffType||'Teaching') === 'Non-Teaching');
+ if (which === 'teaching') list = list.filter(t => staffTypeOf(t) === 'Teaching');
+ if (which === 'nonteaching') list = list.filter(t => staffTypeOf(t) === 'Non-Teaching');
+ if (which === 'principal') list = list.filter(t => staffTypeOf(t) === 'Principal');
+ if (which === 'manager') list = list.filter(t => staffTypeOf(t) === 'Manager');
  if (!list.length) { alert('No staff found for that selection.'); return; }
  list.sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
- const titles = {archived:'Archived Staff Records', teaching:'Teaching Staff Records & KYC', nonteaching:'Non-Teaching Staff Records & KYC'};
+ const titles = {archived:'Archived Staff Records', teaching:'Teaching Staff Records & KYC', nonteaching:'Non-Teaching Staff Records & KYC', principal:'Principal Record & KYC', manager:'Manager Records & KYC'};
  _kycShell(titles[which] || 'Staff Records & KYC', list.map(_staffKYCCard).join(''));
 }
 
@@ -15384,6 +15683,8 @@ function attachOwnerEvents(){
   renderApp();
  });
  if (ownerView === 'feedashboard') _attachFeeDashboardEvents();
+ document.getElementById('ownerOpenGapBtn')?.addEventListener('click', () => { ownerView='facultygap'; renderApp(); });
+ if (ownerView === 'facultygap') _attachFacultyGapEvents();
  document.getElementById('ownerOpenFinModelBtn')?.addEventListener('click', () => {
   ownerView = 'finmodel';
   renderApp();
@@ -15816,6 +16117,7 @@ function attachPrincipalEvents(){
 }
 function attachActivePrincipalTabEvents(){
  if(activePrincipalTab==='students')attachStudentsTabEvents();
+ else if(activePrincipalTab==='facultygap')_attachFacultyGapEvents();
  else if(activePrincipalTab==='homework')_attachHomeworkOversightEvents();
  else if(activePrincipalTab==='resources')attachResourceCatalogEvents();
  else if(activePrincipalTab==='activities')attachActivitiesEvents();
