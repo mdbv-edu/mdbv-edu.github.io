@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1789485697 - financial model added-staff lines now take a headcount multiplier (3 x Rs.8000), their own months-per-year, and a separate months figure for the joining year so late starters are costed correctly -->
+<!-- BUILD: v-1789489191 - staff assignments rebuilt: subjects are picked from a dropdown (no spelling drift), a teacher can hold several subjects, and each subject carries its own class list; existing records migrate automatically and the flat subject/assignedClasses fields stay in step so attendance, marks and rosters keep working -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -2014,6 +2014,7 @@ function initDB(){
  seedObject('udiseReport',   {lastSubmitted:'',ackNo:''});
 
  // Attendance: keyed by studentId, defaults to empty per-student map
+ if (DB.getScalar('finModels') === null) DB.setAll('finModels', []);
  if (DB.getScalar('syllabusTopics') === null) DB.setObject('syllabusTopics', {});
   if (DB.getScalar('ptmAttendance') === null) DB.setObject('ptmAttendance', {});
   if (DB.getScalar('attendanceRecords') === null) {
@@ -3916,6 +3917,7 @@ function enterPortal() {
 
 /* ---------- OWNER DASHBOARD ---------- */
 let ownerView = 'dashboard'; // 'dashboard' | 'accounts' | 'users'
+let _tchTeachingRows = [];      // Staff modal: the {subject, classes[]} rows being edited
 let _staffArchiveView = false; // Staff tab: showing archived (left) staff instead of current
 let ownerSection = null; // null = category tiles; 'finance'|'academics'|'people'|'attendance'|'admin' = that category's page
 
@@ -5447,7 +5449,7 @@ function renderTeachersTab(){
  const byType = {}; STAFF_TYPES.forEach(k => byType[k] = ts.filter(t => staffTypeOf(t) === k));
  const teaching = byType['Teaching'], nonTeaching = byType['Non-Teaching'];
  const inStaffArchive = (typeof _staffArchiveView !== 'undefined') && _staffArchiveView;
- const staffRow = t => `<tr><td>${t.photo?`<img src="${t.photo}" class="w-9 h-9 rounded-full object-cover" alt="">`:`<div class="w-9 h-9 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold">${initials(t.name)}</div>`}</td><td class="font-medium">${t.name}</td><td>${t.subject||'-'}</td><td class="text-xs">${isAcademicStaff(t)?((Array.isArray(t.assignedClasses)&&t.assignedClasses.length)?t.assignedClasses.join(', '):'<span class="text-amber-600">none</span>'):'<span class="text-gray-300">—</span>'}</td><td>${t.qualification||'-'}</td><td>${t.employeeId || t.udiseTeacherId || '-'}</td><td>${t.trainingDate?fmtDate(t.trainingDate):'-'}</td>${canSeeSalary()?`<td>Rs.${(t.salary||0).toLocaleString('en-IN')}</td>`:''}<td>${t.phone||'-'}</td><td class="whitespace-nowrap"><button class="editTeacherBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${t.id}" title="Edit"><i class="fas fa-edit"></i></button> <button class="staffKycBtn bg-slate-600 hover:bg-slate-700 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Print staff record / KYC"><i class="fas fa-print"></i></button><button class="archiveTeacherBtn bg-amber-500 hover:bg-amber-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Archive (keeps full record & salary history)"><i class="fas fa-box-archive"></i></button>${currentUser&&currentUser.role==='owner'?` <button class="delTeacherBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Delete permanently (Owner only)"><i class="fas fa-trash"></i></button>`:''}</td></tr>`;
+ const staffRow = t => `<tr><td>${t.photo?`<img src="${t.photo}" class="w-9 h-9 rounded-full object-cover" alt="">`:`<div class="w-9 h-9 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold">${initials(t.name)}</div>`}</td><td class="font-medium">${t.name}</td><td>${t.subject||'-'}</td><td class="text-xs">${isAcademicStaff(t)?(teacherTeaching(t).length?teacherTeaching(t).map(r=>`<div><b>${escapeHTML(r.subject)}</b>: ${escapeHTML(r.classes.join(', ')||'—')}</div>`).join(''):'<span class="text-amber-600">none</span>'):'<span class="text-gray-300">—</span>'}</td><td>${t.qualification||'-'}</td><td>${t.employeeId || t.udiseTeacherId || '-'}</td><td>${t.trainingDate?fmtDate(t.trainingDate):'-'}</td>${canSeeSalary()?`<td>Rs.${(t.salary||0).toLocaleString('en-IN')}</td>`:''}<td>${t.phone||'-'}</td><td class="whitespace-nowrap"><button class="editTeacherBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${t.id}" title="Edit"><i class="fas fa-edit"></i></button> <button class="staffKycBtn bg-slate-600 hover:bg-slate-700 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Print staff record / KYC"><i class="fas fa-print"></i></button><button class="archiveTeacherBtn bg-amber-500 hover:bg-amber-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Archive (keeps full record & salary history)"><i class="fas fa-box-archive"></i></button>${currentUser&&currentUser.role==='owner'?` <button class="delTeacherBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Delete permanently (Owner only)"><i class="fas fa-trash"></i></button>`:''}</td></tr>`;
  // Archived staff row: shows when they left, why, and their salary history at a glance.
  const archivedRow = t => { const h = staffHistory(t.id); return `<tr class="bg-gray-50">
    <td class="font-medium">${escapeHTML(t.name||'')}</td>
@@ -5566,11 +5568,11 @@ function renderTeachersTab(){
     <div><label class="text-xs">Bank A/C (last 4)</label><input id="tchBank"></div>
    </div>
    <div class="mt-3 border-t pt-3" id="tchClassesSection">
-    <label class="text-xs font-semibold block mb-1"><i class="fas fa-chalkboard mr-1 text-purple-600"></i>Classes Assigned</label>
-    <p class="text-xs text-gray-500 mb-2">Tick the classes this teacher handles. They will only see and mark attendance/marks for these classes.</p>
-    <div class="flex flex-wrap gap-2" id="tchClassesBox">
-     ${ALL_CLASSES.map(c => `<label class="inline-flex items-center gap-1 text-xs border rounded px-2 py-1 cursor-pointer hover:bg-purple-50"><input type="checkbox" class="tchClassChk w-auto" value="${c}"> ${c}</label>`).join('')}
-    </div>
+    <label class="text-xs font-semibold block mb-1"><i class="fas fa-chalkboard mr-1 text-purple-600"></i>Subjects &amp; Classes</label>
+    <p class="text-xs text-gray-500 mb-2">Pick a subject, then tick the classes they teach it in. Add a row for each subject — a teacher can take different classes for different subjects.</p>
+    <div id="tchTeachingBox" class="space-y-2"></div>
+    <button type="button" id="tchAddSubjectBtn" class="mt-2 text-xs text-indigo-600 hover:text-indigo-800 font-medium"><i class="fas fa-plus mr-1"></i>Add subject</button>
+    <div id="tchTeachingSummary" class="text-[11px] text-gray-500 mt-2"></div>
    </div>
    <div class="mt-3 border-t pt-3">
     <label class="text-xs font-semibold block mb-1"><i class="fas fa-file-pdf mr-1 text-rose-600"></i>Qualification Documents</label>
@@ -11075,7 +11077,7 @@ function renderFinancialModel(){
     <div id="finStaffList" class="space-y-1">${staffRows||'<div class="text-xs text-gray-400">none added</div>'}</div>
     <button id="fmAddStaffBtn" class="text-xs text-indigo-600 hover:text-indigo-800 font-medium"><i class="fas fa-plus mr-1"></i>Add staff salary</button>
     <div class="grid grid-cols-2 gap-2 mt-1">${_finNum('fmMonths','Months paid/year', m.monthsPaid, {key:'monthsPaid',min:1})}${_finNum('fmSalInc','Annual increment', m.salaryIncrement, {key:'salaryIncrement',suffix:'%/yr',step:'0.5'})}</div>
-    <div class="text-[11px] text-gray-500">Salary bill now: <b>${_inr(baseMonthly*(m.monthsPaid||11) + _finAddedAnnual(m,0))}/yr</b> (base ${_inr(baseMonthly)}/mo × ${m.monthsPaid||11} months + additional staff)${(()=>{
+    <div id="finSalaryBillLine" class="text-[11px] text-gray-500">Salary bill now: <b>${_inr(baseMonthly*(m.monthsPaid||11) + _finAddedAnnual(m,0))}/yr</b> (base ${_inr(baseMonthly)}/mo × ${m.monthsPaid||11} months + additional staff)${(()=>{
       const later=(m.addedStaff||[]).filter(x=>Math.round(Number(x.startYear)||0)>0);
       return later.length?`<br>${later.length} hire${later.length===1?'':'s'} scheduled for later years (not in today's cost)`:'';
      })()}</div>`);
@@ -11085,7 +11087,7 @@ function renderFinancialModel(){
      ${_finNum('fmMaint','Vehicle maintenance', m.maintenance, {key:'maintenance',min:0})}
      ${_finNum('fmPermit','Permits', m.permits, {key:'permits',min:0})}
      ${_finNum('fmTMisc','Miscellaneous', m.transportMisc, {key:'transportMisc',min:0})}
-    </div><div class="text-[11px] text-gray-500">Transport total: <b>${_inr(baseTransport)}/yr</b></div>`);
+    </div><div id="finTransportTotal" class="text-[11px] text-gray-500">Transport total: <b>${_inr(baseTransport)}/yr</b></div>`);
  const others=section('School maintenance & expenses (per year)',
    `<div class="grid grid-cols-2 gap-2">
      ${_finNum('fmSchMaint','School maintenance', m.schoolMaintenance, {key:'schoolMaintenance',min:0})}
@@ -11111,16 +11113,40 @@ function renderFinancialModel(){
     <div class="text-[11px] text-gray-400">e.g. 15% next year, then 7%, then taper — each cell is editable.</div>`);
  const inputs=`${revenue}${salaries}${transport}${others}${growth}
    <div class="flex gap-2"><button id="fmResetBtn" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-rotate-left mr-1"></i>Reset to live data</button>
-   <button id="fmExportBtn" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-download mr-1"></i>Export CSV</button></div>`;
+   <button id="fmExportBtn" class="flex-1 bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-file-excel mr-1"></i>Export XLSX</button></div>`;
  return `<div class="space-y-3">
    <div><h2 class="text-lg font-bold"><i class="fas fa-chart-line text-emerald-600 mr-2"></i>Financial Projection Model</h2>
-    <p class="text-sm text-gray-600">Auto-filled from your live data. Adjust anything on the left — salaries, add staff, transport, growth per year — and the projection updates instantly.</p></div>
+    <p class="text-sm text-gray-600">Adjust anything on the left and the projection updates instantly. <b>Save</b> a scenario to keep it — otherwise a refresh starts fresh from live data.</p></div>
+   ${(() => {
+    const saved = ensureSeedFinModel();
+    return `<div class="bg-white rounded-xl border p-2 flex flex-wrap gap-2 items-center">
+      <span class="text-xs font-semibold text-gray-700"><i class="fas fa-bookmark text-emerald-600 mr-1"></i>Saved scenarios</span>
+      <select id="fmScenarioSel" class="border rounded-lg px-2 py-1 text-xs" style="width:auto">
+       <option value="">— choose —</option>
+       ${saved.map(x=>`<option value="${x.id}" ${_finLoadedName===x.name?'selected':''}>${escapeHTML(x.name)}</option>`).join('')}
+      </select>
+      <button id="fmLoadBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1 rounded-lg text-xs font-medium"><i class="fas fa-folder-open mr-1"></i>Load</button>
+      <button id="fmSaveBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded-lg text-xs font-medium"><i class="fas fa-save mr-1"></i>Save current</button>
+      <button id="fmDeleteBtn" class="bg-rose-50 hover:bg-rose-100 text-rose-700 px-2.5 py-1 rounded-lg text-xs font-medium"><i class="fas fa-trash mr-1"></i>Delete</button>
+      ${_finLoadedName?`<span class="text-[11px] text-gray-500 ml-auto">Working on: <b>${escapeHTML(_finLoadedName)}</b></span>`:'<span class="text-[11px] text-amber-600 ml-auto">Unsaved scenario</span>'}
+     </div>`;
+   })()}
    <div class="grid lg:grid-cols-3 gap-3"><div class="lg:col-span-1 space-y-2" id="finInputs">${inputs}</div><div class="lg:col-span-2 space-y-3" id="finResults">${_finResultsHTML()}</div></div>
    <p class="text-xs text-gray-400">Salary split auto-summed from staff records (Teaching \u20b9${(m.teachingSalary).toLocaleString('en-IN')}/mo, Non-teaching \u20b9${(m.nonTeachingSalary).toLocaleString('en-IN')}/mo). Transport/maintenance/expenses seeded from recorded expenses where available, otherwise estimated — adjust to your actuals. Editing here never changes your real data.</p>
   </div>`;
 }
 function _finRerender(){ const w=document.getElementById('finModelWrap'); if(w){ w.innerHTML=renderFinancialModel(); _attachFinancialModelEvents(); } else { const r=document.getElementById('finResults'); if(r) r.innerHTML=_finResultsHTML(); } }
-function _finRecalc(){ const r=document.getElementById('finResults'); if(r) r.innerHTML=_finResultsHTML(); }
+function _finRecalc(){
+  const r=document.getElementById('finResults'); if(r) r.innerHTML=_finResultsHTML();
+  // Keep the small running totals on the input side in step (they used to go stale).
+  const m=finModel;
+  const sb=document.getElementById('finSalaryBillLine');
+  if(sb){ const base=_finBaseMonthly(m), later=(m.addedStaff||[]).filter(x=>Math.round(Number(x.startYear)||0)>0);
+   sb.innerHTML=`Salary bill now: <b>${_inr(base*(m.monthsPaid||11)+_finAddedAnnual(m,0))}/yr</b> (base ${_inr(base)}/mo × ${m.monthsPaid||11} months + additional staff)`+
+    (later.length?`<br>${later.length} hire${later.length===1?'':'s'} scheduled for later years (not in today's cost)`:''); }
+  const tt=document.getElementById('finTransportTotal');
+  if(tt) tt.innerHTML=`Transport total: <b>${_inr(_finBaseTransport(m))}/yr</b>`;
+ }
 function _attachFinancialModelEvents(){
  document.querySelectorAll('.finInput').forEach(inp=>inp.addEventListener('input',()=>{
   const key=inp.dataset.key; let v=parseFloat(inp.value); if(isNaN(v)) v=0; finModel[key]=v;
@@ -11139,7 +11165,11 @@ function _attachFinancialModelEvents(){
  document.querySelectorAll('.finStaffDel').forEach(b=>b.addEventListener('click',()=>{ finModel.addedStaff.splice(+b.dataset.i,1); _finRerender(); }));
  document.getElementById('fmAddStaffBtn')?.addEventListener('click',()=>{ (finModel.addedStaff=finModel.addedStaff||[]).push({label:'',monthly:0,type:'Teaching',startYear:0,count:1}); _finRerender(); });
  document.getElementById('fmResetBtn')?.addEventListener('click',()=>{ finModel=_finModelAutofill(); _finRerender(); });
- document.getElementById('fmExportBtn')?.addEventListener('click',()=>{
+ document.getElementById('fmSaveBtn')?.addEventListener('click',()=>_finSaveCurrent());
+ document.getElementById('fmLoadBtn')?.addEventListener('click',()=>{ const v=document.getElementById('fmScenarioSel')?.value; if(!v){alert('Pick a saved scenario first.');return;} _finLoad(v); });
+ document.getElementById('fmDeleteBtn')?.addEventListener('click',()=>{ const v=document.getElementById('fmScenarioSel')?.value; if(!v){alert('Pick a saved scenario first.');return;} _finDelete(v); });
+ document.getElementById('fmExportBtn')?.addEventListener('click', exportFinModelExcel);
+ document.getElementById('_fmOldExport')?.addEventListener('click',()=>{
   const {current,rows,be}=_finCompute(finModel);
   let csv='Period,Students,Avg Fee,Revenue,Salary,Transport,School Maintenance,Expenses,Total Cost,Surplus,Margin %\n';
   const line=(lbl,r)=>`${lbl},${r.students},${Math.round(r.avgFee)},${Math.round(r.revenue)},${Math.round(r.salary)},${Math.round(r.transport)},${Math.round(r.schoolMaint)},${Math.round(r.expenses)},${Math.round(r.cost)},${Math.round(r.surplus)},${(r.margin*100).toFixed(1)}\n`;
@@ -11223,6 +11253,156 @@ function renderFeeDashboard(){
 }
 // Printable class-wise fee register: every student with decided fee, paid and unpaid,
 // with per-class subtotals and a grand total. Meant for checking against the hard-copy register.
+// ===== SAVED FINANCIAL MODELS =====
+function getFinModels(){ const v = get('finModels'); return Array.isArray(v) ? v : []; }
+function saveFinModels(d){ DB.setAll('finModels', d); }
+var _finLoadedName = '';
+// The scenario captured from the owner's first planning session, so it survives a refresh.
+function _seedFinModel1(){
+ const base = _finModelAutofill();
+ return Object.assign(base, {
+  teachingSalary: 123500, nonTeachingSalary: 70000, monthsPaid: 11, salaryIncrement: 8,
+  fuel: 609485, maintenance: 150000, permits: 100000, transportMisc: 20000,
+  schoolMaintenance: 319430, expenses: 37465, inflation: 5, years: 5,
+  growth: [{student:30,fee:5},{student:15,fee:5},{student:12,fee:5},{student:12,fee:5},{student:10,fee:5}],
+  addedStaff: [
+   {label:'Principal',  type:'Principal',    monthly:40000, startYear:0, count:1, months:7,  firstYearMonths:7},
+   {label:'Computer',   type:'Teaching',     monthly:6000,  startYear:0, count:1, months:6,  firstYearMonths:6},
+   {label:'PGT',        type:'Teaching',     monthly:12000, startYear:0, count:1, months:5,  firstYearMonths:5},
+   {label:'Gaurd',      type:'Non-Teaching', monthly:8000,  startYear:0, count:1, months:9,  firstYearMonths:9},
+   {label:'TGT',        type:'Teaching',     monthly:10000, startYear:0, count:1, months:6,  firstYearMonths:6},
+   {label:'PGT',        type:'Teaching',     monthly:18000, startYear:3, count:1, months:11, firstYearMonths:11},
+   {label:'Physics',    type:'Teaching',     monthly:18000, startYear:1, count:1, months:11, firstYearMonths:11},
+   {label:'Chemistry',  type:'Teaching',     monthly:9000,  startYear:1, count:1, months:11, firstYearMonths:11},
+   {label:'TGT',        type:'Teaching',     monthly:10000, startYear:3, count:1, months:11, firstYearMonths:11}
+  ]
+ });
+}
+function ensureSeedFinModel(){
+ const all = getFinModels();
+ if (all.length) return all;
+ const seeded = [{ id: 1, name: 'Financial Model 1', model: _seedFinModel1(),
+   savedAt: new Date().toISOString(), savedBy: 'Owner' }];
+ try { saveFinModels(seeded); } catch(e){}
+ return seeded;
+}
+function _finSaveCurrent(nameOverride){
+ const all = getFinModels();
+ const suggested = nameOverride || _finLoadedName || ('Model ' + (all.length + 1));
+ const name = (prompt('Save this scenario as:', suggested) || '').trim();
+ if (!name) return;
+ const existing = all.find(x => x.name.toLowerCase() === name.toLowerCase());
+ if (existing) {
+  if (!confirm(`"${name}" already exists. Overwrite it?`)) return;
+  existing.model = JSON.parse(JSON.stringify(finModel));
+  existing.savedAt = new Date().toISOString();
+  existing.savedBy = currentUser?.name || '';
+ } else {
+  all.push({ id: Date.now(), name, model: JSON.parse(JSON.stringify(finModel)),
+    savedAt: new Date().toISOString(), savedBy: currentUser?.name || '' });
+ }
+ try { saveFinModels(all); } catch(e){ alert('Could not save: ' + e.message); return; }
+ _finLoadedName = name;
+ showToast('Saved "' + name + '"');
+ _finRerender();
+}
+function _finLoad(id){
+ const rec = getFinModels().find(x => String(x.id) === String(id));
+ if (!rec) return;
+ finModel = JSON.parse(JSON.stringify(rec.model));
+ _finLoadedName = rec.name;
+ showToast('Loaded "' + rec.name + '"');
+ _finRerender();
+}
+function _finDelete(id){
+ const all = getFinModels();
+ const rec = all.find(x => String(x.id) === String(id));
+ if (!rec) return;
+ if (!confirm(`Delete the saved scenario "${rec.name}"? This cannot be undone.`)) return;
+ saveFinModels(all.filter(x => String(x.id) !== String(id)));
+ if (_finLoadedName === rec.name) _finLoadedName = '';
+ showToast('Deleted "' + rec.name + '"');
+ _finRerender();
+}
+// Full workbook: the inputs, every added-staff line, the growth assumptions, the
+// year-by-year projection, and the formulas used to get there.
+function exportFinModelExcel(){
+ const m = finModel, { current, rows, be } = _finCompute(m);
+ const n = v => Math.round(Number(v)||0);
+ const inputs = [
+  ['MDBV — FINANCIAL PROJECTION MODEL'], [String(SCHOOL_INFO.name||'')],
+  ['Scenario', _finLoadedName || '(unsaved)'], ['Session', currentSession()],
+  ['Exported', new Date().toLocaleString('en-IN')], [],
+  ['REVENUE INPUTS'],
+  ['Students (current)', n(m.students)],
+  ['Average annual fee', n(m.avgFee)],
+  ['Fee collection %', n(m.collRate)],
+  ['Books / extra per student', n(m.bookFee)], [],
+  ['SALARY INPUTS (monthly)'],
+  ['Teaching staff', n(m.teachingSalary)],
+  ['Non-teaching staff', n(m.nonTeachingSalary)],
+  ['Base salary bill /month', n(_finBaseMonthly(m))],
+  ['Months paid per year', n(m.monthsPaid)],
+  ['Annual increment %', n(m.salaryIncrement)],
+  ['Additional staff cost (now) /year', n(_finAddedAnnual(m,0))],
+  ['TOTAL salary bill (now) /year', n(_finBaseMonthly(m)*n(m.monthsPaid) + _finAddedAnnual(m,0))], [],
+  ['TRANSPORT (per year)'],
+  ['Fuel / diesel', n(m.fuel)], ['Vehicle maintenance', n(m.maintenance)],
+  ['Permits', n(m.permits)], ['Miscellaneous', n(m.transportMisc)],
+  ['Transport total', n(_finBaseTransport(m))], [],
+  ['OTHER COSTS (per year)'],
+  ['School maintenance', n(m.schoolMaintenance)],
+  ['Expenses (electricity, supplies…)', n(m.expenses)],
+  ['Cost inflation %', n(m.inflation)], [],
+  ['BREAK-EVEN (at current settings)'],
+  ['Students needed', be.students],
+  ['or average fee needed', n(be.avgFee)]
+ ];
+ const staff = [['Role / name','Type','How many','Salary each /mo','Joins','Months/yr','Months in 1st yr','Cost in first full year']]
+  .concat((m.addedStaff||[]).map(st => {
+   const cnt=_finStaffCount(st), mo=_finStaffMonths(m,st,(Number(st.startYear)||0)+1);
+   return [st.label||'', st.type||'Teaching', cnt, n(st.monthly),
+     (Number(st.startYear)||0)===0?'Now':('Year '+st.startYear),
+     mo, _finStaffMonths(m,st,Number(st.startYear)||0), n(cnt*(Number(st.monthly)||0)*mo)];
+  }));
+ const growth = [['Year','Student growth %','Fee increase %']]
+  .concat((m.growth||[]).map((g,i)=>['Year '+(i+1), Number(g.student)||0, Number(g.fee)||0]));
+ const proj = [['Period','Students','Avg fee','Tuition','Books','REVENUE','Salary','Transport','School maintenance','Expenses','TOTAL COST','SURPLUS','Margin %','Extra staff on payroll']];
+ const line = (lbl,r,hires)=>[lbl, r.students, n(r.avgFee), n(r.tuition), n(r.books), n(r.revenue),
+   n(r.salary), n(r.transport), n(r.schoolMaint), n(r.expenses), n(r.cost), n(r.surplus),
+   Number((r.margin*100).toFixed(1)), hires];
+ proj.push(line('Now (current)', current, _finAddedCount(m,0)));
+ rows.forEach((r,i)=>proj.push(line('Year '+r.year, r, _finAddedCount(m,i+1))));
+ const notes = [
+  ['HOW EACH FIGURE IS CALCULATED'], [],
+  ['Tuition','Students x Average annual fee x Fee collection %'],
+  ['Books','Students x Books/extra per student'],
+  ['Revenue','Tuition + Books'],
+  ['Salary','(Base salary bill/month x (1+increment)^year x Months paid) + additional staff'],
+  ['Additional staff','How many x Salary each x (1+increment)^(year - joining year) x Months that year'],
+  ['','A line costs nothing until its joining year. Its first year uses "Months in 1st yr".'],
+  ['Transport','(Fuel + Vehicle maintenance + Permits + Misc) x (1+inflation)^year'],
+  ['School maintenance','School maintenance x (1+inflation)^year'],
+  ['Expenses','Expenses x (1+inflation)^year'],
+  ['Total cost','Salary + Transport + School maintenance + Expenses'],
+  ['Surplus','Revenue - Total cost'],
+  ['Margin %','Surplus / Revenue'],
+  ['Students each year','Previous year students x (1 + that year\u2019s student growth %)'],
+  ['Average fee each year','Previous year fee x (1 + that year\u2019s fee increase %)'],
+  ['Break-even students','Total cost / (Average fee x collection % + Books per student)'],
+  [], ['Note','"Now (current)" applies no growth or inflation — it is today\u2019s position.']
+ ];
+ try {
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(inputs), 'Inputs');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(staff), 'Additional Staff');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(growth), 'Growth');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(proj), 'Projection');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(notes), 'Formulas');
+  XLSX.writeFile(wb, 'MDBV_Financial_Model_' + (_finLoadedName||'scenario').replace(/[^\w]+/g,'_') + '_' + new Date().toISOString().slice(0,10) + '.xlsx');
+ } catch(e){ alert('Could not build the workbook: ' + e.message); }
+}
+
 // ===== FACULTY GAP ANALYSIS =====
 // Coverage is taken ONLY from current staff records (subject + assigned classes).
 // Nothing is inferred from homework or marks: a teacher counts for a subject only if it is
@@ -11259,6 +11439,40 @@ function teacherSubjects(t){
  return raw.split(/[,/;]+/).map(x => _canonSubject(x)).filter(Boolean);
 }
 function isMotherTeacherClass(cls){ return MOTHER_TEACHER_CLASSES.includes(String(cls).trim()); }
+// Every subject that appears in any class's scheme — the picker's vocabulary, so spellings
+// always match the datesheet.
+const ALL_SUBJECT_OPTIONS = (function(){
+ const set = new Set();
+ Object.keys(CLASS_SUBJECTS).forEach(c => CLASS_SUBJECTS[c].forEach(s => set.add(s)));
+ return Array.from(set).sort();
+})();
+const ALL_SUBJECTS_TOKEN = 'All subjects (mother teacher)';
+// A teacher's assignments as [{subject, classes[]}]. Older records only had a single
+// subject string plus one class list, so those are converted on the fly.
+function teacherTeaching(t){
+ if (!t) return [];
+ if (Array.isArray(t.teaching) && t.teaching.length) {
+  return t.teaching.map(r => ({ subject: String(r.subject||''), classes: (r.classes||[]).map(String) }))
+                   .filter(r => r.subject);
+ }
+ const subs = teacherSubjects(t);
+ const classes = Array.isArray(t.assignedClasses) ? t.assignedClasses.map(String) : [];
+ if (!subs.length) return [];
+ return subs.map(sb => ({ subject: sb === '*ALL*' ? ALL_SUBJECTS_TOKEN : sb, classes: classes.slice() }));
+}
+// Keeps the legacy fields in step so attendance, rosters and marks keep working.
+function teachingToLegacy(rows){
+ const clean = (rows||[]).filter(r => r.subject && (r.classes||[]).length);
+ const classes = Array.from(new Set(clean.flatMap(r => r.classes.map(String))));
+ const subject = clean.map(r => r.subject === ALL_SUBJECTS_TOKEN ? 'Mother Teacher' : r.subject).join(', ');
+ return { subject, assignedClasses: classes };
+}
+// Does this teacher cover a given subject in a given class?
+function teacherCovers(t, cls, sub){
+ return teacherTeaching(t).some(r =>
+   (r.subject === ALL_SUBJECTS_TOKEN || _canonSubject(r.subject) === sub) &&
+   r.classes.map(String).includes(String(cls)));
+}
 function teacherLabel(t){
  const q = String(t.qualification || '').trim();
  return t.name + (q ? ' (' + q + ')' : '');
@@ -11275,11 +11489,7 @@ function facultyGapData(){
  classes.forEach(cls => {
   subjectsForClass(cls).forEach(sub => {
    required++;
-   const who = staff.filter(t => {
-    if (!holds(t, cls)) return false;
-    const subs = teacherSubjects(t);
-    return subs.includes('*ALL*') || subs.includes(sub);
-   });
+   const who = staff.filter(t => teacherCovers(t, cls, sub));
    if (who.length) { covered++; who.forEach(t => { load[t.name] = (load[t.name]||0)+1; }); }
    else gaps.push({ cls, sub });
    cells[cls+'|'+sub] = who;
@@ -16869,6 +17079,52 @@ function attachTeachersTabEvents(){
  };
  document.getElementById('tchStaffType')?.addEventListener('change', _applyStaffTypeUI);
 
+ // Rows of {subject, classes[]} being edited in the staff modal.
+ const _renderTeachingRows = () => {
+  const box = document.getElementById('tchTeachingBox');
+  if (!box) return;
+  if (!_tchTeachingRows.length) _tchTeachingRows = [{subject:'', classes:[]}];
+  box.innerHTML = _tchTeachingRows.map((row, i) => `
+    <div class="border rounded-lg p-2 bg-gray-50">
+     <div class="flex gap-2 items-center mb-1">
+      <select class="tchTeachSubject border rounded px-2 py-1 text-xs" style="flex:1" data-i="${i}">
+       <option value="">— choose subject —</option>
+       <option value="${ALL_SUBJECTS_TOKEN}" ${row.subject===ALL_SUBJECTS_TOKEN?'selected':''}>${ALL_SUBJECTS_TOKEN}</option>
+       ${ALL_SUBJECT_OPTIONS.map(sb=>`<option value="${sb}" ${row.subject===sb?'selected':''}>${sb}</option>`).join('')}
+      </select>
+      ${_tchTeachingRows.length>1?`<button type="button" class="tchTeachDel text-rose-500 hover:text-rose-700 px-1" data-i="${i}" title="Remove this subject"><i class="fas fa-times"></i></button>`:''}
+     </div>
+     <div class="flex flex-wrap gap-1">
+      ${ALL_CLASSES.map(c=>`<label class="inline-flex items-center gap-1 text-[11px] border rounded px-1.5 py-0.5 cursor-pointer hover:bg-purple-50 ${row.classes.map(String).includes(String(c))?'bg-purple-100 border-purple-300':'bg-white'}">
+        <input type="checkbox" class="tchTeachClass w-auto" data-i="${i}" value="${c}" ${row.classes.map(String).includes(String(c))?'checked':''}> ${c}</label>`).join('')}
+      <button type="button" class="tchTeachAllCls text-[11px] text-indigo-600 hover:underline ml-1" data-i="${i}">all</button>
+      <button type="button" class="tchTeachNoCls text-[11px] text-gray-500 hover:underline ml-1" data-i="${i}">none</button>
+     </div>
+    </div>`).join('');
+  const sum = document.getElementById('tchTeachingSummary');
+  if (sum) {
+   const legacy = teachingToLegacy(_tchTeachingRows);
+   sum.textContent = legacy.subject
+     ? `${_tchTeachingRows.filter(r=>r.subject&&r.classes.length).length} subject(s) · classes: ${legacy.assignedClasses.join(', ')}`
+     : 'No subject assigned yet.';
+  }
+  document.querySelectorAll('.tchTeachSubject').forEach(sel => sel.addEventListener('change', () => {
+   _tchTeachingRows[+sel.dataset.i].subject = sel.value; _renderTeachingRows(); }));
+  document.querySelectorAll('.tchTeachClass').forEach(chk => chk.addEventListener('change', () => {
+   const i=+chk.dataset.i, v=String(chk.value), row=_tchTeachingRows[i];
+   row.classes = chk.checked ? Array.from(new Set(row.classes.concat(v))) : row.classes.filter(x=>String(x)!==v);
+   _renderTeachingRows(); }));
+  document.querySelectorAll('.tchTeachAllCls').forEach(b => b.addEventListener('click', () => {
+   _tchTeachingRows[+b.dataset.i].classes = ALL_CLASSES.slice(); _renderTeachingRows(); }));
+  document.querySelectorAll('.tchTeachNoCls').forEach(b => b.addEventListener('click', () => {
+   _tchTeachingRows[+b.dataset.i].classes = []; _renderTeachingRows(); }));
+  document.querySelectorAll('.tchTeachDel').forEach(b => b.addEventListener('click', () => {
+   _tchTeachingRows.splice(+b.dataset.i,1); _renderTeachingRows(); }));
+ };
+ document.getElementById('tchAddSubjectBtn')?.addEventListener('click', () => {
+  _tchTeachingRows.push({subject:'', classes:[]}); _renderTeachingRows();
+ });
+
  // Helper to open modal in either Add or Edit mode
  const openTeacherModal = (existingId) => {
   // Clear all fields
@@ -16878,8 +17134,7 @@ function attachTeachersTabEvents(){
   { const st = document.getElementById('tchStaffType'); if (st) st.value = 'Teaching'; }
   const prev = document.getElementById('tchPhotoPreview');
   if (prev) { prev.innerHTML = '?'; prev.textContent = '?'; }
-  // Reset class checkboxes
-  document.querySelectorAll('.tchClassChk').forEach(chk => { chk.checked = false; });
+  _tchTeachingRows = [{subject:'', classes:[]}];
 
   if (existingId) {
    const t = getTeachers().find(x => x.id === parseInt(existingId));
@@ -16904,9 +17159,9 @@ function attachTeachersTabEvents(){
     // Load qualification documents
     _tchQualDocs = Array.isArray(t.qualificationDocs) ? [...t.qualificationDocs] : [];
     _renderTchQualDocs();
-    // Tick assigned classes
-    const assigned = Array.isArray(t.assignedClasses) ? t.assignedClasses : [];
-    document.querySelectorAll('.tchClassChk').forEach(chk => { chk.checked = assigned.includes(chk.value); });
+    // Load this teacher's subject/class assignments (migrating older records automatically)
+    _tchTeachingRows = teacherTeaching(t).map(r => ({subject:r.subject, classes:r.classes.slice()}));
+    if (!_tchTeachingRows.length) _tchTeachingRows = [{subject:'', classes:[]}];
     if (prev) {
      if (t.photo) prev.innerHTML = `<img src="${t.photo}" class="w-full h-full object-cover">`;
      else prev.textContent = initials(t.name);
@@ -16918,6 +17173,7 @@ function attachTeachersTabEvents(){
    _renderTchQualDocs();
   }
   _applyStaffTypeUI();
+  _renderTeachingRows();
   document.getElementById('teacherModal').classList.remove('hidden');
  };
 
@@ -16977,8 +17233,24 @@ function attachTeachersTabEvents(){
    photo: document.getElementById('tchPhoto').value || '',
    qualificationDocs: _tchQualDocs.slice(),
    // Non-teaching staff don't handle classes.
-   assignedClasses: ((document.getElementById('tchStaffType')||{}).value === 'Non-Teaching') ? [] : Array.from(document.querySelectorAll('.tchClassChk')).filter(c => c.checked).map(c => c.value)
+   assignedClasses: []
   };
+  // Subjects & classes. Academic staff use the structured rows (each subject keeps its own
+  // classes); the flat subject/assignedClasses fields are kept in step for the rest of the app.
+  {
+   const type = (document.getElementById('tchStaffType')||{}).value || 'Teaching';
+   if (isAcademicStaff({staffType:type})) {
+    const rows = (_tchTeachingRows||[]).filter(r => r.subject && (r.classes||[]).length);
+    data.teaching = rows.map(r => ({subject:r.subject, classes:r.classes.map(String)}));
+    const legacy = teachingToLegacy(rows);
+    data.subject = legacy.subject;
+    data.assignedClasses = legacy.assignedClasses;
+   } else {
+    // Non-teaching / manager: the Subject box is their designation, and they hold no classes.
+    data.teaching = [];
+    data.assignedClasses = [];
+   }
+  }
   // Only write the salary if this user is allowed to see it — otherwise keep what's on record.
   if (canSeeSalary()) {
    data.salary = parseInt(document.getElementById('tchSalary').value) || 0;
