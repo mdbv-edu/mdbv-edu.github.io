@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1789228334 - printable class-wise Fee Register on the Fee Dashboard: every student with composite fee, paid and unpaid, class subtotals, grand total and signature lines; print all classes or one class -->
+<!-- BUILD: v-1789482216 - Excel exports alongside every print option: full student details (all KYC fields, class-filtered), full staff records (scope-filtered), and the class-wise fee register with subtotals & grand total; all respect SR/UDISE/salary permissions -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -4486,6 +4486,8 @@ function renderStudentsTab(){
     <button id="bulkImportStudentsBtn" class="bg-cyan-600 hover:bg-cyan-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Upload filled template to bulk-add students"><i class="fas fa-file-arrow-up mr-1"></i>Bulk Import</button>
     <input type="file" id="bulkImportStudentsFile" class="hidden" accept=".xlsx,.xls,.csv">
     <button id="exportStudentsBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-file-excel mr-1"></i>Export</button>
+    <button id="printStudentKycBtn" class="bg-slate-700 hover:bg-slate-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Print full KYC sheets for the selected class (or all)"><i class="fas fa-print mr-1"></i>Print KYC</button>
+    <button id="xlsStudentKycBtn" class="bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Export every detail to Excel for the selected class (or all)"><i class="fas fa-file-excel mr-1"></i>Full Details XLS</button>
     <button id="promoteStudentsBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-arrow-up mr-1"></i>Promote</button>
     <button id="assignRollBtn" class="bg-teal-600 hover:bg-teal-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Auto-number roll numbers alphabetically within each class"><i class="fas fa-sort-alpha-down mr-1"></i>Assign Roll Nos</button>
     <button id="viewArchiveBtn" class="bg-gray-600 hover:bg-gray-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="View students who left (TC issued)"><i class="fas fa-box-archive mr-1"></i>Archive${archivedCount?` (${archivedCount})`:''}</button>
@@ -4533,6 +4535,7 @@ function renderStudentsTab(){
         ? `<button class="restoreStudentBtn text-emerald-700 hover:text-emerald-900 ml-1" data-id="${s.id}" title="Restore (re-admit)"><i class="fas fa-rotate-left"></i></button>`
         : `<button class="archiveStudentBtn text-amber-600 hover:text-amber-800 ml-1" data-id="${s.id}" title="Issue TC / Archive"><i class="fas fa-box-archive"></i></button>`}
         ${canSeeSRNumber()?`<button class="tcPrintBtn text-rose-700 hover:text-rose-900 ml-1" data-id="${s.id}" title="Transfer Certificate (edit &amp; print)"><i class="fas fa-file-contract"></i></button>`:''}
+        <button class="kycPrintBtn text-slate-600 hover:text-slate-900 ml-1" data-id="${s.id}" title="Print full KYC / record sheet"><i class="fas fa-print"></i></button>
       <button class="delStudentBtn2 text-red-600 hover:text-red-800 ml-1" data-id="${s.id}" title="Delete"><i class="fas fa-trash"></i></button>
      </td>
     </tr>`).join('')||`<tr><td colspan="${11+(canSeeSRNumber()?1:0)+(canSeeConfidentialNumbers()?1:0)}" class="text-center text-gray-500 py-6">No students match</td></tr>`}
@@ -5384,7 +5387,7 @@ function renderTeachersTab(){
  const teaching = ts.filter(t => (t.staffType||'Teaching') === 'Teaching');
  const nonTeaching = ts.filter(t => (t.staffType||'Teaching') === 'Non-Teaching');
  const inStaffArchive = (typeof _staffArchiveView !== 'undefined') && _staffArchiveView;
- const staffRow = t => `<tr><td>${t.photo?`<img src="${t.photo}" class="w-9 h-9 rounded-full object-cover" alt="">`:`<div class="w-9 h-9 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold">${initials(t.name)}</div>`}</td><td class="font-medium">${t.name}</td><td>${t.subject||'-'}</td><td class="text-xs">${(t.staffType||'Teaching')==='Teaching'?((Array.isArray(t.assignedClasses)&&t.assignedClasses.length)?t.assignedClasses.join(', '):'<span class="text-amber-600">none</span>'):'<span class="text-gray-300">—</span>'}</td><td>${t.qualification||'-'}</td><td>${t.employeeId || t.udiseTeacherId || '-'}</td><td>${t.trainingDate?fmtDate(t.trainingDate):'-'}</td>${canSeeSalary()?`<td>Rs.${(t.salary||0).toLocaleString('en-IN')}</td>`:''}<td>${t.phone||'-'}</td><td class="whitespace-nowrap"><button class="editTeacherBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${t.id}" title="Edit"><i class="fas fa-edit"></i></button> <button class="archiveTeacherBtn bg-amber-500 hover:bg-amber-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Archive (keeps full record & salary history)"><i class="fas fa-box-archive"></i></button>${currentUser&&currentUser.role==='owner'?` <button class="delTeacherBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Delete permanently (Owner only)"><i class="fas fa-trash"></i></button>`:''}</td></tr>`;
+ const staffRow = t => `<tr><td>${t.photo?`<img src="${t.photo}" class="w-9 h-9 rounded-full object-cover" alt="">`:`<div class="w-9 h-9 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold">${initials(t.name)}</div>`}</td><td class="font-medium">${t.name}</td><td>${t.subject||'-'}</td><td class="text-xs">${(t.staffType||'Teaching')==='Teaching'?((Array.isArray(t.assignedClasses)&&t.assignedClasses.length)?t.assignedClasses.join(', '):'<span class="text-amber-600">none</span>'):'<span class="text-gray-300">—</span>'}</td><td>${t.qualification||'-'}</td><td>${t.employeeId || t.udiseTeacherId || '-'}</td><td>${t.trainingDate?fmtDate(t.trainingDate):'-'}</td>${canSeeSalary()?`<td>Rs.${(t.salary||0).toLocaleString('en-IN')}</td>`:''}<td>${t.phone||'-'}</td><td class="whitespace-nowrap"><button class="editTeacherBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${t.id}" title="Edit"><i class="fas fa-edit"></i></button> <button class="staffKycBtn bg-slate-600 hover:bg-slate-700 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Print staff record / KYC"><i class="fas fa-print"></i></button><button class="archiveTeacherBtn bg-amber-500 hover:bg-amber-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Archive (keeps full record & salary history)"><i class="fas fa-box-archive"></i></button>${currentUser&&currentUser.role==='owner'?` <button class="delTeacherBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Delete permanently (Owner only)"><i class="fas fa-trash"></i></button>`:''}</td></tr>`;
  // Archived staff row: shows when they left, why, and their salary history at a glance.
  const archivedRow = t => { const h = staffHistory(t.id); return `<tr class="bg-gray-50">
    <td class="font-medium">${escapeHTML(t.name||'')}</td>
@@ -5397,6 +5400,7 @@ function renderTeachersTab(){
    <td class="text-xs text-right font-semibold">Rs.${h.totalPaid.toLocaleString('en-IN')}</td>`:''}
    <td class="whitespace-nowrap">
     <button class="staffHistoryBtn bg-indigo-500 hover:bg-indigo-600 text-white px-2 py-1 rounded text-xs" data-id="${t.id}" title="Full record"><i class="fas fa-clock-rotate-left"></i></button>
+    <button class="staffKycBtn bg-slate-600 hover:bg-slate-700 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Print staff record / KYC"><i class="fas fa-print"></i></button>
     <button class="restoreTeacherBtn bg-emerald-500 hover:bg-emerald-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Restore to active staff"><i class="fas fa-rotate-left"></i></button>
    </td></tr>`; };
  return `<div>
@@ -5407,6 +5411,9 @@ function renderTeachersTab(){
    </div>
    <div class="flex gap-2">
     <button id="staffArchiveToggleBtn" class="bg-gray-600 hover:bg-gray-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Staff who have left — records kept">${inStaffArchive?'<i class="fas fa-arrow-left mr-1"></i>Back to Current Staff':`<i class="fas fa-box-archive mr-1"></i>Archive${archivedStaff.length?` (${archivedStaff.length})`:''}`}</button>
+    <select id="staffKycScope" class="border rounded-lg px-2 py-1.5 text-sm" style="width:auto"><option value="all">All current staff</option><option value="teaching">Teaching only</option><option value="nonteaching">Non-teaching only</option><option value="archived">Archived staff</option></select>
+    <button id="printStaffKycBtn" class="bg-slate-700 hover:bg-slate-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Print staff records & KYC"><i class="fas fa-print mr-1"></i>Print Records</button>
+    <button id="xlsStaffBtn" class="bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Export staff records to Excel"><i class="fas fa-file-excel mr-1"></i>XLS</button>
     <button id="addTeacherBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-plus mr-1"></i>Add Staff</button>
    </div>
   </div>
@@ -11063,6 +11070,7 @@ function renderFeeDashboard(){
   <div class="flex justify-end">
    <select id="feeRegClass" class="border rounded-lg px-2 py-1.5 text-sm" style="width:auto"><option value="">All classes</option>${ALL_CLASSES.map(c=>`<option value="${c}">${/^\d+$/.test(c)?'Class '+c:c}</option>`).join('')}</select>
    <button id="feeRegPrintBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium ml-2"><i class="fas fa-print mr-1"></i>Print Fee Register</button>
+   <button id="feeRegXlsBtn" class="bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium ml-2" title="Fee register as an Excel file"><i class="fas fa-file-excel mr-1"></i>Fee Register XLS</button>
    <button id="feeDashExportBtn" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-sm font-medium ml-2"><i class="fas fa-download mr-1"></i>Export CSV</button>
   </div>
   <p class="text-xs text-gray-400">Note: "Paid" is derived from outstanding balances (Total − Unpaid), which reflects what the school has recorded as collected. This can differ from receipts in the Ledger if balances were entered directly.</p>
@@ -11070,6 +11078,269 @@ function renderFeeDashboard(){
 }
 // Printable class-wise fee register: every student with decided fee, paid and unpaid,
 // with per-class subtotals and a grand total. Meant for checking against the hard-copy register.
+// ===== EXCEL EXPORTS (full detail) =====
+// Builds an .xls workbook from a header row + data rows. Values are escaped; numbers stay numeric.
+function _xlsSheet(title, headers, rows){
+ const esc = v => escapeHTML(String(v == null ? '' : v));
+ const cell = v => (typeof v === 'number')
+   ? `<td style="mso-number-format:'0'">${v}</td>`
+   : `<td style="mso-number-format:'\\@'">${esc(v)}</td>`;
+ return `<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="UTF-8">
+   <style>th{background:#7a1e2e;color:#fff;font-weight:bold;border:1px solid #999}td{border:1px solid #ccc}</style></head><body>
+   <table><tr><td colspan="${headers.length}" style="font-size:14pt;font-weight:bold">${esc(SCHOOL_INFO.name||'')}</td></tr>
+   <tr><td colspan="${headers.length}" style="font-weight:bold">${esc(title)}</td></tr>
+   <tr><td colspan="${headers.length}">Session ${esc(currentSession())} · Exported ${esc(new Date().toLocaleDateString('en-IN'))}</td></tr>
+   <tr></tr>
+   <tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr>
+   ${rows.map(r=>`<tr>${r.map(cell).join('')}</tr>`).join('')}
+   </table></body></html>`;
+}
+function _stamp(){ return new Date().toISOString().slice(0,10); }
+// Full student details (the Excel twin of the KYC sheet).
+function exportStudentKYCExcel(cls){
+ let list = getActiveStudents();
+ if (cls) list = list.filter(s => String(s.class||'').trim() === cls);
+ if (!list.length) { alert('No students found for that class.'); return; }
+ list.sort((a,b)=>String(a.class||'').localeCompare(String(b.class||'')) || (Number(a.rollNo)||9999)-(Number(b.rollNo)||9999));
+ const sr = canSeeSRNumber(), conf = canSeeConfidentialNumbers();
+ const headers = ['#','Name','Class','Section','Roll No','Admission No']
+   .concat(sr?['Scholar Reg (SR) No']:[]).concat(conf?['UDISE/PEN']:[])
+   .concat(['Aadhaar No',"Father's Name","Mother's Name",'Contact No','Village','Address','Date of Birth','Gender',
+     'Blood Group','Caste/Category','Date of Admission','Composite Fee','Annual Fee','Transport (monthly)',
+     'Previous Dues','Paid to Date','Outstanding Balance','BPL','CWSN','Free/RTE','Documents on File']);
+ const n = v => Math.round(Number(v)||0);
+ const rows = list.map((s,i) => {
+  const fee = n(s.decidedFees), due = n(s.feeBalance);
+  return [i+1, s.name||'', s.class||'', s.section||'', s.rollNo||'', s.admissionNo||'']
+   .concat(sr?[s.registrationNo||'']:[]).concat(conf?[s.pen||'']:[])
+   .concat([s.aadhaar||'', s.fatherName||'', s.motherName||s.parentName||'', s.parentPhone||'', s.village||'', s.address||'',
+     s.dob||'', s.gender||'', s.bloodGroup||'', s.caste||'', s.admissionDate||'',
+     fee, n(s.annualFees), n(s.transportMonthly), n(s.previousDues), Math.max(0,fee-due), due,
+     s.bpl?'Yes':'', s.cwsn?'Yes':'', s.freeChild?'Yes':'',
+     (s.documents||[]).map(d=>d.docType||'Document').join(', ')]);
+ });
+ const title = cls ? `Student Details — ${/^\d+$/.test(cls)?'Class '+cls:cls}` : 'Student Details — All Classes';
+ downloadExcel(_xlsSheet(title, headers, rows), 'MDBV_Student_Details_'+(cls?cls.replace(/\s+/g,'_')+'_':'')+_stamp());
+}
+// Full staff details (the Excel twin of the staff record sheet).
+function exportStaffExcel(which){
+ const all = getTeachers();
+ let list = (which === 'archived') ? all.filter(t=>t.archived) : all.filter(t=>!t.archived);
+ if (which === 'teaching') list = list.filter(t => (t.staffType||'Teaching') !== 'Non-Teaching');
+ if (which === 'nonteaching') list = list.filter(t => (t.staffType||'Teaching') === 'Non-Teaching');
+ if (!list.length) { alert('No staff found for that selection.'); return; }
+ list.sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
+ const pay = canSeeSalary();
+ const headers = ['#','Name','Staff Type','Subject','Assigned Classes','Qualification','Employee ID','UDISE Teacher ID',
+   'Phone','Email','Date of Birth','Blood Group','Address','Joined']
+   .concat(pay?['Monthly Salary','Bank Account','Salary Payments','Total Paid to Date','First Payment','Last Payment']:[])
+   .concat(['Attendance Days','Present/Leave','Attendance %','Status','Left On','Reason for Leaving','Qualification Docs']);
+ const rows = list.map((t,i) => {
+  const h = staffHistory(t.id);
+  return [i+1, t.name||'', t.staffType||'Teaching', t.subject||'', (t.assignedClasses||[]).join(', '),
+    t.qualification||'', t.employeeId||'', t.udiseTeacherId||'', t.phone||'', t.email||'',
+    t.dob||'', t.bloodGroup||'', t.address||'', t.trainingDate||t.joinDate||'']
+   .concat(pay?[Math.round(Number(t.salary)||0), t.bankAccount||'', h.paymentCount, h.totalPaid, h.firstPaid||'', h.lastPaid||'']:[])
+   .concat([h.attendanceDays, h.attendancePresent, h.attendancePct==null?'':h.attendancePct,
+     t.archived?'Archived':'Current', t.archivedDate||'', t.archiveReason||'',
+     (t.qualificationDocs||[]).map(d=>d.title||'Document').join(', ')]);
+ });
+ const titles = {archived:'Archived Staff Records', teaching:'Teaching Staff Records', nonteaching:'Non-Teaching Staff Records'};
+ downloadExcel(_xlsSheet(titles[which]||'Staff Records', headers, rows), 'MDBV_Staff_'+(which||'all')+'_'+_stamp());
+}
+// Class-wise fee register, with per-class subtotals and a grand total row.
+function exportFeeRegisterExcel(onlyClass){
+ const students = getActiveStudents();
+ const byCls = {};
+ students.forEach(s => { const c = String(s.class||'').trim();
+  if (onlyClass && c !== onlyClass) return; (byCls[c]=byCls[c]||[]).push(s); });
+ const classes = ALL_CLASSES.filter(c=>byCls[c]).concat(Object.keys(byCls).filter(c=>!ALL_CLASSES.includes(c)).sort());
+ if (!classes.length) { alert('No students found for that class.'); return; }
+ const sr = canSeeSRNumber();
+ const headers = ['Class','#'].concat(sr?['SR No']:[]).concat(['Student Name','Father / Parent','Roll','Composite Fee','Paid','Unpaid']);
+ const n = v => Math.round(Number(v)||0);
+ const rows = []; let gT=0,gP=0,gD=0;
+ classes.forEach(c => {
+  const list = byCls[c].slice().sort((a,b)=>(Number(a.rollNo)||9999)-(Number(b.rollNo)||9999));
+  let tT=0,tP=0,tD=0;
+  list.forEach((s,i) => {
+   const fee=n(s.decidedFees), due=n(s.feeBalance), paid=Math.max(0,fee-due);
+   tT+=fee; tD+=due; tP+=paid;
+   rows.push([c, i+1].concat(sr?[s.registrationNo||'']:[])
+     .concat([s.name||'', s.fatherName||s.motherName||s.parentName||'', s.rollNo||'', fee, paid, due]));
+  });
+  gT+=tT; gP+=tP; gD+=tD;
+  rows.push([c+' TOTAL',''].concat(sr?['']:[]).concat(['','','', tT, tP, tD]));
+  rows.push(new Array(headers.length).fill(''));
+ });
+ rows.push(['GRAND TOTAL',''].concat(sr?['']:[]).concat(['','','', gT, gP, gD]));
+ const title = onlyClass ? `Fee Register — ${/^\d+$/.test(onlyClass)?'Class '+onlyClass:onlyClass}` : 'Fee Register — All Classes';
+ downloadExcel(_xlsSheet(title, headers, rows), 'MDBV_Fee_Register_'+(onlyClass?onlyClass.replace(/\s+/g,'_')+'_':'')+_stamp());
+}
+
+// ===== KYC / DETAIL PRINT SHEETS (students & staff) =====
+function _kycStyles(){
+ return `@page{size:A4;margin:10mm}*{box-sizing:border-box}
+  body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;font-size:11.5px}
+  .head{text-align:center;border-bottom:2px solid #7a1e2e;padding-bottom:6px;margin-bottom:10px}
+  .sch{font-size:17px;font-weight:bold;color:#7a1e2e}.addr{font-size:10px;color:#444}
+  .ttl{font-size:13px;font-weight:bold;margin-top:4px}
+  .meta{font-size:10px;color:#555;display:flex;justify-content:space-between;margin-bottom:8px}
+  .card{border:1px solid #999;padding:8px 10px;margin-bottom:10px;page-break-inside:avoid}
+  .cardhead{display:flex;gap:10px;align-items:center;border-bottom:1px solid #ddd;padding-bottom:6px;margin-bottom:6px}
+  .photo{width:62px;height:72px;object-fit:cover;border:1px solid #bbb;background:#f5f5f5}
+  .nm{font-size:14px;font-weight:bold}.sub{font-size:10.5px;color:#555}
+  .sect{font-size:10.5px;font-weight:bold;color:#7a1e2e;margin:6px 0 3px;text-transform:uppercase;letter-spacing:.3px}
+  table.kv{width:100%;border-collapse:collapse}
+  table.kv td{border:1px solid #ddd;padding:3px 5px;font-size:10.5px;vertical-align:top}
+  table.kv td.k{background:#f7f7f7;width:130px;color:#555}
+  .grid2{display:flex;gap:10px}.grid2>div{flex:1}
+  .tags span{display:inline-block;border:1px solid #bbb;border-radius:9px;padding:1px 7px;font-size:9.5px;margin-right:4px}
+  .sign{display:flex;justify-content:space-between;margin-top:14px;font-size:10px;color:#444}
+  .noprint{text-align:center;margin:10px 0}
+  button{padding:8px 18px;font-size:14px;cursor:pointer;border-radius:6px;border:none;background:#7a1e2e;color:#fff}
+  @media print{.noprint{display:none}}`;
+}
+function _kycShell(title, bodyHTML){
+ const today = new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
+ const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${escapeHTML(title)}</title><style>${_kycStyles()}</style></head><body>
+  <div class="noprint"><button onclick="window.print()">Print / Save as PDF</button></div>
+  <div class="head"><div class="sch">${escapeHTML((SCHOOL_INFO.name||'').toUpperCase())}</div>
+   <div class="addr">${escapeHTML([SCHOOL_INFO.addressLine1,SCHOOL_INFO.addressLine2].filter(Boolean).join(', '))}</div>
+   <div class="ttl">${escapeHTML(title)}</div></div>
+  <div class="meta"><div>Session: ${escapeHTML(currentSession())}</div><div>Printed: ${today}</div></div>
+  ${bodyHTML}
+  <div class="sign"><div>Prepared by _____________________</div><div>Verified by _____________________</div><div>Principal _____________________</div></div>
+ </body></html>`;
+ const w = window.open('', '_blank');
+ if (!w) { alert('Please allow pop-ups to print.'); return; }
+ w.document.write(html); w.document.close();
+}
+function _kvRows(pairs){
+ const rows = pairs.filter(p => p && p[1] !== undefined && p[1] !== null && String(p[1]).trim() !== '');
+ if (!rows.length) return '';
+ return `<table class="kv">${rows.map(p=>`<tr><td class="k">${escapeHTML(p[0])}</td><td>${escapeHTML(String(p[1]))}</td></tr>`).join('')}</table>`;
+}
+// One student's full KYC record.
+function _studentKYCCard(s){
+ const inr = v => 'Rs.' + (Math.round(Number(v)||0)).toLocaleString('en-IN');
+ const tags = [s.bpl?'BPL':'', s.cwsn?'CWSN':'', s.freeChild?'Free/RTE':'', s.archived?'ARCHIVED (TC issued)':'']
+   .filter(Boolean).map(t=>`<span>${t}</span>`).join('');
+ const photo = s.photo ? `<img class="photo" src="${s.photo}">` : `<div class="photo"></div>`;
+ const idRows = [
+   ['Admission No.', s.admissionNo],
+   canSeeSRNumber() ? ['Scholar Reg (SR) No.', s.registrationNo] : null,
+   canSeeConfidentialNumbers() ? ['UDISE / PEN', s.pen] : null,
+   ['Aadhaar No.', s.aadhaar]
+ ];
+ const docs = (s.documents||[]).length
+   ? `<div class="sect">Documents on file</div><table class="kv">${(s.documents||[]).map(d=>`<tr><td class="k">${escapeHTML(d.docType||'Document')}</td><td>${escapeHTML(d.name||d.fileName||'Uploaded')}${d.uploadedAt?' · '+fmtDate(String(d.uploadedAt).slice(0,10)):''}</td></tr>`).join('')}</table>`
+   : `<div class="sect">Documents on file</div><table class="kv"><tr><td class="k">Documents</td><td>None uploaded</td></tr></table>`;
+ return `<div class="card">
+   <div class="cardhead">${photo}
+    <div style="flex:1">
+     <div class="nm">${escapeHTML(s.name||'')}</div>
+     <div class="sub">Class ${escapeHTML(String(s.class||''))}${s.section?' - '+escapeHTML(s.section):''} &nbsp;·&nbsp; Roll ${escapeHTML(String(s.rollNo||'-'))}</div>
+     <div class="tags" style="margin-top:3px">${tags}</div>
+    </div>
+   </div>
+   <div class="grid2">
+    <div>
+     <div class="sect">Student</div>
+     ${_kvRows([['Date of Birth', s.dob?fmtDate(s.dob):''],['Gender', s.gender],['Blood Group', s.bloodGroup],
+       ['Caste / Category', s.caste],['Date of Admission', s.admissionDate?fmtDate(s.admissionDate):'']])}
+     <div class="sect">Identification</div>
+     ${_kvRows(idRows)}
+    </div>
+    <div>
+     <div class="sect">Parents &amp; Contact</div>
+     ${_kvRows([["Father's Name", s.fatherName],["Mother's Name", s.motherName||s.parentName],
+       ['Contact No.', s.parentPhone],['Village', s.village],['Address', s.address]])}
+     <div class="sect">Fees</div>
+     ${_kvRows([['Composite / Decided Fee', s.decidedFees?inr(s.decidedFees):'not set'],
+       ['Annual Fee', s.annualFees?inr(s.annualFees):''],
+       ['Transport (monthly)', s.transportMonthly?inr(s.transportMonthly):''],
+       ['Previous Dues', s.previousDues?inr(s.previousDues):''],
+       ['Outstanding Balance', inr(s.feeBalance||0)],
+       ['Paid to date', inr(Math.max(0,(Number(s.decidedFees)||0)-(Number(s.feeBalance)||0)))]])}
+    </div>
+   </div>
+   ${docs}
+  </div>`;
+}
+function printStudentKYC(studentId){
+ const s = getStudents().find(x => x.id === parseInt(studentId));
+ if (!s) { alert('Student not found.'); return; }
+ _kycShell(`Student KYC / Record — ${s.name||''}`, _studentKYCCard(s));
+}
+function printStudentKYCBulk(cls){
+ let list = getActiveStudents();
+ if (cls) list = list.filter(s => String(s.class||'').trim() === cls);
+ if (!list.length) { alert('No students found for that class.'); return; }
+ list.sort((a,b) => String(a.class||'').localeCompare(String(b.class||'')) || (Number(a.rollNo)||9999)-(Number(b.rollNo)||9999));
+ const title = cls ? `Student KYC Records — ${/^\d+$/.test(cls)?'Class '+cls:cls}` : 'Student KYC Records — All Classes';
+ _kycShell(title, list.map(_studentKYCCard).join(''));
+}
+// One staff member's full record + KYC.
+function _staffKYCCard(t){
+ const inr = v => 'Rs.' + (Math.round(Number(v)||0)).toLocaleString('en-IN');
+ const h = staffHistory(t.id);
+ const photo = t.photo ? `<img class="photo" src="${t.photo}">` : `<div class="photo"></div>`;
+ const tags = [(t.staffType||'Teaching'), t.archived?'ARCHIVED (left)':''].filter(Boolean).map(x=>`<span>${escapeHTML(x)}</span>`).join('');
+ const docs = (t.qualificationDocs||[]).length
+   ? `<div class="sect">Qualification documents</div><table class="kv">${(t.qualificationDocs||[]).map(d=>`<tr><td class="k">${escapeHTML(d.title||'Document')}</td><td>${escapeHTML(d.name||d.fileName||'Uploaded')}</td></tr>`).join('')}</table>`
+   : '';
+ const salaryBlock = canSeeSalary()
+   ? `<div class="sect">Salary</div>${_kvRows([['Monthly Salary', t.salary?inr(t.salary):''],
+       ['Salary Start Month', t.salaryStartMonth],['Bank Account', t.bankAccount],
+       ['Payments Made', h.paymentCount],['Total Paid to Date', inr(h.totalPaid)],
+       ['First Payment', h.firstPaid?fmtDate(h.firstPaid):''],['Last Payment', h.lastPaid?fmtDate(h.lastPaid):'']])}`
+   : '';
+ return `<div class="card">
+   <div class="cardhead">${photo}
+    <div style="flex:1">
+     <div class="nm">${escapeHTML(t.name||'')}</div>
+     <div class="sub">${escapeHTML(t.staffType||'Teaching')}${t.subject?' · '+escapeHTML(t.subject):''}${(t.assignedClasses||[]).length?' · Classes: '+escapeHTML((t.assignedClasses||[]).join(', ')):''}</div>
+     <div class="tags" style="margin-top:3px">${tags}</div>
+    </div>
+   </div>
+   <div class="grid2">
+    <div>
+     <div class="sect">Personal</div>
+     ${_kvRows([['Date of Birth', t.dob?fmtDate(t.dob):''],['Blood Group', t.bloodGroup],
+       ['Phone', t.phone],['Email', t.email],['Address', t.address]])}
+     <div class="sect">Employment</div>
+     ${_kvRows([['Employee ID', t.employeeId],['UDISE Teacher ID', t.udiseTeacherId],
+       ['Qualification', t.qualification],['Joined / Training Date', t.trainingDate?fmtDate(t.trainingDate):(t.joinDate?fmtDate(t.joinDate):'')],
+       t.archived?['Left on', t.archivedDate?fmtDate(t.archivedDate):'']:null,
+       t.archived?['Reason', t.archiveReason]:null])}
+    </div>
+    <div>
+     ${salaryBlock}
+     <div class="sect">Attendance</div>
+     ${_kvRows([['Days Marked', h.attendanceDays||0],['Present/Leave', h.attendancePresent||0],
+       ['Attendance %', h.attendancePct!=null?h.attendancePct+'%':'-']])}
+    </div>
+   </div>
+   ${docs}
+  </div>`;
+}
+function printStaffKYC(teacherId){
+ const t = getTeachers().find(x => x.id === parseInt(teacherId));
+ if (!t) { alert('Staff member not found.'); return; }
+ _kycShell(`Staff Record / KYC — ${t.name||''}`, _staffKYCCard(t));
+}
+function printStaffKYCBulk(which){
+ const all = getTeachers();
+ let list = (which === 'archived') ? all.filter(t=>t.archived) : all.filter(t=>!t.archived);
+ if (which === 'teaching') list = list.filter(t => (t.staffType||'Teaching') !== 'Non-Teaching');
+ if (which === 'nonteaching') list = list.filter(t => (t.staffType||'Teaching') === 'Non-Teaching');
+ if (!list.length) { alert('No staff found for that selection.'); return; }
+ list.sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
+ const titles = {archived:'Archived Staff Records', teaching:'Teaching Staff Records & KYC', nonteaching:'Non-Teaching Staff Records & KYC'};
+ _kycShell(titles[which] || 'Staff Records & KYC', list.map(_staffKYCCard).join(''));
+}
+
 function printFeeRegister(onlyClass){
  const students = getActiveStudents();
  const order = ALL_CLASSES.slice();
@@ -11168,6 +11439,9 @@ function printFeeRegister(onlyClass){
 function _attachFeeDashboardEvents(){
  document.getElementById('feeRegPrintBtn')?.addEventListener('click', () => {
   printFeeRegister(document.getElementById('feeRegClass')?.value || '');
+ });
+ document.getElementById('feeRegXlsBtn')?.addEventListener('click', () => {
+  exportFeeRegisterExcel(document.getElementById('feeRegClass')?.value || '');
  });
  document.getElementById('feeDashExportBtn')?.addEventListener('click', () => {
   const { rows, tot } = _feeDashboardData();
@@ -15580,6 +15854,16 @@ function attachStudentsTabEvents(){
  // Students list's Edit/Add/Archive buttons open and operate the full modal.
  if (typeof attachDataManagementEvents === 'function') attachDataManagementEvents();
  document.querySelectorAll('.tcPrintBtn').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();openTCPrintModal(b.dataset.id);}));
+ document.querySelectorAll('.kycPrintBtn').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();printStudentKYC(b.dataset.id);}));
+ // Bulk KYC honours the class filter currently applied on screen
+ document.getElementById('printStudentKycBtn')?.addEventListener('click',()=>{
+  const cls = (studentFilter && studentFilter.class && studentFilter.class!=='all') ? studentFilter.class : '';
+  printStudentKYCBulk(cls);
+ });
+ document.getElementById('xlsStudentKycBtn')?.addEventListener('click',()=>{
+  const cls = (studentFilter && studentFilter.class && studentFilter.class!=='all') ? studentFilter.class : '';
+  exportStudentKYCExcel(cls);
+ });
  const refresh=()=>{
   if (isOwnerLevel()) renderApp();
   else if (currentUser && currentUser.role==='accountant'){
@@ -16358,6 +16642,9 @@ function attachTeachersTabEvents(){
 
  // Archive instead of delete: the record, salary history and attendance are all kept.
  document.getElementById('staffArchiveToggleBtn')?.addEventListener('click', () => { _staffArchiveView = !_staffArchiveView; refresh(); });
+ document.querySelectorAll('.staffKycBtn').forEach(b => b.addEventListener('click', () => printStaffKYC(b.dataset.id)));
+ document.getElementById('printStaffKycBtn')?.addEventListener('click', () => printStaffKYCBulk(document.getElementById('staffKycScope')?.value || 'all'));
+ document.getElementById('xlsStaffBtn')?.addEventListener('click', () => exportStaffExcel(document.getElementById('staffKycScope')?.value || 'all'));
  document.querySelectorAll('.archiveTeacherBtn').forEach(b => b.addEventListener('click', () => {
   const all = getTeachers();
   const t = all.find(x => x.id === parseInt(b.dataset.id));
