@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1789558722 - Sundays now paid automatically and dropped from the register (26 columns instead of 31); salary months enforced: 11 months for staff with no salary in June, 12 months for Principal and Manager, reflected in the statement, print and XLSX -->
+<!-- BUILD: v-1789559012 - removed the Mark-a-day panel from staff attendance; staff names now sorted alphabetically everywhere (register, salary statement, staff page groups, archive, and all printed/exported copies) -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -2840,6 +2840,8 @@ function getTeachers(){ return DB.getAll('teachers'); }
 // Current staff only — archived (left the school) records are kept for history but excluded
 // from rosters, salary lists, counts and assignment dropdowns.
 function getActiveTeachers(){ return DB.getAll('teachers').filter(t => !t.archived); }
+// Staff lists read most easily in alphabetical order.
+function sortStaffByName(list){ return (list||[]).slice().sort((a,b) => String(a.name||'').localeCompare(String(b.name||''), 'en', {sensitivity:'base'})); }
 // The kinds of staff the school employs. Principal and Manager are tracked separately from
 // general teaching/non-teaching so headcounts and reports read correctly.
 const STAFF_TYPES = ['Teaching','Non-Teaching','Principal','Manager'];
@@ -5478,9 +5480,9 @@ function renderComplianceTab(){
 function renderTeachersTab(){
  const allStaff = getTeachers();
  const ts = allStaff.filter(t => !t.archived);
- const archivedStaff = allStaff.filter(t => t.archived);
+ const archivedStaff = sortStaffByName(allStaff.filter(t => t.archived));
  const auditLog = getTeacherAuditLog().sort((a,b) => (b.at||'').localeCompare(a.at||''));
- const byType = {}; STAFF_TYPES.forEach(k => byType[k] = ts.filter(t => staffTypeOf(t) === k));
+ const byType = {}; STAFF_TYPES.forEach(k => byType[k] = sortStaffByName(ts.filter(t => staffTypeOf(t) === k)));
  const teaching = byType['Teaching'], nonTeaching = byType['Non-Teaching'];
  const inStaffArchive = (typeof _staffArchiveView !== 'undefined') && _staffArchiveView;
  const staffRow = t => `<tr><td>${t.photo?`<img src="${t.photo}" class="w-9 h-9 rounded-full object-cover" alt="">`:`<div class="w-9 h-9 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold">${initials(t.name)}</div>`}</td><td class="font-medium">${t.name}</td><td>${t.subject||'-'}</td><td class="text-xs">${isAcademicStaff(t)?(teacherTeaching(t).length?teacherTeaching(t).map(r=>`<div><b>${escapeHTML(r.subject)}</b>: ${escapeHTML(r.classes.join(', ')||'—')}</div>`).join(''):'<span class="text-amber-600">none</span>'):'<span class="text-gray-300">—</span>'}</td><td>${t.qualification||'-'}</td><td>${t.employeeId || t.udiseTeacherId || '-'}</td><td>${t.trainingDate?fmtDate(t.trainingDate):'-'}</td>${canSeeSalary()?`<td>Rs.${(t.salary||0).toLocaleString('en-IN')}</td>`:''}<td>${t.phone||'-'}</td><td class="whitespace-nowrap"><button class="editTeacherBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${t.id}" title="Edit"><i class="fas fa-edit"></i></button> <button class="staffKycBtn bg-slate-600 hover:bg-slate-700 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Print staff record / KYC"><i class="fas fa-print"></i></button><button class="archiveTeacherBtn bg-amber-500 hover:bg-amber-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Archive (keeps full record & salary history)"><i class="fas fa-box-archive"></i></button>${currentUser&&currentUser.role==='owner'?` <button class="delTeacherBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Delete permanently (Owner only)"><i class="fas fa-trash"></i></button>`:''}</td></tr>`;
@@ -7666,7 +7668,6 @@ function isSalaryMonth(t, ym){
  return FULL_YEAR_STAFF_TYPES.includes(staffTypeOf(t));
 }
 var _staffAttMonth = '';        // 'YYYY-MM'
-var _staffAttDay = '';          // the day shown in the quick-mark panel
 function _normAttCode(v){ if(!v) return ''; if(v==='L') return 'CL'; if(v==='H') return 'HDL'; return v; }
 function _monthKey(d){ return (d||new Date().toISOString().slice(0,10)).slice(0,7); }
 function _daysInMonth(ym){ const [y,m]=ym.split('-').map(Number); return new Date(y,m,0).getDate(); }
@@ -7713,7 +7714,7 @@ function staffSalaryForMonth(t, ym){
  return { ...s, gross, perDay, deduction, payable, paidMonths, noSalaryMonth: false };
 }
 function renderStaffAttendance(){
- const staff = getActiveTeachers();
+ const staff = sortStaffByName(getActiveTeachers());
  if (!_staffAttMonth) _staffAttMonth = _monthKey();
  const ym = _staffAttMonth, days = _daysInMonth(ym);
  const [yy,mm] = ym.split('-').map(Number);
@@ -7768,28 +7769,6 @@ function renderStaffAttendance(){
     <button id="staffAttExport" class="bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-file-excel mr-1"></i>XLSX</button>
    </div>
   </div>
-  ${(() => {
-   // Fast daily marking: one big row of buttons per staff member for a chosen day.
-   const today = new Date().toISOString().slice(0,10);
-   let day = (_staffAttDay && _staffAttDay.slice(0,7)===ym) ? _staffAttDay : (today.slice(0,7)===ym ? today : _ymd(ym,1));
-   if (workDays.length && _dayOfWeek(ym, parseInt(day.slice(8),10)) === 0) day = _ymd(ym, workDays[0]);  // never land on a Sunday
-   const dn = new Date(day+'T00:00:00').toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'short'});
-   return `<div class="bg-white rounded-xl border p-3">
-    <div class="flex flex-wrap items-center gap-2 mb-2">
-     <span class="font-bold text-gray-800"><i class="fas fa-calendar-check text-emerald-600 mr-1"></i>Mark a day</span>
-     <input type="date" id="staffAttDayPick" value="${day}" min="${_ymd(ym,1)}" max="${_ymd(ym,days)}" class="border rounded-lg px-2 py-1 text-sm" style="width:auto">
-     <span class="text-sm text-gray-500">${dn}</span>
-    </div>
-    <div class="space-y-1.5">
-     ${staff.map(t=>{ const cur=_normAttCode((sa[t.id]||{})[day])||'';
-      return `<div class="flex flex-wrap items-center gap-1.5 border-b pb-1.5">
-        <span class="text-sm font-medium" style="min-width:160px">${escapeHTML(t.name)}</span>
-        ${STAFF_ATT_CODES.filter(c=>c!=='S').map(c=>`<button class="staffDayBtn px-3 py-1.5 rounded-lg text-sm font-bold border" data-id="${t.id}" data-date="${day}" data-code="${c}"
-          style="${cur===c?`background:${STAFF_ATT_BG[c]};color:${STAFF_ATT_COLOR[c]};border-color:${STAFF_ATT_COLOR[c]}`:'background:#fff;color:#888;border-color:#e5e7eb'}">${STAFF_ATT_SHORT[c]}</button>`).join('')}
-        ${cur?`<span class="text-xs text-gray-500 ml-1">${STAFF_ATT_LABELS[cur]}</span>`:'<span class="text-xs text-gray-300 ml-1">not marked</span>'}
-       </div>`; }).join('')}
-    </div></div>`;
-  })()}
   <div class="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-900">
    <b>Leave policy:</b> ${LEAVE_POLICY.clAllowed} casual leave and ${LEAVE_POLICY.hdlAllowed} half-day leave a month are paid. Sundays are paid automatically and are not listed; government holidays are paid — mark them as GH. Any further leave is deducted.
    <br><b>Salary months:</b> staff are paid for 11 months (no salary in June). Principal and Manager are paid all 12 months.
@@ -7817,7 +7796,7 @@ function renderStaffAttendance(){
 // Salary statement for the month, driven by the register above.
 function renderStaffSalaryStatement(ym){
  if (!canSeeSalary()) return '';
- const staff = getActiveTeachers();
+ const staff = sortStaffByName(getActiveTeachers());
  const rows = staff.map(t => ({ t, s: staffSalaryForMonth(t, ym) }));
  const totGross = rows.reduce((a,r)=>a+r.s.gross,0);
  const totDed = rows.reduce((a,r)=>a+r.s.deduction,0);
@@ -7879,14 +7858,6 @@ function _attachStaffAttendanceEvents(){
   sel.style.borderColor = v ? (STAFF_ATT_COLOR[v]+'55') : '#e5e7eb';
   _refreshStaffAttView();
  }));
- document.getElementById('staffAttDayPick')?.addEventListener('change', e => { _staffAttDay = e.target.value; _refreshStaffAttView(); });
- document.querySelectorAll('.staffDayBtn').forEach(b => b.addEventListener('click', () => {
-  const sa = getStaffAttendance()||{}; const id = parseInt(b.dataset.id), d = b.dataset.date, c = b.dataset.code;
-  if (!sa[id]) sa[id] = {};
-  if (_normAttCode(sa[id][d]) === c) delete sa[id][d]; else sa[id][d] = c;   // tap again to clear
-  try { saveStaffAttendance(sa); } catch(e){}
-  _staffAttDay = d; _refreshStaffAttView();
- }));
  document.getElementById('staffAttFillPresent')?.addEventListener('click', () => {
   if (!confirm('Mark every blank day this month as Present for all staff?')) return;
   const sa = getStaffAttendance()||{}; const days=_daysInMonth(ym); const today=new Date().toISOString().slice(0,10);
@@ -7908,7 +7879,7 @@ function _refreshStaffAttView(){
 }
 
 function printStaffAttendanceRegister(ym){
- const staff = getActiveTeachers(), days = _daysInMonth(ym);
+ const staff = sortStaffByName(getActiveTeachers()), days = _daysInMonth(ym);
  const [yy,mm] = ym.split('-').map(Number);
  const monthName = new Date(yy,mm-1,1).toLocaleDateString('en-IN',{month:'long',year:'numeric'});
  const sa = getStaffAttendance()||{};
@@ -7944,7 +7915,7 @@ function printStaffAttendanceRegister(ym){
  const w=window.open('','_blank'); if(!w){alert('Please allow pop-ups to print.');return;} w.document.write(html); w.document.close();
 }
 function exportStaffAttendanceExcel(ym){
- const staff=getActiveTeachers(), days=_daysInMonth(ym), sa=getStaffAttendance()||{};
+ const staff=sortStaffByName(getActiveTeachers()), days=_daysInMonth(ym), sa=getStaffAttendance()||{};
  const workDays=[]; for(let d=1;d<=days;d++) if(_dayOfWeek(ym,d)!==0) workDays.push(d);
  const head=['Staff','Type']; workDays.forEach(d=>head.push(String(d)));
  head.push('Present (incl S/GH)','CL','HDL','Absent','Paid days','Unpaid days');
@@ -7957,7 +7928,7 @@ function exportStaffAttendanceExcel(ym){
  downloadExcel(_xlsSheet(title, head, rows), 'MDBV_Staff_Attendance_'+ym, 'Register');
 }
 function _salaryStatementRows(ym){
- return getActiveTeachers().map(t => ({ t, s: staffSalaryForMonth(t, ym) }));
+ return sortStaffByName(getActiveTeachers()).map(t => ({ t, s: staffSalaryForMonth(t, ym) }));
 }
 function printSalaryStatement(ym){
  if (!canSeeSalary()) { alert('You do not have permission to view salaries.'); return; }
