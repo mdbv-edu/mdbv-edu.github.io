@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1789558198 - staff attendance rebuilt as a monthly register (names x days 1-31, dropdown per day: P/CL/HDL/S/GH/A) with Present-incl-Sunday-GH, CL, HDL and paid-day totals; salary statement generated from it applying the one-CL one-HDL policy with Sundays and holidays paid; both printable and exportable -->
+<!-- BUILD: v-1789558722 - Sundays now paid automatically and dropped from the register (26 columns instead of 31); salary months enforced: 11 months for staff with no salary in June, 12 months for Principal and Manager, reflected in the statement, print and XLSX -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -7648,11 +7648,25 @@ const STAFF_ATT_CODES = ['P','CL','HDL','S','GH','A'];
 const STAFF_ATT_LABELS = { P:'Present', CL:'Casual Leave', HDL:'Half Day Leave', S:'Sunday', GH:'Govt Holiday', A:'Absent',
                            L:'Casual Leave', H:'Half Day Leave' };  // L/H kept for older records
 const STAFF_ATT_SHORT  = { P:'P', CL:'CL', HDL:'HDL', S:'S', GH:'GH', A:'A', L:'CL', H:'HDL' };
-const STAFF_ATT_COLOR  = { P:'#1f8f4e', CL:'#c8860d', HDL:'#b45309', S:'#64748b', GH:'#0891b2', A:'#b3261e' };
+const STAFF_ATT_COLOR  = { P:'#166534', CL:'#92400e', HDL:'#9a3412', S:'#334155', GH:'#155e75', A:'#991b1b' };
+const STAFF_ATT_BG     = { P:'#dcfce7', CL:'#fef3c7', HDL:'#fed7aa', S:'#e2e8f0', GH:'#cffafe', A:'#fecaca' };
 // School policy: one casual leave and one half-day leave a month are paid. Sundays and
 // government holidays are paid. Anything beyond that is deducted.
+// Sundays are taken as paid automatically from the calendar, so they are neither shown
+// in the register nor marked by hand.
 const LEAVE_POLICY = { clAllowed: 1, hdlAllowed: 1 };
+// Salary is paid for 11 months — there is no salary for June — except for the Principal
+// and the Manager, who are paid all 12 months.
+const NO_SALARY_MONTH = 6;                       // June
+const FULL_YEAR_STAFF_TYPES = ['Principal','Manager'];
+function staffPaidMonths(t){ return FULL_YEAR_STAFF_TYPES.includes(staffTypeOf(t)) ? 12 : 11; }
+function isSalaryMonth(t, ym){
+ const mm = parseInt(String(ym).slice(5,7), 10);
+ if (mm !== NO_SALARY_MONTH) return true;
+ return FULL_YEAR_STAFF_TYPES.includes(staffTypeOf(t));
+}
 var _staffAttMonth = '';        // 'YYYY-MM'
+var _staffAttDay = '';          // the day shown in the quick-mark panel
 function _normAttCode(v){ if(!v) return ''; if(v==='L') return 'CL'; if(v==='H') return 'HDL'; return v; }
 function _monthKey(d){ return (d||new Date().toISOString().slice(0,10)).slice(0,7); }
 function _daysInMonth(ym){ const [y,m]=ym.split('-').map(Number); return new Date(y,m,0).getDate(); }
@@ -7665,6 +7679,9 @@ function staffMonthSummary(teacherId, ym){
  const t = { P:0, CL:0, HDL:0, S:0, GH:0, A:0, unmarked:0 };
  for (let d=1; d<=days; d++){
   const code = _normAttCode(recs[_ymd(ym,d)]);
+  // Sundays are paid automatically; a mark is only needed if the person actually worked
+  // that day (or it was a holiday), so an unmarked Sunday still counts as a paid Sunday.
+  if (_dayOfWeek(ym,d) === 0) { if (code && code !== 'S') { if (t[code]!==undefined) t[code]++; } else t.S++; continue; }
   if (!code) { t.unmarked++; continue; }
   if (t[code] !== undefined) t[code]++;
  }
@@ -7681,6 +7698,11 @@ function staffMonthSummary(teacherId, ym){
 }
 function staffSalaryForMonth(t, ym){
  const s = staffMonthSummary(t.id, ym);
+ const paidMonths = staffPaidMonths(t);
+ if (!isSalaryMonth(t, ym)) {
+  return { ...s, gross: Number(t.salary)||0, perDay: 0, deduction: 0, payable: 0,
+           paidMonths, noSalaryMonth: true };
+ }
  const gross = Number(t.salary)||0;
  const days = s.days;
  const perDay = days ? gross/days : 0;
@@ -7688,7 +7710,7 @@ function staffSalaryForMonth(t, ym){
  // the payable figure is based only on what has been marked.
  const deduction = Math.round(perDay * s.unpaidDays);
  const payable = Math.max(0, Math.round(gross - deduction));
- return { ...s, gross, perDay, deduction, payable };
+ return { ...s, gross, perDay, deduction, payable, paidMonths, noSalaryMonth: false };
 }
 function renderStaffAttendance(){
  const staff = getActiveTeachers();
@@ -7697,69 +7719,97 @@ function renderStaffAttendance(){
  const [yy,mm] = ym.split('-').map(Number);
  const monthName = new Date(yy, mm-1, 1).toLocaleDateString('en-IN',{month:'long',year:'numeric'});
  const sa = getStaffAttendance()||{};
- const dayHead = [];
- for (let d=1; d<=days; d++){
-  const dow=_dayOfWeek(ym,d), sun=dow===0;
-  dayHead.push(`<th class="px-0 py-1 text-[10px] font-semibold ${sun?'bg-slate-200 text-slate-700':'bg-stone-100'}" style="min-width:34px" title="${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dow]}">${d}<div class="font-normal text-[9px] text-gray-500">${['S','M','T','W','T','F','S'][dow]}</div></th>`);
- }
+ // Sundays are paid automatically, so they are left out of the grid entirely.
+ const workDays = [];
+ for (let d=1; d<=days; d++) if (_dayOfWeek(ym,d) !== 0) workDays.push(d);
+ const sundayCount = days - workDays.length;
+ const dayHead = workDays.map(d => {
+  const dow=_dayOfWeek(ym,d);
+  return `<th class="px-0 py-1.5 font-bold bg-stone-200 text-gray-700" style="min-width:52px;font-size:13px" title="${['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][dow]}">${d}<div class="font-normal text-[10px] text-gray-500">${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dow]}</div></th>`;
+ });
  const row = t => {
   const recs = sa[t.id]||{}; const sum = staffMonthSummary(t.id, ym);
   const cells = [];
-  for (let d=1; d<=days; d++){
-   const key=_ymd(ym,d), cur=_normAttCode(recs[key])||'', sun=_dayOfWeek(ym,d)===0;
-   cells.push(`<td class="p-0 ${sun?'bg-slate-50':''}">
-     <select class="staffAttCell w-full text-[10px] border-0 bg-transparent text-center py-1 cursor-pointer" data-id="${t.id}" data-date="${key}"
-      style="color:${STAFF_ATT_COLOR[cur]||'#bbb'};font-weight:${cur?'700':'400'}">
-      <option value="" ${!cur?'selected':''}>–</option>
-      ${STAFF_ATT_CODES.map(c=>`<option value="${c}" ${cur===c?'selected':''}>${STAFF_ATT_SHORT[c]}</option>`).join('')}
+  for (const d of workDays){
+   const key=_ymd(ym,d), cur=_normAttCode(recs[key])||'';
+   cells.push(`<td class="p-0.5 border" style="min-width:52px">
+     <select class="staffAttCell w-full text-center cursor-pointer rounded" data-id="${t.id}" data-date="${key}"
+      style="font-size:14px;font-weight:800;padding:9px 0;border:1px solid ${cur?STAFF_ATT_COLOR[cur]+'55':'#e5e7eb'};
+             color:${cur?STAFF_ATT_COLOR[cur]:'#c8c8c8'};background:${cur?STAFF_ATT_BG[cur]:'#fff'};appearance:none;-webkit-appearance:none">
+      <option value="" ${!cur?'selected':''}>·</option>
+      ${STAFF_ATT_CODES.filter(c=>c!=='S').map(c=>`<option value="${c}" ${cur===c?'selected':''}>${STAFF_ATT_SHORT[c]}</option>`).join('')}
      </select></td>`);
   }
   const warn = (sum.clExtra>0||sum.hdlExtra>0);
   return `<tr class="border-b hover:bg-amber-50/30">
-    <td class="px-2 py-1 text-xs font-medium whitespace-nowrap sticky left-0 bg-white border-r">${escapeHTML(t.name)}
-     <div class="text-[10px] text-gray-400">${escapeHTML(staffTypeOf(t))}</div></td>
+    <td class="px-3 py-2 text-sm font-semibold whitespace-nowrap sticky left-0 bg-white border-r z-10" style="min-width:170px">${escapeHTML(t.name)}
+     <div class="text-[11px] font-normal text-gray-500">${escapeHTML(staffTypeOf(t))}</div></td>
     ${cells.join('')}
-    <td class="px-2 py-1 text-center text-xs font-bold text-emerald-700 border-l">${sum.presentTotal}</td>
-    <td class="px-2 py-1 text-center text-xs ${sum.clExtra?'text-rose-600 font-bold':'text-amber-700'}">${sum.CL}</td>
-    <td class="px-2 py-1 text-center text-xs ${sum.hdlExtra?'text-rose-600 font-bold':'text-amber-800'}">${sum.HDL}</td>
-    <td class="px-2 py-1 text-center text-xs text-rose-700">${sum.A}</td>
-    <td class="px-2 py-1 text-center text-xs font-semibold">${sum.paidDays}${warn?' <i class="fas fa-triangle-exclamation text-rose-500" title="Leave taken beyond the allowance — it will be deducted"></i>':''}</td>
+    <td class="px-3 py-2 text-center text-base font-bold text-emerald-700 border-l-2 bg-emerald-50">${sum.presentTotal}</td>
+    <td class="px-3 py-2 text-center text-base ${sum.clExtra?'text-rose-600 font-bold':'text-amber-700 font-semibold'} bg-amber-50">${sum.CL}</td>
+    <td class="px-3 py-2 text-center text-base ${sum.hdlExtra?'text-rose-600 font-bold':'text-orange-700 font-semibold'} bg-amber-50">${sum.HDL}</td>
+    <td class="px-3 py-2 text-center text-base font-semibold text-rose-700 bg-rose-50">${sum.A}</td>
+    <td class="px-3 py-2 text-center text-base font-bold bg-stone-100">${sum.paidDays}${warn?' <i class="fas fa-triangle-exclamation text-rose-500" title="Leave taken beyond the allowance — it will be deducted"></i>':''}</td>
    </tr>`;
  };
- const legend = STAFF_ATT_CODES.map(c=>`<span class="inline-flex items-center gap-1 mr-3"><b style="color:${STAFF_ATT_COLOR[c]}">${STAFF_ATT_SHORT[c]}</b><span class="text-gray-500">${STAFF_ATT_LABELS[c]}</span></span>`).join('');
+ const legend = STAFF_ATT_CODES.map(c=>`<span class="inline-flex items-center gap-1.5 mr-4 mb-1">
+   <b class="inline-flex items-center justify-center rounded px-2 py-1" style="color:${STAFF_ATT_COLOR[c]};background:${STAFF_ATT_BG[c]};border:1px solid ${STAFF_ATT_COLOR[c]}44;font-size:13px;min-width:38px">${STAFF_ATT_SHORT[c]}</b>
+   <span class="text-gray-600 text-xs">${STAFF_ATT_LABELS[c]}</span></span>`).join('');
  return `<div class="space-y-3">
   <div class="flex flex-wrap justify-between items-center gap-2">
    <div>
     <h2 class="text-lg font-bold"><i class="fas fa-user-clock text-emerald-600 mr-1"></i>Staff Attendance Register</h2>
-    <p class="text-xs text-gray-600">${monthName} · ${staff.length} staff · marked daily by the Principal</p>
+    <p class="text-xs text-gray-600">${monthName} · ${staff.length} staff · marked daily by the Principal · ${sundayCount} Sundays paid automatically (not shown)</p>
    </div>
    <div class="flex gap-2 flex-wrap items-center">
     <input type="month" id="staffAttMonth" value="${ym}" class="border rounded-lg px-2 py-1.5 text-sm" style="width:auto">
-    <button id="staffAttFillSundays" class="bg-slate-600 hover:bg-slate-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium" title="Mark every Sunday in this month"><i class="fas fa-calendar-day mr-1"></i>Mark Sundays</button>
     <button id="staffAttFillPresent" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium" title="Mark all remaining blank days as Present"><i class="fas fa-check-double mr-1"></i>Fill Present</button>
     <button id="staffAttPrint" class="bg-slate-700 hover:bg-slate-800 text-white px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-print mr-1"></i>Print</button>
     <button id="staffAttExport" class="bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-file-excel mr-1"></i>XLSX</button>
    </div>
   </div>
+  ${(() => {
+   // Fast daily marking: one big row of buttons per staff member for a chosen day.
+   const today = new Date().toISOString().slice(0,10);
+   let day = (_staffAttDay && _staffAttDay.slice(0,7)===ym) ? _staffAttDay : (today.slice(0,7)===ym ? today : _ymd(ym,1));
+   if (workDays.length && _dayOfWeek(ym, parseInt(day.slice(8),10)) === 0) day = _ymd(ym, workDays[0]);  // never land on a Sunday
+   const dn = new Date(day+'T00:00:00').toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'short'});
+   return `<div class="bg-white rounded-xl border p-3">
+    <div class="flex flex-wrap items-center gap-2 mb-2">
+     <span class="font-bold text-gray-800"><i class="fas fa-calendar-check text-emerald-600 mr-1"></i>Mark a day</span>
+     <input type="date" id="staffAttDayPick" value="${day}" min="${_ymd(ym,1)}" max="${_ymd(ym,days)}" class="border rounded-lg px-2 py-1 text-sm" style="width:auto">
+     <span class="text-sm text-gray-500">${dn}</span>
+    </div>
+    <div class="space-y-1.5">
+     ${staff.map(t=>{ const cur=_normAttCode((sa[t.id]||{})[day])||'';
+      return `<div class="flex flex-wrap items-center gap-1.5 border-b pb-1.5">
+        <span class="text-sm font-medium" style="min-width:160px">${escapeHTML(t.name)}</span>
+        ${STAFF_ATT_CODES.filter(c=>c!=='S').map(c=>`<button class="staffDayBtn px-3 py-1.5 rounded-lg text-sm font-bold border" data-id="${t.id}" data-date="${day}" data-code="${c}"
+          style="${cur===c?`background:${STAFF_ATT_BG[c]};color:${STAFF_ATT_COLOR[c]};border-color:${STAFF_ATT_COLOR[c]}`:'background:#fff;color:#888;border-color:#e5e7eb'}">${STAFF_ATT_SHORT[c]}</button>`).join('')}
+        ${cur?`<span class="text-xs text-gray-500 ml-1">${STAFF_ATT_LABELS[cur]}</span>`:'<span class="text-xs text-gray-300 ml-1">not marked</span>'}
+       </div>`; }).join('')}
+    </div></div>`;
+  })()}
   <div class="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-900">
-   <b>Leave policy:</b> ${LEAVE_POLICY.clAllowed} casual leave and ${LEAVE_POLICY.hdlAllowed} half-day leave a month are paid. Sundays and government holidays are paid. Any further leave is deducted from salary.
+   <b>Leave policy:</b> ${LEAVE_POLICY.clAllowed} casual leave and ${LEAVE_POLICY.hdlAllowed} half-day leave a month are paid. Sundays are paid automatically and are not listed; government holidays are paid — mark them as GH. Any further leave is deducted.
+   <br><b>Salary months:</b> staff are paid for 11 months (no salary in June). Principal and Manager are paid all 12 months.
   </div>
   <div class="bg-white rounded-xl border overflow-hidden">
    <div class="overflow-x-auto">
     <table class="text-xs" style="min-width:100%">
      <thead><tr>
-      <th class="px-2 py-1 text-left text-[11px] sticky left-0 bg-stone-100 border-r" style="min-width:150px">Staff</th>
+      <th class="px-3 py-1.5 text-left text-sm sticky left-0 bg-stone-200 border-r z-10 font-bold" style="min-width:170px">Staff</th>
       ${dayHead.join('')}
-      <th class="px-2 py-1 text-[10px] bg-emerald-50 border-l" title="Present + Sundays + Govt holidays">Present<div class="font-normal text-[9px]">incl S/GH</div></th>
-      <th class="px-2 py-1 text-[10px] bg-amber-50">CL</th>
-      <th class="px-2 py-1 text-[10px] bg-amber-50">HDL</th>
-      <th class="px-2 py-1 text-[10px] bg-rose-50">Absent</th>
-      <th class="px-2 py-1 text-[10px] bg-stone-100">Paid days</th>
+      <th class="px-3 py-1.5 text-xs bg-emerald-100 border-l-2 font-bold" title="Present + Sundays + Govt holidays">Present<div class="font-normal text-[10px]">incl S/GH</div></th>
+      <th class="px-3 py-1.5 text-xs bg-amber-100 font-bold">CL</th>
+      <th class="px-3 py-1.5 text-xs bg-amber-100 font-bold">HDL</th>
+      <th class="px-3 py-1.5 text-xs bg-rose-100 font-bold">Absent</th>
+      <th class="px-3 py-1.5 text-xs bg-stone-200 font-bold">Paid<div class="font-normal text-[10px]">days</div></th>
      </tr></thead>
-     <tbody>${staff.length?staff.map(row).join(''):`<tr><td colspan="${days+6}" class="text-center text-gray-400 py-4">No staff on record</td></tr>`}</tbody>
+     <tbody>${staff.length?staff.map(row).join(''):`<tr><td colspan="${workDays.length+6}" class="text-center text-gray-400 py-4">No staff on record</td></tr>`}</tbody>
     </table>
    </div>
-   <div class="px-3 py-2 border-t text-[11px]">${legend}</div>
+   <div class="px-3 py-2.5 border-t flex flex-wrap items-center">${legend}<span class="text-[11px] text-gray-400 ml-auto">Scroll sideways for the rest of the month →</span></div>
   </div>
   ${renderStaffSalaryStatement(ym)}
  </div>`;
@@ -7778,7 +7828,7 @@ function renderStaffSalaryStatement(ym){
  return `<div class="bg-white rounded-xl border overflow-hidden">
    <div class="flex flex-wrap justify-between items-center gap-2 px-4 pt-4 pb-2">
     <div><div class="font-bold text-gray-800"><i class="fas fa-money-check-dollar text-emerald-600 mr-1"></i>Salary Statement — ${monthName}</div>
-     <div class="text-xs text-gray-500">Worked out from the register above. Unmarked days are ignored, not deducted.</div></div>
+     <div class="text-xs text-gray-500">Worked out from the register above. Unmarked days are ignored, not deducted. Sundays are paid automatically.${(()=>{const mm=parseInt(ym.slice(5,7),10);return mm===NO_SALARY_MONTH?' <b class="text-amber-700">June — only Principal and Manager are paid this month.</b>':'';})()}</div></div>
     <div class="flex gap-2">
      <button id="salStmtPrint" class="bg-slate-700 hover:bg-slate-800 text-white px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-print mr-1"></i>Print statement</button>
      <button id="salStmtXls" class="bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-file-excel mr-1"></i>XLSX</button>
@@ -7791,20 +7841,20 @@ function renderStaffSalaryStatement(ym){
      <th class="px-3 py-2 text-center">Unpaid</th><th class="px-3 py-2 text-right">Deduction</th>
      <th class="px-3 py-2 text-right">Payable</th><th class="px-3 py-2 text-left">Note</th>
     </tr></thead>
-    <tbody>${rows.map(({t,s})=>`<tr class="border-b hover:bg-gray-50">
-      <td class="px-3 py-2 font-medium">${escapeHTML(t.name)}<div class="text-[10px] text-gray-400">${escapeHTML(staffTypeOf(t))}</div></td>
+    <tbody>${rows.map(({t,s})=>`<tr class="border-b hover:bg-gray-50 ${s.noSalaryMonth?'bg-gray-50 text-gray-400':''}">
+      <td class="px-3 py-2 font-medium">${escapeHTML(t.name)}<div class="text-[10px] text-gray-400">${escapeHTML(staffTypeOf(t))} · ${s.paidMonths}-month</div></td>
       <td class="px-3 py-2 text-right">${inr(s.gross)}</td>
       <td class="px-3 py-2 text-center text-gray-500">${s.days}</td>
       <td class="px-3 py-2 text-center font-semibold text-emerald-700">${s.paidDays}</td>
       <td class="px-3 py-2 text-center ${s.unpaidDays?'text-rose-700 font-semibold':'text-gray-400'}">${s.unpaidDays||'-'}</td>
       <td class="px-3 py-2 text-right ${s.deduction?'text-rose-700':'text-gray-400'}">${s.deduction?('-'+inr(s.deduction)):'-'}</td>
       <td class="px-3 py-2 text-right font-bold">${inr(s.payable)}</td>
-      <td class="px-3 py-2 text-xs text-gray-500">${[
+      <td class="px-3 py-2 text-xs ${s.noSalaryMonth?'text-gray-500 font-medium':'text-gray-500'}">${s.noSalaryMonth ? 'No salary in June (11-month staff)' : ([
         s.A?`${s.A} absent`:'',
         s.clExtra?`${s.clExtra} CL over limit`:'',
         s.hdlExtra?`${s.hdlExtra} HDL over limit`:'',
         s.unmarked?`${s.unmarked} day(s) not marked`:''
-      ].filter(Boolean).join(' · ')||'Full attendance'}</td></tr>`).join('')}</tbody>
+      ].filter(Boolean).join(' · ')||'Full attendance')}</td></tr>`).join('')}</tbody>
     <tfoot><tr class="bg-stone-50 font-bold border-t-2">
      <td class="px-3 py-2">TOTAL (${rows.length} staff)</td><td class="px-3 py-2 text-right">${inr(totGross)}</td>
      <td colspan="3"></td><td class="px-3 py-2 text-right text-rose-700">${totDed?('-'+inr(totDed)):'-'}</td>
@@ -7823,22 +7873,25 @@ function _attachStaffAttendanceEvents(){
   if (!sa[id]) sa[id] = {};
   if (sel.value) sa[id][sel.dataset.date] = sel.value; else delete sa[id][sel.dataset.date];
   try { saveStaffAttendance(sa); } catch(e){}
-  sel.style.color = STAFF_ATT_COLOR[sel.value] || '#bbb';
-  sel.style.fontWeight = sel.value ? '700' : '400';
+  const v = sel.value;
+  sel.style.color = v ? STAFF_ATT_COLOR[v] : '#c8c8c8';
+  sel.style.background = v ? STAFF_ATT_BG[v] : '#fff';
+  sel.style.borderColor = v ? (STAFF_ATT_COLOR[v]+'55') : '#e5e7eb';
   _refreshStaffAttView();
  }));
- document.getElementById('staffAttFillSundays')?.addEventListener('click', () => {
-  const sa = getStaffAttendance()||{}; const days=_daysInMonth(ym);
-  getActiveTeachers().forEach(t => { if(!sa[t.id]) sa[t.id]={};
-   for (let d=1; d<=days; d++) if (_dayOfWeek(ym,d)===0) sa[t.id][_ymd(ym,d)]='S'; });
+ document.getElementById('staffAttDayPick')?.addEventListener('change', e => { _staffAttDay = e.target.value; _refreshStaffAttView(); });
+ document.querySelectorAll('.staffDayBtn').forEach(b => b.addEventListener('click', () => {
+  const sa = getStaffAttendance()||{}; const id = parseInt(b.dataset.id), d = b.dataset.date, c = b.dataset.code;
+  if (!sa[id]) sa[id] = {};
+  if (_normAttCode(sa[id][d]) === c) delete sa[id][d]; else sa[id][d] = c;   // tap again to clear
   try { saveStaffAttendance(sa); } catch(e){}
-  showToast('Sundays marked'); renderApp();
- });
+  _staffAttDay = d; _refreshStaffAttView();
+ }));
  document.getElementById('staffAttFillPresent')?.addEventListener('click', () => {
   if (!confirm('Mark every blank day this month as Present for all staff?')) return;
   const sa = getStaffAttendance()||{}; const days=_daysInMonth(ym); const today=new Date().toISOString().slice(0,10);
   getActiveTeachers().forEach(t => { if(!sa[t.id]) sa[t.id]={};
-   for (let d=1; d<=days; d++){ const k=_ymd(ym,d); if (k>today) continue; if (!sa[t.id][k]) sa[t.id][k] = _dayOfWeek(ym,d)===0 ? 'S' : 'P'; } });
+   for (let d=1; d<=days; d++){ if (_dayOfWeek(ym,d)===0) continue; const k=_ymd(ym,d); if (k>today) continue; if (!sa[t.id][k]) sa[t.id][k]='P'; } });
   try { saveStaffAttendance(sa); } catch(e){}
   showToast('Blank days filled'); renderApp();
  });
@@ -7859,11 +7912,10 @@ function printStaffAttendanceRegister(ym){
  const [yy,mm] = ym.split('-').map(Number);
  const monthName = new Date(yy,mm-1,1).toLocaleDateString('en-IN',{month:'long',year:'numeric'});
  const sa = getStaffAttendance()||{};
- const head = []; for(let d=1;d<=days;d++){ const sun=_dayOfWeek(ym,d)===0;
-  head.push(`<th class="${sun?'sun':''}">${d}<br><span class="dw">${['S','M','T','W','T','F','S'][_dayOfWeek(ym,d)]}</span></th>`); }
+ const workDays=[]; for(let d=1;d<=days;d++) if(_dayOfWeek(ym,d)!==0) workDays.push(d);
+ const head = workDays.map(d=>`<th>${d}<br><span class="dw">${['S','M','T','W','T','F','S'][_dayOfWeek(ym,d)]}</span></th>`);
  const body = staff.map(t=>{ const recs=sa[t.id]||{}, s=staffMonthSummary(t.id,ym);
-  const cells=[]; for(let d=1;d<=days;d++){ const c=_normAttCode(recs[_ymd(ym,d)])||''; const sun=_dayOfWeek(ym,d)===0;
-   cells.push(`<td class="${sun?'sun':''}">${c?STAFF_ATT_SHORT[c]:''}</td>`); }
+  const cells=workDays.map(d=>{ const c=_normAttCode(recs[_ymd(ym,d)])||''; return `<td>${c?STAFF_ATT_SHORT[c]:''}</td>`; });
   return `<tr><td class="nm">${escapeHTML(t.name)}<br><span class="ty">${escapeHTML(staffTypeOf(t))}</span></td>${cells.join('')}
    <td class="tot">${s.presentTotal}</td><td class="tot">${s.CL}</td><td class="tot">${s.HDL}</td><td class="tot">${s.A}</td><td class="tot b">${s.paidDays}</td></tr>`;
  }).join('');
@@ -7886,18 +7938,19 @@ function printStaffAttendanceRegister(ym){
    <th>Present<br><span class="dw">incl S/GH</span></th><th>CL</th><th>HDL</th><th>Abs</th><th>Paid<br><span class="dw">days</span></th></tr></thead>
    <tbody>${body}</tbody></table>
   <div class="legend">${STAFF_ATT_CODES.map(c=>`<b>${STAFF_ATT_SHORT[c]}</b> = ${STAFF_ATT_LABELS[c]}`).join(' &nbsp;·&nbsp; ')}</div>
-  <div class="policy"><b>Leave policy:</b> ${LEAVE_POLICY.clAllowed} casual leave and ${LEAVE_POLICY.hdlAllowed} half-day leave per month are paid. Sundays and government holidays are paid. Further leave is deducted.</div>
+  <div class="policy"><b>Leave policy:</b> ${LEAVE_POLICY.clAllowed} casual leave and ${LEAVE_POLICY.hdlAllowed} half-day leave per month are paid. Sundays are paid automatically and are not listed; government holidays (GH) are paid. Further leave is deducted. <b>Salary months:</b> 11 for staff (none in June); 12 for Principal and Manager.</div>
   <div class="sign"><div>Marked by (Principal) ________________</div><div>Verified ________________</div><div>Manager / Owner ________________</div></div>
  </body></html>`;
  const w=window.open('','_blank'); if(!w){alert('Please allow pop-ups to print.');return;} w.document.write(html); w.document.close();
 }
 function exportStaffAttendanceExcel(ym){
  const staff=getActiveTeachers(), days=_daysInMonth(ym), sa=getStaffAttendance()||{};
- const head=['Staff','Type']; for(let d=1;d<=days;d++) head.push(String(d));
+ const workDays=[]; for(let d=1;d<=days;d++) if(_dayOfWeek(ym,d)!==0) workDays.push(d);
+ const head=['Staff','Type']; workDays.forEach(d=>head.push(String(d)));
  head.push('Present (incl S/GH)','CL','HDL','Absent','Paid days','Unpaid days');
  const rows=staff.map(t=>{ const recs=sa[t.id]||{}, s=staffMonthSummary(t.id,ym);
   const r=[t.name||'', staffTypeOf(t)];
-  for(let d=1;d<=days;d++){ const c=_normAttCode(recs[_ymd(ym,d)])||''; r.push(c?STAFF_ATT_SHORT[c]:''); }
+  workDays.forEach(d=>{ const c=_normAttCode(recs[_ymd(ym,d)])||''; r.push(c?STAFF_ATT_SHORT[c]:''); });
   r.push(s.presentTotal,s.CL,s.HDL,s.A,s.paidDays,s.unpaidDays); return r; });
  const [yy,mm]=ym.split('-').map(Number);
  const title='Staff Attendance Register — '+new Date(yy,mm-1,1).toLocaleDateString('en-IN',{month:'long',year:'numeric'});
@@ -7930,10 +7983,10 @@ function printSalaryStatement(ym){
   <table><thead><tr><th>#</th><th>Staff</th><th>Type</th><th>Gross</th><th>Days</th><th>Paid days</th><th>Unpaid</th><th>Deduction</th><th>Net payable</th><th>Signature</th></tr></thead>
   <tbody>${rows.map(({t,s},i)=>`<tr><td class="c">${i+1}</td><td>${escapeHTML(t.name||'')}</td><td>${escapeHTML(staffTypeOf(t))}</td>
    <td class="r">${inr(s.gross)}</td><td class="c">${s.days}</td><td class="c">${s.paidDays}</td><td class="c">${s.unpaidDays||'-'}</td>
-   <td class="r">${s.deduction?('-'+inr(s.deduction)):'-'}</td><td class="r"><b>${inr(s.payable)}</b></td><td style="width:90px"></td></tr>`).join('')}</tbody>
+   <td class="r">${s.deduction?('-'+inr(s.deduction)):'-'}</td><td class="r"><b>${s.noSalaryMonth?'NIL':inr(s.payable)}</b></td><td style="width:90px"></td></tr>`).join('')}</tbody>
   <tfoot><tr><td colspan="3">TOTAL — ${rows.length} staff</td><td class="r">${inr(tG)}</td><td colspan="3"></td>
    <td class="r">${tD?('-'+inr(tD)):'-'}</td><td class="r">${inr(tP)}</td><td></td></tr></tfoot></table>
-  <div class="policy"><b>Basis:</b> Net payable = Gross − (Gross ÷ days in month × unpaid days). ${LEAVE_POLICY.clAllowed} casual leave and ${LEAVE_POLICY.hdlAllowed} half-day leave a month are paid; Sundays and government holidays are paid; further leave is deducted. Days not yet marked are not deducted.</div>
+  <div class="policy"><b>Salary months:</b> 11 months for staff (no salary in June); Principal and Manager are paid 12 months. <b>Basis:</b> Net payable = Gross − (Gross ÷ days in month × unpaid days). Sundays are paid automatically. ${LEAVE_POLICY.clAllowed} casual leave and ${LEAVE_POLICY.hdlAllowed} half-day leave a month are paid; Sundays and government holidays are paid; further leave is deducted. Days not yet marked are not deducted.</div>
   <div class="sign"><div>Prepared by ____________</div><div>Principal ____________</div><div>Accountant ____________</div><div>Owner ____________</div></div>
  </body></html>`;
  const w=window.open('','_blank'); if(!w){alert('Please allow pop-ups to print.');return;} w.document.write(html); w.document.close();
@@ -7941,11 +7994,12 @@ function printSalaryStatement(ym){
 function exportSalaryStatementExcel(ym){
  if (!canSeeSalary()) { alert('You do not have permission to view salaries.'); return; }
  const rows=_salaryStatementRows(ym);
- const head=['#','Staff','Type','Gross salary','Days in month','Present (incl S/GH)','CL','HDL','Absent','Paid days','Unpaid days','Per-day rate','Deduction','Net payable','Note'];
+ const head=['#','Staff','Type','Gross salary','Days in month','Present (incl S/GH)','CL','HDL','Absent','Paid days','Unpaid days','Per-day rate','Deduction','Net payable','Salary months','Note'];
  const data=rows.map(({t,s},i)=>[i+1,t.name||'',staffTypeOf(t),s.gross,s.days,s.presentTotal,s.CL,s.HDL,s.A,s.paidDays,s.unpaidDays,
-   Math.round(s.perDay),s.deduction,s.payable,
-   [s.A?`${s.A} absent`:'',s.clExtra?`${s.clExtra} CL over limit`:'',s.hdlExtra?`${s.hdlExtra} HDL over limit`:'',s.unmarked?`${s.unmarked} unmarked`:''].filter(Boolean).join('; ')||'Full attendance']);
- data.push(['','TOTAL','',rows.reduce((a,r)=>a+r.s.gross,0),'','','','','','','','',rows.reduce((a,r)=>a+r.s.deduction,0),rows.reduce((a,r)=>a+r.s.payable,0),'']);
+   Math.round(s.perDay),s.deduction,s.payable,s.paidMonths,
+   s.noSalaryMonth ? 'No salary in June (11-month staff)' :
+   ([s.A?`${s.A} absent`:'',s.clExtra?`${s.clExtra} CL over limit`:'',s.hdlExtra?`${s.hdlExtra} HDL over limit`:'',s.unmarked?`${s.unmarked} unmarked`:''].filter(Boolean).join('; ')||'Full attendance')]);
+ data.push(['','TOTAL','',rows.reduce((a,r)=>a+r.s.gross,0),'','','','','','','','',rows.reduce((a,r)=>a+r.s.deduction,0),rows.reduce((a,r)=>a+r.s.payable,0),'','']);
  const [yy,mm]=ym.split('-').map(Number);
  const title='Salary Statement — '+new Date(yy,mm-1,1).toLocaleDateString('en-IN',{month:'long',year:'numeric'});
  downloadExcel(_xlsSheet(title, head, data), 'MDBV_Salary_Statement_'+ym, 'Salary');
