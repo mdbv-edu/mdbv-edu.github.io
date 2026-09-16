@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1789497320 - Staff Attendance made directly reachable: a Quick access row on both the Owner and Principal dashboards (Staff Attendance, Student Attendance, Fee Dashboard, Ledger/Homework) alongside the existing Attendance section cards -->
+<!-- BUILD: v-1789558198 - staff attendance rebuilt as a monthly register (names x days 1-31, dropdown per day: P/CL/HDL/S/GH/A) with Present-incl-Sunday-GH, CL, HDL and paid-day totals; salary statement generated from it applying the one-CL one-HDL policy with Sundays and holidays paid; both printable and exportable -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -7642,113 +7642,313 @@ function _attachAdminAttendanceEvents(){
 let _staffAttMode = 'mark';   // 'mark' | 'report'
 let _staffAttDate = null;
 let _staffReportId = '';       // selected staff for per-staff report ('' = all)
-const STAFF_ATT_LABELS = { P:'Present', A:'Absent', L:'Leave', H:'Half-day' };
+// ===== STAFF ATTENDANCE REGISTER + SALARY STATEMENT =====
+// Codes: P present · CL casual leave · HDL half-day leave · S Sunday · GH govt holiday · A absent
+const STAFF_ATT_CODES = ['P','CL','HDL','S','GH','A'];
+const STAFF_ATT_LABELS = { P:'Present', CL:'Casual Leave', HDL:'Half Day Leave', S:'Sunday', GH:'Govt Holiday', A:'Absent',
+                           L:'Casual Leave', H:'Half Day Leave' };  // L/H kept for older records
+const STAFF_ATT_SHORT  = { P:'P', CL:'CL', HDL:'HDL', S:'S', GH:'GH', A:'A', L:'CL', H:'HDL' };
+const STAFF_ATT_COLOR  = { P:'#1f8f4e', CL:'#c8860d', HDL:'#b45309', S:'#64748b', GH:'#0891b2', A:'#b3261e' };
+// School policy: one casual leave and one half-day leave a month are paid. Sundays and
+// government holidays are paid. Anything beyond that is deducted.
+const LEAVE_POLICY = { clAllowed: 1, hdlAllowed: 1 };
+var _staffAttMonth = '';        // 'YYYY-MM'
+function _normAttCode(v){ if(!v) return ''; if(v==='L') return 'CL'; if(v==='H') return 'HDL'; return v; }
+function _monthKey(d){ return (d||new Date().toISOString().slice(0,10)).slice(0,7); }
+function _daysInMonth(ym){ const [y,m]=ym.split('-').map(Number); return new Date(y,m,0).getDate(); }
+function _dayOfWeek(ym,day){ const [y,m]=ym.split('-').map(Number); return new Date(y,m-1,day).getDay(); }
+function _ymd(ym,day){ return ym+'-'+String(day).padStart(2,'0'); }
+// Tally one staff member's month and work out what is payable.
+function staffMonthSummary(teacherId, ym){
+ const recs = (getStaffAttendance()||{})[teacherId] || {};
+ const days = _daysInMonth(ym);
+ const t = { P:0, CL:0, HDL:0, S:0, GH:0, A:0, unmarked:0 };
+ for (let d=1; d<=days; d++){
+  const code = _normAttCode(recs[_ymd(ym,d)]);
+  if (!code) { t.unmarked++; continue; }
+  if (t[code] !== undefined) t[code]++;
+ }
+ const clPaid  = Math.min(t.CL, LEAVE_POLICY.clAllowed);
+ const clExtra = Math.max(0, t.CL - LEAVE_POLICY.clAllowed);
+ const hdlPaid = Math.min(t.HDL, LEAVE_POLICY.hdlAllowed);   // the allowed half-day is fully paid
+ const hdlExtra= Math.max(0, t.HDL - LEAVE_POLICY.hdlAllowed); // beyond that only the worked half is paid
+ // "Present" for the register total includes Sundays and government holidays.
+ const presentTotal = t.P + t.S + t.GH;
+ const paidDays = presentTotal + clPaid + hdlPaid + hdlExtra*0.5;
+ const unpaidDays = t.A + clExtra + hdlExtra*0.5;
+ return { ...t, presentTotal, clPaid, clExtra, hdlPaid, hdlExtra, paidDays, unpaidDays, days,
+          marked: days - t.unmarked };
+}
+function staffSalaryForMonth(t, ym){
+ const s = staffMonthSummary(t.id, ym);
+ const gross = Number(t.salary)||0;
+ const days = s.days;
+ const perDay = days ? gross/days : 0;
+ // Unmarked days are treated as not-yet-recorded, so they are neither paid nor deducted;
+ // the payable figure is based only on what has been marked.
+ const deduction = Math.round(perDay * s.unpaidDays);
+ const payable = Math.max(0, Math.round(gross - deduction));
+ return { ...s, gross, perDay, deduction, payable };
+}
 function renderStaffAttendance(){
- const staff = getTeachers().filter(t => !t.archived);
- const today = new Date().toISOString().slice(0,10);
- if (!_staffAttDate) _staffAttDate = today;
- return `<div>
-  <h2 class="text-lg font-bold mb-1"><i class="fas fa-user-clock text-emerald-600 mr-1"></i>Staff Attendance</h2>
-  <p class="text-xs text-gray-500 mb-3">Mark daily staff attendance and review each staff member's record.</p>
-  <div class="flex flex-wrap gap-2 mb-4">
-   <button class="staffAttModeBtn px-4 py-2 rounded-lg text-sm font-medium ${_staffAttMode==='mark'?'bg-emerald-600 text-white':'bg-gray-100 hover:bg-gray-200'}" data-mode="mark"><i class="fas fa-pen-to-square mr-1"></i>Mark Attendance</button>
-   <button class="staffAttModeBtn px-4 py-2 rounded-lg text-sm font-medium ${_staffAttMode==='report'?'bg-blue-600 text-white':'bg-gray-100 hover:bg-gray-200'}" data-mode="report"><i class="fas fa-chart-bar mr-1"></i>Reports / Per-Staff</button>
+ const staff = getActiveTeachers();
+ if (!_staffAttMonth) _staffAttMonth = _monthKey();
+ const ym = _staffAttMonth, days = _daysInMonth(ym);
+ const [yy,mm] = ym.split('-').map(Number);
+ const monthName = new Date(yy, mm-1, 1).toLocaleDateString('en-IN',{month:'long',year:'numeric'});
+ const sa = getStaffAttendance()||{};
+ const dayHead = [];
+ for (let d=1; d<=days; d++){
+  const dow=_dayOfWeek(ym,d), sun=dow===0;
+  dayHead.push(`<th class="px-0 py-1 text-[10px] font-semibold ${sun?'bg-slate-200 text-slate-700':'bg-stone-100'}" style="min-width:34px" title="${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dow]}">${d}<div class="font-normal text-[9px] text-gray-500">${['S','M','T','W','T','F','S'][dow]}</div></th>`);
+ }
+ const row = t => {
+  const recs = sa[t.id]||{}; const sum = staffMonthSummary(t.id, ym);
+  const cells = [];
+  for (let d=1; d<=days; d++){
+   const key=_ymd(ym,d), cur=_normAttCode(recs[key])||'', sun=_dayOfWeek(ym,d)===0;
+   cells.push(`<td class="p-0 ${sun?'bg-slate-50':''}">
+     <select class="staffAttCell w-full text-[10px] border-0 bg-transparent text-center py-1 cursor-pointer" data-id="${t.id}" data-date="${key}"
+      style="color:${STAFF_ATT_COLOR[cur]||'#bbb'};font-weight:${cur?'700':'400'}">
+      <option value="" ${!cur?'selected':''}>–</option>
+      ${STAFF_ATT_CODES.map(c=>`<option value="${c}" ${cur===c?'selected':''}>${STAFF_ATT_SHORT[c]}</option>`).join('')}
+     </select></td>`);
+  }
+  const warn = (sum.clExtra>0||sum.hdlExtra>0);
+  return `<tr class="border-b hover:bg-amber-50/30">
+    <td class="px-2 py-1 text-xs font-medium whitespace-nowrap sticky left-0 bg-white border-r">${escapeHTML(t.name)}
+     <div class="text-[10px] text-gray-400">${escapeHTML(staffTypeOf(t))}</div></td>
+    ${cells.join('')}
+    <td class="px-2 py-1 text-center text-xs font-bold text-emerald-700 border-l">${sum.presentTotal}</td>
+    <td class="px-2 py-1 text-center text-xs ${sum.clExtra?'text-rose-600 font-bold':'text-amber-700'}">${sum.CL}</td>
+    <td class="px-2 py-1 text-center text-xs ${sum.hdlExtra?'text-rose-600 font-bold':'text-amber-800'}">${sum.HDL}</td>
+    <td class="px-2 py-1 text-center text-xs text-rose-700">${sum.A}</td>
+    <td class="px-2 py-1 text-center text-xs font-semibold">${sum.paidDays}${warn?' <i class="fas fa-triangle-exclamation text-rose-500" title="Leave taken beyond the allowance — it will be deducted"></i>':''}</td>
+   </tr>`;
+ };
+ const legend = STAFF_ATT_CODES.map(c=>`<span class="inline-flex items-center gap-1 mr-3"><b style="color:${STAFF_ATT_COLOR[c]}">${STAFF_ATT_SHORT[c]}</b><span class="text-gray-500">${STAFF_ATT_LABELS[c]}</span></span>`).join('');
+ return `<div class="space-y-3">
+  <div class="flex flex-wrap justify-between items-center gap-2">
+   <div>
+    <h2 class="text-lg font-bold"><i class="fas fa-user-clock text-emerald-600 mr-1"></i>Staff Attendance Register</h2>
+    <p class="text-xs text-gray-600">${monthName} · ${staff.length} staff · marked daily by the Principal</p>
+   </div>
+   <div class="flex gap-2 flex-wrap items-center">
+    <input type="month" id="staffAttMonth" value="${ym}" class="border rounded-lg px-2 py-1.5 text-sm" style="width:auto">
+    <button id="staffAttFillSundays" class="bg-slate-600 hover:bg-slate-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium" title="Mark every Sunday in this month"><i class="fas fa-calendar-day mr-1"></i>Mark Sundays</button>
+    <button id="staffAttFillPresent" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium" title="Mark all remaining blank days as Present"><i class="fas fa-check-double mr-1"></i>Fill Present</button>
+    <button id="staffAttPrint" class="bg-slate-700 hover:bg-slate-800 text-white px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-print mr-1"></i>Print</button>
+    <button id="staffAttExport" class="bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-file-excel mr-1"></i>XLSX</button>
+   </div>
   </div>
-  ${staff.length===0 ? '<div class="bg-white border rounded-lg p-6 text-center text-gray-500">No staff added yet. Add staff in the <b>Staff</b> tab first.</div>' : (_staffAttMode==='mark' ? _renderStaffAttMark(staff) : _renderStaffAttReport(staff))}
+  <div class="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-900">
+   <b>Leave policy:</b> ${LEAVE_POLICY.clAllowed} casual leave and ${LEAVE_POLICY.hdlAllowed} half-day leave a month are paid. Sundays and government holidays are paid. Any further leave is deducted from salary.
+  </div>
+  <div class="bg-white rounded-xl border overflow-hidden">
+   <div class="overflow-x-auto">
+    <table class="text-xs" style="min-width:100%">
+     <thead><tr>
+      <th class="px-2 py-1 text-left text-[11px] sticky left-0 bg-stone-100 border-r" style="min-width:150px">Staff</th>
+      ${dayHead.join('')}
+      <th class="px-2 py-1 text-[10px] bg-emerald-50 border-l" title="Present + Sundays + Govt holidays">Present<div class="font-normal text-[9px]">incl S/GH</div></th>
+      <th class="px-2 py-1 text-[10px] bg-amber-50">CL</th>
+      <th class="px-2 py-1 text-[10px] bg-amber-50">HDL</th>
+      <th class="px-2 py-1 text-[10px] bg-rose-50">Absent</th>
+      <th class="px-2 py-1 text-[10px] bg-stone-100">Paid days</th>
+     </tr></thead>
+     <tbody>${staff.length?staff.map(row).join(''):`<tr><td colspan="${days+6}" class="text-center text-gray-400 py-4">No staff on record</td></tr>`}</tbody>
+    </table>
+   </div>
+   <div class="px-3 py-2 border-t text-[11px]">${legend}</div>
+  </div>
+  ${renderStaffSalaryStatement(ym)}
  </div>`;
 }
-function _renderStaffAttMark(staff){
- const sa = getStaffAttendance();
- const d = _staffAttDate;
- let p=0,a=0,l=0,h=0,unm=0;
- staff.forEach(t => { const v=(sa[t.id]||{})[d]; if(v==='P')p++; else if(v==='A')a++; else if(v==='L')l++; else if(v==='H')h++; else unm++; });
- const rows = staff.slice().sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(t => {
-  const cur = (sa[t.id]||{})[d] || '';
-  const btn = (code,label,onCls)=>`<button class="staffAttBtn text-xs px-2 py-1 rounded ${cur===code?onCls:'bg-gray-100 text-gray-600 hover:bg-gray-200'}" data-id="${t.id}" data-st="${code}">${label}</button>`;
-  return `<div class="flex items-center justify-between gap-2 py-1.5 border-b last:border-0">
-    <div class="text-sm min-w-0"><span class="font-medium">${escapeHTML(t.name)}</span> <span class="text-xs text-gray-400">${escapeHTML(t.subject||t.staffType||'')}</span></div>
-    <div class="flex gap-1 flex-shrink-0">
-     ${btn('P','Present','bg-emerald-600 text-white')}
-     ${btn('A','Absent','bg-rose-600 text-white')}
-     ${btn('L','Leave','bg-amber-500 text-white')}
-     ${btn('H','Half','bg-blue-500 text-white')}
-    </div>
-   </div>`;
- }).join('');
- return `<div class="bg-white border rounded-lg p-4">
-   <div class="flex flex-wrap items-end justify-between gap-3 mb-3">
-    <div><label class="text-xs font-medium">Date</label><input type="date" id="staffAttDate" value="${d}" style="width:auto;min-width:150px"></div>
+// Salary statement for the month, driven by the register above.
+function renderStaffSalaryStatement(ym){
+ if (!canSeeSalary()) return '';
+ const staff = getActiveTeachers();
+ const rows = staff.map(t => ({ t, s: staffSalaryForMonth(t, ym) }));
+ const totGross = rows.reduce((a,r)=>a+r.s.gross,0);
+ const totDed = rows.reduce((a,r)=>a+r.s.deduction,0);
+ const totPay = rows.reduce((a,r)=>a+r.s.payable,0);
+ const inr = v => 'Rs.' + Math.round(v||0).toLocaleString('en-IN');
+ const [yy,mm] = ym.split('-').map(Number);
+ const monthName = new Date(yy, mm-1, 1).toLocaleDateString('en-IN',{month:'long',year:'numeric'});
+ return `<div class="bg-white rounded-xl border overflow-hidden">
+   <div class="flex flex-wrap justify-between items-center gap-2 px-4 pt-4 pb-2">
+    <div><div class="font-bold text-gray-800"><i class="fas fa-money-check-dollar text-emerald-600 mr-1"></i>Salary Statement — ${monthName}</div>
+     <div class="text-xs text-gray-500">Worked out from the register above. Unmarked days are ignored, not deducted.</div></div>
     <div class="flex gap-2">
-     <button id="staffAllPresent" class="bg-emerald-100 hover:bg-emerald-200 text-emerald-800 px-3 py-2 rounded-lg text-xs font-medium"><i class="fas fa-check mr-1"></i>All Present</button>
+     <button id="salStmtPrint" class="bg-slate-700 hover:bg-slate-800 text-white px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-print mr-1"></i>Print statement</button>
+     <button id="salStmtXls" class="bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-file-excel mr-1"></i>XLSX</button>
     </div>
    </div>
-   <div class="flex flex-wrap gap-2 mb-3 text-xs">
-    <span class="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">${p} present</span>
-    <span class="bg-rose-100 text-rose-800 px-2 py-0.5 rounded-full">${a} absent</span>
-    <span class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">${l} leave</span>
-    <span class="bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">${h} half-day</span>
-    ${unm?`<span class="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">${unm} unmarked</span>`:''}
-   </div>
-   <div>${rows}</div>
+   <div class="overflow-x-auto"><table class="w-full text-sm">
+    <thead class="bg-stone-100 text-gray-700"><tr>
+     <th class="px-3 py-2 text-left">Staff</th><th class="px-3 py-2 text-right">Gross salary</th>
+     <th class="px-3 py-2 text-center">Days</th><th class="px-3 py-2 text-center">Paid days</th>
+     <th class="px-3 py-2 text-center">Unpaid</th><th class="px-3 py-2 text-right">Deduction</th>
+     <th class="px-3 py-2 text-right">Payable</th><th class="px-3 py-2 text-left">Note</th>
+    </tr></thead>
+    <tbody>${rows.map(({t,s})=>`<tr class="border-b hover:bg-gray-50">
+      <td class="px-3 py-2 font-medium">${escapeHTML(t.name)}<div class="text-[10px] text-gray-400">${escapeHTML(staffTypeOf(t))}</div></td>
+      <td class="px-3 py-2 text-right">${inr(s.gross)}</td>
+      <td class="px-3 py-2 text-center text-gray-500">${s.days}</td>
+      <td class="px-3 py-2 text-center font-semibold text-emerald-700">${s.paidDays}</td>
+      <td class="px-3 py-2 text-center ${s.unpaidDays?'text-rose-700 font-semibold':'text-gray-400'}">${s.unpaidDays||'-'}</td>
+      <td class="px-3 py-2 text-right ${s.deduction?'text-rose-700':'text-gray-400'}">${s.deduction?('-'+inr(s.deduction)):'-'}</td>
+      <td class="px-3 py-2 text-right font-bold">${inr(s.payable)}</td>
+      <td class="px-3 py-2 text-xs text-gray-500">${[
+        s.A?`${s.A} absent`:'',
+        s.clExtra?`${s.clExtra} CL over limit`:'',
+        s.hdlExtra?`${s.hdlExtra} HDL over limit`:'',
+        s.unmarked?`${s.unmarked} day(s) not marked`:''
+      ].filter(Boolean).join(' · ')||'Full attendance'}</td></tr>`).join('')}</tbody>
+    <tfoot><tr class="bg-stone-50 font-bold border-t-2">
+     <td class="px-3 py-2">TOTAL (${rows.length} staff)</td><td class="px-3 py-2 text-right">${inr(totGross)}</td>
+     <td colspan="3"></td><td class="px-3 py-2 text-right text-rose-700">${totDed?('-'+inr(totDed)):'-'}</td>
+     <td class="px-3 py-2 text-right">${inr(totPay)}</td><td></td>
+    </tr></tfoot>
+   </table></div>
   </div>`;
-}
-function _renderStaffAttReport(staff){
- const today=new Date().toISOString().slice(0,10);
- const monthAgo=new Date(); monthAgo.setDate(monthAgo.getDate()-30);
- const sa=getStaffAttendance();
- // per-staff summary cards
- const cards = staff.slice().sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(t=>{
-  const recs=sa[t.id]||{};
-  let p=0,a=0,l=0,h=0; Object.values(recs).forEach(v=>{if(v==='P')p++;else if(v==='A')a++;else if(v==='L')l++;else if(v==='H')h++;});
-  const worked=p+h*0.5; const totalDays=p+a+l+h; const pct=totalDays?Math.round((worked/totalDays)*100):0;
-  const open=_staffReportId===String(t.id);
-  return `<div class="border rounded-lg ${a>=3?'border-l-4 border-rose-400':''} ${open?'ring-2 ring-emerald-300':''}">
-    <div class="p-3 cursor-pointer hover:bg-emerald-50 staffRepRow" data-id="${t.id}">
-     <div class="flex items-center justify-between gap-2">
-      <div class="min-w-0"><div class="font-semibold text-sm">${escapeHTML(t.name)}</div><div class="text-xs text-gray-400">${escapeHTML(t.subject||t.staffType||'')}</div>
-       <div class="flex flex-wrap gap-2 mt-1 text-xs"><span class="text-emerald-700 font-semibold">${p} present</span><span class="text-rose-700 font-semibold">${a} absent</span><span class="text-amber-700 font-semibold">${l} leave</span>${h?`<span class="text-blue-700 font-semibold">${h} half</span>`:''}</div>
-      </div>
-      <div class="text-right flex-shrink-0"><div class="text-sm font-bold ${pct>=90?'text-emerald-700':pct>=75?'text-amber-700':'text-rose-700'}">${pct}%</div><div class="text-[10px] text-gray-400">${totalDays} days</div><i class="fas fa-chevron-${open?'up':'down'} text-gray-400 text-xs"></i></div>
-     </div>
-    </div>
-    ${open?_renderStaffDetail(t, recs):''}
-   </div>`;
- }).join('');
- return `<div class="bg-white border rounded-lg p-4">
-   <div class="flex items-center justify-between mb-3"><h3 class="font-semibold text-sm">Per-Staff Attendance <span class="text-gray-400 font-normal">(${staff.length})</span></h3>
-    <button id="staffAttExport" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-file-excel mr-1"></i>Export month</button></div>
-   <p class="text-xs text-gray-500 mb-3">Tap a staff member for their day-by-day record. % counts half-days as 0.5. Red bar flags 3+ absences.</p>
-   <div class="space-y-2">${cards}</div>
-  </div>`;
-}
-function _renderStaffDetail(t, recs){
- const entries = Object.keys(recs).sort((a,b)=>b.localeCompare(a));
- if (entries.length===0) return '<div class="border-t bg-gray-50 p-3 text-xs text-gray-500">No attendance recorded yet.</div>';
- const badge=(v)=>({P:'bg-emerald-100 text-emerald-800',A:'bg-rose-100 text-rose-800',L:'bg-amber-100 text-amber-800',H:'bg-blue-100 text-blue-800'})[v]||'bg-gray-100 text-gray-600';
- return `<div class="border-t bg-gray-50 p-3"><div class="grid sm:grid-cols-2 gap-x-4 gap-y-1">${entries.map(d=>`<div class="flex items-center justify-between text-xs py-0.5"><span>${fmtDate(d)}</span><span class="px-2 py-0.5 rounded-full ${badge(recs[d])}">${STAFF_ATT_LABELS[recs[d]]||recs[d]}</span></div>`).join('')}</div></div>`;
 }
 function _attachStaffAttendanceEvents(){
- document.querySelectorAll('.staffAttModeBtn').forEach(b=>b.addEventListener('click',()=>{_staffAttMode=b.dataset.mode; renderApp();}));
- document.getElementById('staffAttDate')?.addEventListener('change',e=>{_staffAttDate=e.target.value; renderApp();});
- const setStatus=(id,code)=>{ const sa=getStaffAttendance(); if(!sa[id])sa[id]={}; if(code==='clear')delete sa[id][_staffAttDate]; else sa[id][_staffAttDate]=code; try{saveStaffAttendance(sa);}catch(e){} };
- document.querySelectorAll('.staffAttBtn').forEach(b=>b.addEventListener('click',()=>{
-  const id=parseInt(b.dataset.id), code=b.dataset.st; const sa=getStaffAttendance(); const cur=(sa[id]||{})[_staffAttDate]||'';
-  setStatus(id, cur===code?'clear':code); renderApp();
+ if (!_staffAttMonth) _staffAttMonth = _monthKey();
+ const ym = _staffAttMonth;
+ document.getElementById('staffAttMonth')?.addEventListener('change', e => { _staffAttMonth = e.target.value || _monthKey(); renderApp(); });
+ // Each cell writes straight through, so the principal can mark a whole row quickly.
+ document.querySelectorAll('.staffAttCell').forEach(sel => sel.addEventListener('change', () => {
+  const sa = getStaffAttendance()||{}; const id = parseInt(sel.dataset.id);
+  if (!sa[id]) sa[id] = {};
+  if (sel.value) sa[id][sel.dataset.date] = sel.value; else delete sa[id][sel.dataset.date];
+  try { saveStaffAttendance(sa); } catch(e){}
+  sel.style.color = STAFF_ATT_COLOR[sel.value] || '#bbb';
+  sel.style.fontWeight = sel.value ? '700' : '400';
+  _refreshStaffAttView();
  }));
- document.getElementById('staffAllPresent')?.addEventListener('click',()=>{
-  const sa=getStaffAttendance(); getTeachers().filter(t=>!t.archived).forEach(t=>{ if(!sa[t.id])sa[t.id]={}; sa[t.id][_staffAttDate]='P'; }); try{saveStaffAttendance(sa);}catch(e){} renderApp();
+ document.getElementById('staffAttFillSundays')?.addEventListener('click', () => {
+  const sa = getStaffAttendance()||{}; const days=_daysInMonth(ym);
+  getActiveTeachers().forEach(t => { if(!sa[t.id]) sa[t.id]={};
+   for (let d=1; d<=days; d++) if (_dayOfWeek(ym,d)===0) sa[t.id][_ymd(ym,d)]='S'; });
+  try { saveStaffAttendance(sa); } catch(e){}
+  showToast('Sundays marked'); renderApp();
  });
- document.querySelectorAll('.staffRepRow').forEach(r=>r.addEventListener('click',()=>{
-  const id=r.dataset.id; _staffReportId=(_staffReportId===id)?'':id; renderApp();
- }));
- document.getElementById('staffAttExport')?.addEventListener('click',()=>{
-  const sa=getStaffAttendance(); const staff=getTeachers().filter(t=>!t.archived);
-  // last 31 days
-  const dates=[]; for(let i=30;i>=0;i--){const d=new Date();d.setDate(d.getDate()-i);dates.push(d.toISOString().slice(0,10));}
-  let h=`<table border="1"><tr><th>Staff</th><th>Role</th>${dates.map(d=>`<th>${d.slice(5)}</th>`).join('')}<th>P</th><th>A</th><th>L</th><th>H</th><th>%</th></tr>`;
-  staff.forEach(t=>{const recs=sa[t.id]||{};let p=0,a=0,l=0,hd=0;const cells=dates.map(d=>{const v=recs[d]||'';if(v==='P')p++;if(v==='A')a++;if(v==='L')l++;if(v==='H')hd++;return `<td>${v}</td>`;}).join('');const tot=p+a+l+hd;const pct=tot?Math.round(((p+hd*0.5)/tot)*100):0;h+=`<tr><td>${t.name}</td><td>${t.subject||t.staffType||''}</td>${cells}<td>${p}</td><td>${a}</td><td>${l}</td><td>${hd}</td><td>${pct}%</td></tr>`;});
-  h+='</table>'; downloadExcel(h, SCHOOL_INFO.shortName+'_StaffAttendance_'+new Date().toISOString().slice(0,10)); showToast('Staff attendance exported');
+ document.getElementById('staffAttFillPresent')?.addEventListener('click', () => {
+  if (!confirm('Mark every blank day this month as Present for all staff?')) return;
+  const sa = getStaffAttendance()||{}; const days=_daysInMonth(ym); const today=new Date().toISOString().slice(0,10);
+  getActiveTeachers().forEach(t => { if(!sa[t.id]) sa[t.id]={};
+   for (let d=1; d<=days; d++){ const k=_ymd(ym,d); if (k>today) continue; if (!sa[t.id][k]) sa[t.id][k] = _dayOfWeek(ym,d)===0 ? 'S' : 'P'; } });
+  try { saveStaffAttendance(sa); } catch(e){}
+  showToast('Blank days filled'); renderApp();
  });
+ document.getElementById('staffAttPrint')?.addEventListener('click', () => printStaffAttendanceRegister(ym));
+ document.getElementById('staffAttExport')?.addEventListener('click', () => exportStaffAttendanceExcel(ym));
+ document.getElementById('salStmtPrint')?.addEventListener('click', () => printSalaryStatement(ym));
+ document.getElementById('salStmtXls')?.addEventListener('click', () => exportSalaryStatementExcel(ym));
+}
+function _refreshStaffAttView(){
+ // Re-paint just the totals and the salary statement, so typing in the grid stays smooth.
+ const host = document.getElementById('adminTabContent') || document.getElementById('principalTabContent') || document.getElementById('accTabContent');
+ if (host) { host.innerHTML = renderStaffAttendance(); _attachStaffAttendanceEvents(); }
+ else renderApp();
+}
+
+function printStaffAttendanceRegister(ym){
+ const staff = getActiveTeachers(), days = _daysInMonth(ym);
+ const [yy,mm] = ym.split('-').map(Number);
+ const monthName = new Date(yy,mm-1,1).toLocaleDateString('en-IN',{month:'long',year:'numeric'});
+ const sa = getStaffAttendance()||{};
+ const head = []; for(let d=1;d<=days;d++){ const sun=_dayOfWeek(ym,d)===0;
+  head.push(`<th class="${sun?'sun':''}">${d}<br><span class="dw">${['S','M','T','W','T','F','S'][_dayOfWeek(ym,d)]}</span></th>`); }
+ const body = staff.map(t=>{ const recs=sa[t.id]||{}, s=staffMonthSummary(t.id,ym);
+  const cells=[]; for(let d=1;d<=days;d++){ const c=_normAttCode(recs[_ymd(ym,d)])||''; const sun=_dayOfWeek(ym,d)===0;
+   cells.push(`<td class="${sun?'sun':''}">${c?STAFF_ATT_SHORT[c]:''}</td>`); }
+  return `<tr><td class="nm">${escapeHTML(t.name)}<br><span class="ty">${escapeHTML(staffTypeOf(t))}</span></td>${cells.join('')}
+   <td class="tot">${s.presentTotal}</td><td class="tot">${s.CL}</td><td class="tot">${s.HDL}</td><td class="tot">${s.A}</td><td class="tot b">${s.paidDays}</td></tr>`;
+ }).join('');
+ const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Staff Attendance Register — ${escapeHTML(monthName)}</title><style>
+  @page{size:A4 landscape;margin:7mm}body{font-family:Arial;margin:0;font-size:9px;color:#111}
+  .head{text-align:center;border-bottom:2px solid #7a1e2e;padding-bottom:4px;margin-bottom:6px}
+  .sch{font-size:15px;font-weight:bold;color:#7a1e2e}.ttl{font-size:12px;font-weight:bold;margin-top:2px}
+  table{width:100%;border-collapse:collapse}th,td{border:1px solid #999;padding:1px 2px;text-align:center;font-size:8px;height:16px}
+  th{background:#eee;font-size:8px}td.nm{text-align:left;font-weight:bold;font-size:8.5px;white-space:nowrap}
+  .ty{font-weight:normal;color:#666;font-size:7px}.dw{font-size:6.5px;color:#777;font-weight:normal}
+  .sun{background:#e8eaed}.tot{background:#f6f6f6;font-weight:bold}.b{background:#e7f5ec}
+  .legend{margin-top:6px;font-size:8px}.policy{margin-top:4px;font-size:8px;border:1px solid #d9a441;background:#fdf6e3;padding:3px 5px}
+  .sign{margin-top:18px;display:flex;justify-content:space-between;font-size:9px}
+  .noprint{text-align:center;margin:8px 0}button{padding:7px 16px;border:none;border-radius:5px;background:#7a1e2e;color:#fff;cursor:pointer}
+  @media print{.noprint{display:none}}</style></head><body>
+  <div class="noprint"><button onclick="window.print()">Print / Save as PDF</button></div>
+  <div class="head"><div class="sch">${escapeHTML((SCHOOL_INFO.name||'').toUpperCase())}</div>
+   <div class="ttl">Staff Attendance Register — ${escapeHTML(monthName)}</div></div>
+  <table><thead><tr><th style="text-align:left">Staff</th>${head.join('')}
+   <th>Present<br><span class="dw">incl S/GH</span></th><th>CL</th><th>HDL</th><th>Abs</th><th>Paid<br><span class="dw">days</span></th></tr></thead>
+   <tbody>${body}</tbody></table>
+  <div class="legend">${STAFF_ATT_CODES.map(c=>`<b>${STAFF_ATT_SHORT[c]}</b> = ${STAFF_ATT_LABELS[c]}`).join(' &nbsp;·&nbsp; ')}</div>
+  <div class="policy"><b>Leave policy:</b> ${LEAVE_POLICY.clAllowed} casual leave and ${LEAVE_POLICY.hdlAllowed} half-day leave per month are paid. Sundays and government holidays are paid. Further leave is deducted.</div>
+  <div class="sign"><div>Marked by (Principal) ________________</div><div>Verified ________________</div><div>Manager / Owner ________________</div></div>
+ </body></html>`;
+ const w=window.open('','_blank'); if(!w){alert('Please allow pop-ups to print.');return;} w.document.write(html); w.document.close();
+}
+function exportStaffAttendanceExcel(ym){
+ const staff=getActiveTeachers(), days=_daysInMonth(ym), sa=getStaffAttendance()||{};
+ const head=['Staff','Type']; for(let d=1;d<=days;d++) head.push(String(d));
+ head.push('Present (incl S/GH)','CL','HDL','Absent','Paid days','Unpaid days');
+ const rows=staff.map(t=>{ const recs=sa[t.id]||{}, s=staffMonthSummary(t.id,ym);
+  const r=[t.name||'', staffTypeOf(t)];
+  for(let d=1;d<=days;d++){ const c=_normAttCode(recs[_ymd(ym,d)])||''; r.push(c?STAFF_ATT_SHORT[c]:''); }
+  r.push(s.presentTotal,s.CL,s.HDL,s.A,s.paidDays,s.unpaidDays); return r; });
+ const [yy,mm]=ym.split('-').map(Number);
+ const title='Staff Attendance Register — '+new Date(yy,mm-1,1).toLocaleDateString('en-IN',{month:'long',year:'numeric'});
+ downloadExcel(_xlsSheet(title, head, rows), 'MDBV_Staff_Attendance_'+ym, 'Register');
+}
+function _salaryStatementRows(ym){
+ return getActiveTeachers().map(t => ({ t, s: staffSalaryForMonth(t, ym) }));
+}
+function printSalaryStatement(ym){
+ if (!canSeeSalary()) { alert('You do not have permission to view salaries.'); return; }
+ const rows=_salaryStatementRows(ym);
+ const [yy,mm]=ym.split('-').map(Number);
+ const monthName=new Date(yy,mm-1,1).toLocaleDateString('en-IN',{month:'long',year:'numeric'});
+ const inr=v=>'Rs.'+Math.round(v||0).toLocaleString('en-IN');
+ const tG=rows.reduce((a,r)=>a+r.s.gross,0), tD=rows.reduce((a,r)=>a+r.s.deduction,0), tP=rows.reduce((a,r)=>a+r.s.payable,0);
+ const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Salary Statement — ${escapeHTML(monthName)}</title><style>
+  @page{size:A4;margin:10mm}body{font-family:Arial;margin:0;font-size:11px;color:#111}
+  .head{text-align:center;border-bottom:2px solid #7a1e2e;padding-bottom:5px;margin-bottom:8px}
+  .sch{font-size:16px;font-weight:bold;color:#7a1e2e}.ttl{font-size:13px;font-weight:bold;margin-top:3px}
+  table{width:100%;border-collapse:collapse;margin-top:6px}th,td{border:1px solid #aaa;padding:4px 5px;font-size:10px}
+  th{background:#eee}td.r{text-align:right}td.c{text-align:center}
+  tfoot td{background:#f6f6f6;font-weight:bold}
+  .policy{margin-top:8px;font-size:9px;border:1px solid #d9a441;background:#fdf6e3;padding:4px 6px}
+  .sign{margin-top:26px;display:flex;justify-content:space-between;font-size:10px}
+  .noprint{text-align:center;margin:8px 0}button{padding:7px 16px;border:none;border-radius:5px;background:#7a1e2e;color:#fff;cursor:pointer}
+  @media print{.noprint{display:none}}</style></head><body>
+  <div class="noprint"><button onclick="window.print()">Print / Save as PDF</button></div>
+  <div class="head"><div class="sch">${escapeHTML((SCHOOL_INFO.name||'').toUpperCase())}</div>
+   <div class="ttl">Salary Statement — ${escapeHTML(monthName)}</div></div>
+  <table><thead><tr><th>#</th><th>Staff</th><th>Type</th><th>Gross</th><th>Days</th><th>Paid days</th><th>Unpaid</th><th>Deduction</th><th>Net payable</th><th>Signature</th></tr></thead>
+  <tbody>${rows.map(({t,s},i)=>`<tr><td class="c">${i+1}</td><td>${escapeHTML(t.name||'')}</td><td>${escapeHTML(staffTypeOf(t))}</td>
+   <td class="r">${inr(s.gross)}</td><td class="c">${s.days}</td><td class="c">${s.paidDays}</td><td class="c">${s.unpaidDays||'-'}</td>
+   <td class="r">${s.deduction?('-'+inr(s.deduction)):'-'}</td><td class="r"><b>${inr(s.payable)}</b></td><td style="width:90px"></td></tr>`).join('')}</tbody>
+  <tfoot><tr><td colspan="3">TOTAL — ${rows.length} staff</td><td class="r">${inr(tG)}</td><td colspan="3"></td>
+   <td class="r">${tD?('-'+inr(tD)):'-'}</td><td class="r">${inr(tP)}</td><td></td></tr></tfoot></table>
+  <div class="policy"><b>Basis:</b> Net payable = Gross − (Gross ÷ days in month × unpaid days). ${LEAVE_POLICY.clAllowed} casual leave and ${LEAVE_POLICY.hdlAllowed} half-day leave a month are paid; Sundays and government holidays are paid; further leave is deducted. Days not yet marked are not deducted.</div>
+  <div class="sign"><div>Prepared by ____________</div><div>Principal ____________</div><div>Accountant ____________</div><div>Owner ____________</div></div>
+ </body></html>`;
+ const w=window.open('','_blank'); if(!w){alert('Please allow pop-ups to print.');return;} w.document.write(html); w.document.close();
+}
+function exportSalaryStatementExcel(ym){
+ if (!canSeeSalary()) { alert('You do not have permission to view salaries.'); return; }
+ const rows=_salaryStatementRows(ym);
+ const head=['#','Staff','Type','Gross salary','Days in month','Present (incl S/GH)','CL','HDL','Absent','Paid days','Unpaid days','Per-day rate','Deduction','Net payable','Note'];
+ const data=rows.map(({t,s},i)=>[i+1,t.name||'',staffTypeOf(t),s.gross,s.days,s.presentTotal,s.CL,s.HDL,s.A,s.paidDays,s.unpaidDays,
+   Math.round(s.perDay),s.deduction,s.payable,
+   [s.A?`${s.A} absent`:'',s.clExtra?`${s.clExtra} CL over limit`:'',s.hdlExtra?`${s.hdlExtra} HDL over limit`:'',s.unmarked?`${s.unmarked} unmarked`:''].filter(Boolean).join('; ')||'Full attendance']);
+ data.push(['','TOTAL','',rows.reduce((a,r)=>a+r.s.gross,0),'','','','','','','','',rows.reduce((a,r)=>a+r.s.deduction,0),rows.reduce((a,r)=>a+r.s.payable,0),'']);
+ const [yy,mm]=ym.split('-').map(Number);
+ const title='Salary Statement — '+new Date(yy,mm-1,1).toLocaleDateString('en-IN',{month:'long',year:'numeric'});
+ downloadExcel(_xlsSheet(title, head, data), 'MDBV_Salary_Statement_'+ym, 'Salary');
 }
 
 function renderTeacherPanel(){
