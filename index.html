@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1789489191 - staff assignments rebuilt: subjects are picked from a dropdown (no spelling drift), a teacher can hold several subjects, and each subject carries its own class list; existing records migrate automatically and the flat subject/assignedClasses fields stay in step so attendance, marks and rosters keep working -->
+<!-- BUILD: v-1789497320 - Staff Attendance made directly reachable: a Quick access row on both the Owner and Principal dashboards (Staff Attendance, Student Attendance, Fee Dashboard, Ledger/Homework) alongside the existing Attendance section cards -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -772,7 +772,7 @@ let activeStudentProfileTab = 'personal';
 let viewingStudentId = null;
 let activeChatWith = null;
 let chatPanelOpen = false;
-let studentFilter = { search: '', class: 'all', section: 'all', category: 'all' };
+let studentFilter = { search: '', class: 'all', section: 'all', category: 'all', sort: 'default' };
 
 function toggleMobileMenu() {
   const m = document.getElementById('mobileMenu');
@@ -860,7 +860,7 @@ function portalLogout() {
   activePrincipalTab = 'dashboard';
   chatPanelOpen = false;
   activeChatWith = null;
-  studentFilter = { search: '', class: 'all', section: 'all', category: 'all' };
+  studentFilter = { search: '', class: 'all', section: 'all', category: 'all', sort: 'default' };
   document.getElementById('portal').style.display = 'none';
   document.getElementById('public-site').style.display = 'block';
   const cc = document.getElementById('chatContainer');
@@ -4275,6 +4275,7 @@ function renderOwnerDashboard(){
    </div>
   </div>
 
+  ${_ownerQuickLinks()}
   ${_ownerCategoryTiles()}
 
   <div class="bg-white rounded-xl shadow-sm p-5 mt-6">
@@ -4532,6 +4533,22 @@ function renderStudentsTab(){
   if(studentFilter.category==='noclass'&&(s.class&&ALL_CLASSES.includes(s.class)))return false;
   return true;
  });
+ // Sorting — chiefly to surface who owes the most.
+ const _due = x => Number(x.feeBalance)||0;
+ const _fee = x => Number(x.decidedFees)||Number(x.annualFees)||0;
+ const _clsIdx = x => { const i = ALL_CLASSES.indexOf(String(x.class||'').trim()); return i<0?999:i; };
+ const sorters = {
+  dueDesc:  (a,b) => _due(b)-_due(a) || String(a.name||'').localeCompare(String(b.name||'')),
+  dueAsc:   (a,b) => _due(a)-_due(b) || String(a.name||'').localeCompare(String(b.name||'')),
+  feeDesc:  (a,b) => _fee(b)-_fee(a) || String(a.name||'').localeCompare(String(b.name||'')),
+  name:     (a,b) => String(a.name||'').localeCompare(String(b.name||'')),
+  classRoll:(a,b) => _clsIdx(a)-_clsIdx(b) || (Number(a.rollNo)||9999)-(Number(b.rollNo)||9999)
+ };
+ if (sorters[studentFilter.sort]) filt.sort(sorters[studentFilter.sort]);
+ // Dues summary for whatever is currently on screen
+ const dueList = filt.filter(x=>_due(x)>0);
+ const dueTotal = dueList.reduce((a,x)=>a+_due(x),0);
+ const topDue = dueList.slice().sort((a,b)=>_due(b)-_due(a))[0];
  const activeCount = all.filter(s=>!s.archived).length;
  const archivedCount = all.filter(s=>s.archived).length;
  const inArchiveView = studentFilter.category === 'archived';
@@ -4561,9 +4578,26 @@ function renderStudentsTab(){
    <select id="studentClassFilter"><option value="all">All Classes</option>${classes.map(c=>`<option value="${c}" ${studentFilter.class===c?'selected':''}>Class ${c}</option>`).join('')}</select>
    <select id="studentSectionFilter"><option value="all">All Sections</option>${sections.map(c=>`<option value="${c}" ${studentFilter.section===c?'selected':''}>Section ${c}</option>`).join('')}</select>
    <select id="studentCategoryFilter"><option value="all" ${studentFilter.category==='all'?'selected':''}>All Categories</option><option value="bpl" ${studentFilter.category==='bpl'?'selected':''}>BPL</option><option value="cwsn" ${studentFilter.category==='cwsn'?'selected':''}>CWSN</option><option value="feeDue" ${studentFilter.category==='feeDue'?'selected':''}>Fee Due</option></select>
+   <select id="studentSort" title="Sort the list">
+    <option value="default" ${studentFilter.sort==='default'?'selected':''}>Sort: default</option>
+    <option value="dueDesc" ${studentFilter.sort==='dueDesc'?'selected':''}>Fees due — highest first</option>
+    <option value="dueAsc" ${studentFilter.sort==='dueAsc'?'selected':''}>Fees due — lowest first</option>
+    <option value="feeDesc" ${studentFilter.sort==='feeDesc'?'selected':''}>Total fee — highest first</option>
+    <option value="name" ${studentFilter.sort==='name'?'selected':''}>Name (A–Z)</option>
+    <option value="classRoll" ${studentFilter.sort==='classRoll'?'selected':''}>Class &amp; roll no.</option>
+   </select>
    <button id="clearFilters" class="bg-gray-300 hover:bg-gray-400 text-gray-800 rounded-lg text-sm font-medium">Clear</button>
   </div>
-  <div class="text-sm text-gray-600 mb-2">Showing <b>${filt.length}</b> of ${inArchiveView?archivedCount:activeCount} ${inArchiveView?'archived':'current'} students</div>
+  <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+   <div class="text-sm text-gray-600">Showing <b>${filt.length}</b> of ${inArchiveView?archivedCount:activeCount} ${inArchiveView?'archived':'current'} students</div>
+   <button id="topDefaultersBtn" class="bg-rose-600 hover:bg-rose-700 text-white px-3 py-1 rounded-lg text-xs font-medium" title="Show only students with fees due, biggest first"><i class="fas fa-sort-amount-down mr-1"></i>Who owes the most</button>
+  </div>
+  ${dueList.length?`<div class="bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 mb-3 text-sm flex flex-wrap gap-x-4 gap-y-1 items-center">
+    <span class="font-semibold text-rose-800"><i class="fas fa-indian-rupee-sign mr-1"></i>${dueList.length} of these ${filt.length} owe money</span>
+    <span class="text-rose-700">Total outstanding <b>Rs.${dueTotal.toLocaleString('en-IN')}</b></span>
+    ${topDue?`<span class="text-rose-700">Highest: <b>${escapeHTML(topDue.name||'')}</b> (Class ${escapeHTML(String(topDue.class||''))}) Rs.${(Number(topDue.feeBalance)||0).toLocaleString('en-IN')}</span>`:''}
+    <span class="text-rose-600">Average Rs.${Math.round(dueTotal/dueList.length).toLocaleString('en-IN')}</span>
+   </div>`:''}
   ${(() => {
     const noClass = all.filter(s => !s.class || !ALL_CLASSES.includes(s.class));
     const noAdm = all.filter(s => !s.admissionNo);
@@ -7438,6 +7472,15 @@ function renderPrincipalTabContent(){
     <div class="border p-4 rounded-lg"><h3 class="font-semibold mb-2"><i class="fas fa-bullhorn text-purple-600 mr-1"></i>Upcoming Events</h3>${ev.slice(0,5).map(e=>`<div class="text-sm py-1">${fmtDate(e.date)} - ${e.title}</div>`).join('')||'<div class="text-gray-500">None</div>'}</div>
     <div class="border p-4 rounded-lg"><h3 class="font-semibold mb-2"><i class="fas fa-triangle-exclamation text-amber-600 mr-1"></i>Compliance Alerts</h3>${comp.filter(x=>x.enabled&&x.status==='pending').slice(0,5).map(x=>`<div class="text-sm py-1">${x.name}</div>`).join('')||'<div class="text-emerald-700 text-sm">All clear</div>'}</div>
    </div>
+   ${(() => {
+     const q=[{tab:'staffattendance',icon:'user-clock',label:'Staff Attendance',color:'#059669'},
+              {tab:'studentattendance',icon:'calendar-check',label:'Student Attendance',color:'#2563eb'},
+              {tab:'homework',icon:'book-open',label:'Homework',color:'#d97706'},
+              {tab:'feedashboard',icon:'chart-column',label:'Fee Dashboard',color:'#7a1e2e'}];
+     return `<div class="mt-6">
+       <h2 class="font-semibold text-gray-800 mb-2"><i class="fas fa-bolt text-amber-500 mr-2"></i>Quick access</h2>
+       <div class="flex flex-wrap gap-2">${q.map(x=>`<button class="prinQuickBtn inline-flex items-center gap-2 bg-white border-2 rounded-xl px-4 py-2.5 text-sm font-medium hover:shadow-sm" style="border-color:${x.color}33" data-tab="${x.tab}"><i class="fas fa-${x.icon}" style="color:${x.color}"></i>${x.label}</button>`).join('')}</div></div>`;
+    })()}
    ${_principalCategoryTiles()}
   </div>`;
  } else if(activePrincipalTab==='students')return renderStudentsTab();
@@ -10896,57 +10939,142 @@ function _finCompute(m){
 function _inr(n){ n=Math.round(n||0); return '\u20b9'+n.toLocaleString('en-IN'); }
 function _lakh(n){ return '\u20b9'+((n||0)/100000).toLocaleString('en-IN',{maximumFractionDigits:2})+'L'; }
 function _finChart(series){
- const W=Math.max(360, series.length*84+80), H=250, padL=48, padB=32, padT=18, padR=12;
+ const W=Math.max(640, series.length*118+90), H=380, padL=72, padB=48, padT=26, padR=18;
  const maxV=Math.max(1, ...series.map(r=>Math.max(r.revenue, r.cost)));
- const plotH=H-padB-padT, plotW=W-padL-padR, groupW=plotW/series.length, barW=Math.min(24, groupW/3);
+ const plotH=H-padB-padT, plotW=W-padL-padR, groupW=plotW/series.length, barW=Math.min(34, groupW/3.2);
  const y=v=>padT+plotH*(1-v/maxV);
- let g='';[0,.25,.5,.75,1].forEach(f=>{const yy=y(f*maxV);g+=`<line x1="${padL}" y1="${yy.toFixed(1)}" x2="${W-padR}" y2="${yy.toFixed(1)}" stroke="#eee"/><text x="${padL-6}" y="${(yy+3).toFixed(1)}" text-anchor="end" font-size="9" fill="#999">${(f*maxV/100000).toFixed(1)}L</text>`;});
+ let g='';[0,.25,.5,.75,1].forEach(f=>{const yy=y(f*maxV);
+  g+=`<line x1="${padL}" y1="${yy.toFixed(1)}" x2="${W-padR}" y2="${yy.toFixed(1)}" stroke="#ececec"/>`+
+     `<text x="${padL-10}" y="${(yy+4).toFixed(1)}" text-anchor="end" font-size="12" fill="#8a8a8a">${(f*maxV/100000).toFixed(1)}L</text>`;});
  let bars='';const pts=[];
  series.forEach((r,i)=>{const cx=padL+groupW*i+groupW/2;
-  bars+=`<rect x="${(cx-barW-2).toFixed(1)}" y="${y(r.revenue).toFixed(1)}" width="${barW}" height="${(y(0)-y(r.revenue)).toFixed(1)}" fill="#1f8f4e" rx="2"><title>${r.label} revenue ${_inr(r.revenue)}</title></rect>`;
-  bars+=`<rect x="${(cx+2).toFixed(1)}" y="${y(r.cost).toFixed(1)}" width="${barW}" height="${(y(0)-y(r.cost)).toFixed(1)}" fill="#b3261e" rx="2"><title>${r.label} cost ${_inr(r.cost)}</title></rect>`;
-  bars+=`<text x="${cx.toFixed(1)}" y="${H-padB+13}" text-anchor="middle" font-size="9.5" fill="#555">${r.label}</text>`;
+  const rh=y(0)-y(r.revenue), ch=y(0)-y(r.cost);
+  bars+=`<rect x="${(cx-barW-3).toFixed(1)}" y="${y(r.revenue).toFixed(1)}" width="${barW}" height="${rh.toFixed(1)}" fill="#1f8f4e" rx="3"><title>${r.label} revenue ${_inr(r.revenue)}</title></rect>`;
+  bars+=`<rect x="${(cx+3).toFixed(1)}" y="${y(r.cost).toFixed(1)}" width="${barW}" height="${ch.toFixed(1)}" fill="#b3261e" rx="3"><title>${r.label} cost ${_inr(r.cost)}</title></rect>`;
+  bars+=`<text x="${cx.toFixed(1)}" y="${H-padB+20}" text-anchor="middle" font-size="13" fill="#555" font-weight="600">${r.label}</text>`;
+  bars+=`<text x="${cx.toFixed(1)}" y="${H-padB+36}" text-anchor="middle" font-size="11" fill="${r.surplus>=0?'#1f8f4e':'#b3261e'}">${(r.surplus/100000).toFixed(1)}L</text>`;
   pts.push([cx,y(r.surplus)]);});
- let line=pts.length>1?`<polyline fill="none" stroke="#c8860d" stroke-width="2" points="${pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ')}"/>`:'';
- pts.forEach((p,i)=>line+=`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3" fill="#c8860d"><title>${series[i].label} surplus ${_inr(series[i].surplus)}</title></circle>`);
- return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;height:auto" xmlns="http://www.w3.org/2000/svg">${g}<line x1="${padL}" y1="${y(0).toFixed(1)}" x2="${W-padR}" y2="${y(0).toFixed(1)}" stroke="#bbb"/>${bars}${line}
-   <g font-size="10"><rect x="${padL}" y="2" width="10" height="10" fill="#1f8f4e"/><text x="${padL+14}" y="11" fill="#555">Revenue</text><rect x="${padL+70}" y="2" width="10" height="10" fill="#b3261e"/><text x="${padL+84}" y="11" fill="#555">Cost</text><line x1="${padL+134}" y1="7" x2="${padL+150}" y2="7" stroke="#c8860d" stroke-width="2"/><text x="${padL+154}" y="11" fill="#555">Surplus</text></g></svg>`;
+ let line=pts.length>1?`<polyline fill="none" stroke="#c8860d" stroke-width="2.5" points="${pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ')}"/>`:'';
+ pts.forEach((p,i)=>line+=`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="4.5" fill="#c8860d" stroke="#fff" stroke-width="1.5"><title>${series[i].label} surplus ${_inr(series[i].surplus)}</title></circle>`);
+ return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
+   ${g}<line x1="${padL}" y1="${y(0).toFixed(1)}" x2="${W-padR}" y2="${y(0).toFixed(1)}" stroke="#aaa"/>${bars}${line}
+   <g font-size="12.5"><rect x="${padL}" y="4" width="12" height="12" fill="#1f8f4e" rx="2"/><text x="${padL+18}" y="14" fill="#555">Revenue</text>
+    <rect x="${padL+92}" y="4" width="12" height="12" fill="#b3261e" rx="2"/><text x="${padL+110}" y="14" fill="#555">Cost</text>
+    <line x1="${padL+168}" y1="10" x2="${padL+188}" y2="10" stroke="#c8860d" stroke-width="2.5"/><text x="${padL+194}" y="14" fill="#555">Surplus</text></g></svg>`;
+}
+// Plain-language observations drawn from the numbers, so the model says what it means.
+function _finInsights(m, current, rows, be){
+ const out = [];
+ const pct = (a,b) => b>0 ? Math.round(a*100/b) : 0;
+ const add = (tone, title, body) => out.push({tone, title, body});
+ // Headline position
+ if (current.surplus >= 0) add('good','Running a surplus',
+   `Today you keep ${_inr(current.surplus)} on ${_inr(current.revenue)} of income — a ${(current.margin*100).toFixed(1)}% margin.`);
+ else add('bad','Running a deficit',
+   `Costs exceed income by ${_inr(-current.surplus)}. You need ${be.students - m.students} more students (or an average fee of ${_inr(be.avgFee)}) to break even.`);
+ // Salary share — the number that decides a school's health
+ const salShare = pct(current.salary, current.revenue);
+ if (salShare > 70) add('bad','Salaries are eating the budget',
+   `Salaries are ${salShare}% of income. Above about 65% leaves nothing for maintenance, transport or growth.`);
+ else if (salShare > 60) add('warn','Salary load is high',
+   `Salaries take ${salShare}% of income. Most schools aim for 50–60%; watch this before adding staff.`);
+ else add('good','Salary load is comfortable',
+   `Salaries are ${salShare}% of income, leaving room for the rest of the running costs.`);
+ // Collection leakage
+ if ((m.collRate||100) < 100) {
+  const lost = m.students * m.avgFee * (100-(m.collRate||100))/100;
+  add(m.collRate < 85 ? 'bad' : 'warn','Uncollected fees',
+   `At ${m.collRate}% collection you are losing about ${_inr(lost)} a year. Recovering even half of that is ${_inr(lost/2)} straight to surplus — usually easier than raising fees.`);
+ }
+ // Fees vs inflation
+ const avgFeeInc = (m.growth||[]).reduce((a,g)=>a+(Number(g.fee)||0),0)/Math.max(1,(m.growth||[]).length);
+ if (avgFeeInc < (m.salaryIncrement||0)) add('warn','Fees rising slower than salaries',
+   `Fees go up ${avgFeeInc.toFixed(1)}% a year on average while salaries rise ${m.salaryIncrement}%. Margins will thin each year unless student numbers make up the difference.`);
+ // Biggest non-salary cost
+ const heads = [['Transport',current.transport],['School maintenance',current.schoolMaint],['Other expenses',current.expenses]].sort((a,b)=>b[1]-a[1]);
+ if (heads[0][1] > 0) add('info','Biggest non-salary cost',
+   `${heads[0][0]} at ${_inr(heads[0][1])} a year — ${pct(heads[0][1], current.cost)}% of total cost.`);
+ // Per-student economics
+ const revPer = m.students ? current.revenue/m.students : 0, costPer = m.students ? current.cost/m.students : 0;
+ add('info','Per student',
+   `Each student brings ${_inr(revPer)} and costs ${_inr(costPer)} to teach — ${revPer>=costPer?`a gain of ${_inr(revPer-costPer)}`:`a shortfall of ${_inr(costPer-revPer)}`} each.`);
+ // Where the projection turns
+ const flipUp = rows.findIndex(r=>r.surplus>=0), flipDown = rows.findIndex(r=>r.surplus<0);
+ if (current.surplus < 0 && flipUp > -1) add('good','Turns profitable in Year '+rows[flipUp].year,
+   `On these assumptions the deficit closes in Year ${rows[flipUp].year} with a surplus of ${_inr(rows[flipUp].surplus)}.`);
+ if (current.surplus >= 0 && flipDown > -1) add('bad','Slips into deficit in Year '+rows[flipDown].year,
+   `Costs overtake income in Year ${rows[flipDown].year}. Revisit the hiring plan or the fee increase.`);
+ // Planned hiring
+ const later = (m.addedStaff||[]).filter(x=>Math.round(Number(x.startYear)||0)>0);
+ if (later.length) {
+  const cost = later.reduce((a,st)=>a+_finStaffCount(st)*(Number(st.monthly)||0)*((st.months!=null&&st.months!=='')?Number(st.months):(m.monthsPaid||11)),0);
+  add('info','Planned hiring',
+   `${later.reduce((a,st)=>a+_finStaffCount(st),0)} more staff scheduled for later years, adding about ${_inr(cost)} a year once all have joined.`);
+ }
+ // Growth needed
+ if (rows.length) {
+  const last = rows[rows.length-1];
+  add('info',`By Year ${last.year}`,
+   `${last.students} students, ${_inr(last.revenue)} income, ${_inr(last.cost)} cost — ${last.surplus>=0?'surplus':'deficit'} of ${_inr(Math.abs(last.surplus))} at a ${(last.margin*100).toFixed(1)}% margin.`);
+ }
+ return out;
 }
 function _finResultsHTML(){
  const { current, rows, be } = _finCompute(finModel);
+ const m = finModel;
  const clr=current.surplus>=0?'#1f8f4e':'#b3261e';
- const card=(l,v,sub,c)=>`<div class="bg-white rounded-xl border p-3"><div class="text-[11px] text-gray-500 uppercase tracking-wide">${l}</div><div class="text-xl font-bold mt-0.5" style="color:${c||'#111'}">${v}</div>${sub?`<div class="text-[11px] text-gray-500">${sub}</div>`:''}</div>`;
- const summary=`<div class="grid grid-cols-2 lg:grid-cols-4 gap-2">
-   ${card('Current Revenue', _lakh(current.revenue), _inr(current.revenue), '#7a1e2e')}
-   ${card('Current Cost', _lakh(current.cost), _inr(current.cost), '#444')}
-   ${card('Current Surplus', _lakh(current.surplus), (current.margin*100).toFixed(1)+'% margin', clr)}
-   ${card('Break-even', be.students+' students', 'or avg fee '+_inr(be.avgFee), '#c8860d')}
+ const card=(l,v,sub,c)=>`<div class="bg-white rounded-xl border p-4">
+   <div class="text-xs text-gray-500 mb-1">${l}</div>
+   <div class="text-2xl font-bold leading-tight" style="color:${c||'#111'}">${v}</div>
+   ${sub?`<div class="text-xs text-gray-500 mt-1">${sub}</div>`:''}</div>`;
+ const summary=`<div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+   ${card('Income (this year)', _lakh(current.revenue), _inr(current.revenue), '#7a1e2e')}
+   ${card('Running cost', _lakh(current.cost), _inr(current.cost), '#444')}
+   ${card(current.surplus>=0?'Surplus':'Deficit', _lakh(Math.abs(current.surplus)), (current.margin*100).toFixed(1)+'% margin', clr)}
+   ${card('Break-even', be.students+' students', 'you have '+m.students+' · or avg fee '+_inr(be.avgFee), '#c8860d')}
   </div>`;
- const beNote=current.surplus>=0
-   ? `<p class="text-xs text-emerald-700">Today you run a surplus of ${_inr(current.surplus)}. Break-even is ${be.students} students (you have ${finModel.students}).</p>`
-   : `<p class="text-xs text-rose-700">Today you run a deficit of ${_inr(-current.surplus)}. You'd need ${be.students} students (vs ${finModel.students}) or an average fee of ${_inr(be.avgFee)} to break even.</p>`;
+ // Insights
+ const tones={good:{bg:'bg-emerald-50',bd:'border-emerald-200',ic:'circle-check',c:'text-emerald-700'},
+              warn:{bg:'bg-amber-50',bd:'border-amber-200',ic:'triangle-exclamation',c:'text-amber-700'},
+              bad:{bg:'bg-rose-50',bd:'border-rose-200',ic:'circle-exclamation',c:'text-rose-700'},
+              info:{bg:'bg-slate-50',bd:'border-slate-200',ic:'circle-info',c:'text-slate-700'}};
+ const ins=_finInsights(m,current,rows,be);
+ const insights=`<div class="bg-white rounded-xl border p-4">
+   <div class="font-bold text-gray-800 mb-3"><i class="fas fa-lightbulb text-amber-500 mr-2"></i>What this means</div>
+   <div class="grid md:grid-cols-2 gap-2">
+    ${ins.map(i=>{const t=tones[i.tone]||tones.info;
+     return `<div class="${t.bg} border ${t.bd} rounded-lg p-3">
+       <div class="font-semibold text-sm ${t.c}"><i class="fas fa-${t.ic} mr-1.5"></i>${i.title}</div>
+       <div class="text-xs text-gray-700 mt-1 leading-relaxed">${i.body}</div></div>`;}).join('')}
+   </div></div>`;
  const series=[{label:'Now',...current}].concat(rows.map(r=>({label:'Yr '+r.year, ...r})));
- const chart=`<div class="bg-white rounded-xl border p-3"><div class="text-sm font-semibold mb-1">Revenue vs Cost — now + ${rows.length}-year projection</div>${_finChart(series)}</div>`;
- const th=(t,r)=>`<th class="px-2 py-1.5 ${r?'text-right':'text-left'} whitespace-nowrap">${t}</th>`;
- const rowHtml=(label,r,bold)=>`<tr class="border-b hover:bg-gray-50 ${bold?'bg-gray-50 font-semibold':''}">
-   <td class="px-2 py-1 ${bold?'font-bold':'font-medium'}">${label}</td>
-   <td class="px-2 py-1 text-right">${r.students}</td>
-   <td class="px-2 py-1 text-right">${_inr(r.avgFee)}</td>
-   <td class="px-2 py-1 text-right text-emerald-700">${_inr(r.revenue)}</td>
-   <td class="px-2 py-1 text-right">${_inr(r.salary)}${r.newHires?`<span class="text-[10px] text-indigo-600"> (+${r.newHires})</span>`:''}</td>
-   <td class="px-2 py-1 text-right">${_inr(r.transport)}</td>
-   <td class="px-2 py-1 text-right">${_inr(r.schoolMaint)}</td>
-   <td class="px-2 py-1 text-right">${_inr(r.expenses)}</td>
-   <td class="px-2 py-1 text-right">${_inr(r.cost)}</td>
-   <td class="px-2 py-1 text-right font-semibold" style="color:${r.surplus>=0?'#1f8f4e':'#b3261e'}">${_inr(r.surplus)}</td>
-   <td class="px-2 py-1 text-right">${(r.margin*100).toFixed(1)}%</td></tr>`;
- const table=`<div class="bg-white rounded-xl border overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-xs md:text-sm">
-   <thead class="bg-gray-50 text-gray-600"><tr>${th('Period')}${th('Students',1)}${th('Avg Fee',1)}${th('Revenue',1)}${th('Salary (+hires)',1)}${th('Transport',1)}${th('Sch. Maint',1)}${th('Expenses',1)}${th('Total Cost',1)}${th('Surplus',1)}${th('Margin',1)}</tr></thead>
-   <tbody>${rowHtml('Now (current)',current,true)}${rows.map(r=>rowHtml('Year '+r.year,r,false)).join('')}</tbody></table></div></div>`;
- return summary+beNote+chart+table;
+ const chart=`<div class="bg-white rounded-xl border p-4">
+   <div class="font-bold text-gray-800 mb-1">Income vs cost</div>
+   <div class="text-xs text-gray-500 mb-2">Today plus the next ${rows.length} year${rows.length===1?'':'s'}. The gold line is the surplus.</div>
+   ${_finChart(series)}</div>`;
+ const th=(t,r)=>`<th class="px-3 py-2.5 ${r?'text-right':'text-left'} whitespace-nowrap font-semibold">${t}</th>`;
+ const rowHtml=(label,r,hires,bold)=>`<tr class="border-b ${bold?'bg-stone-50 font-semibold':'hover:bg-gray-50'}">
+   <td class="px-3 py-2 whitespace-nowrap ${bold?'font-bold':'font-medium'}">${label}</td>
+   <td class="px-3 py-2 text-right">${r.students}</td>
+   <td class="px-3 py-2 text-right">${_inr(r.avgFee)}</td>
+   <td class="px-3 py-2 text-right text-emerald-700 font-medium">${_inr(r.revenue)}</td>
+   <td class="px-3 py-2 text-right">${_inr(r.salary)}${hires?`<span class="text-xs text-indigo-600"> +${hires}</span>`:''}</td>
+   <td class="px-3 py-2 text-right">${_inr(r.transport)}</td>
+   <td class="px-3 py-2 text-right">${_inr(r.schoolMaint)}</td>
+   <td class="px-3 py-2 text-right">${_inr(r.expenses)}</td>
+   <td class="px-3 py-2 text-right font-medium">${_inr(r.cost)}</td>
+   <td class="px-3 py-2 text-right font-bold" style="color:${r.surplus>=0?'#1f8f4e':'#b3261e'}">${_inr(r.surplus)}</td>
+   <td class="px-3 py-2 text-right">${(r.margin*100).toFixed(1)}%</td></tr>`;
+ const table=`<div class="bg-white rounded-xl border overflow-hidden">
+   <div class="px-4 pt-4 pb-2 font-bold text-gray-800">Year by year</div>
+   <div class="overflow-x-auto"><table class="w-full text-sm">
+   <thead class="bg-stone-100 text-gray-700"><tr>${th('Period')}${th('Students',1)}${th('Avg fee',1)}${th('Income',1)}${th('Salary',1)}${th('Transport',1)}${th('Maintenance',1)}${th('Expenses',1)}${th('Total cost',1)}${th('Surplus',1)}${th('Margin',1)}</tr></thead>
+   <tbody>${rowHtml('Now (current)',current,_finAddedCount(m,0),true)}${rows.map((r,i)=>rowHtml('Year '+r.year,r,_finAddedCount(m,i+1),false)).join('')}</tbody>
+   </table></div></div>`;
+ return summary+insights+chart+table;
 }
 function _finNum(id,label,val,opts){opts=opts||{};const sfx=opts.suffix?`<span class="text-gray-400 text-xs ml-1">${opts.suffix}</span>`:'';
- return `<label class="block"><span class="text-xs font-medium text-gray-700">${label}${sfx}</span><input type="number" id="${id}" value="${val}" ${opts.step?`step="${opts.step}"`:''} ${opts.min!=null?`min="${opts.min}"`:''} class="finInput mt-0.5 w-full border rounded-lg px-2 py-1 text-sm" data-key="${opts.key||id}"></label>`;}
+ return `<label class="block"><span class="text-xs text-gray-600">${label}${sfx}</span><input type="number" id="${id}" value="${val}" ${opts.step?`step="${opts.step}"`:''} ${opts.min!=null?`min="${opts.min}"`:''} class="finInput mt-1 w-full border rounded-lg px-2.5 py-1.5 text-sm" data-key="${opts.key||id}"></label>`;}
 // ===== OWNER DASHBOARD CATEGORISATION =====
 var OWNER_SECTIONS = {
  finance:    { label:'Finance',        icon:'sack-dollar',     color:'#1f8f4e', desc:'Ledger, fee dashboard, projections, fee structure & audit' },
@@ -10955,6 +11083,20 @@ var OWNER_SECTIONS = {
  attendance: { label:'Attendance',     icon:'calendar-check',  color:'#0891b2', desc:'Student & staff attendance, insights and trends' },
  admin:      { label:'Administration', icon:'gear',            color:'#b45309', desc:'User logins, compliance, notice board' }
 };
+function _ownerQuickLinks(){
+ const q = [
+  {id:'ownerQuickStaffAtt',  view:'staffattendance',   icon:'user-clock',      label:'Staff Attendance', color:'#059669'},
+  {id:'ownerQuickStudAtt',   view:'studentattendance', icon:'calendar-check',  label:'Student Attendance', color:'#2563eb'},
+  {id:'ownerQuickFeeDash',   view:'feedashboard',      icon:'chart-column',    label:'Fee Dashboard', color:'#7a1e2e'},
+  {id:'ownerQuickLedger',    view:'ledger',            icon:'book',            label:'Ledger', color:'#334155'}
+ ];
+ return `<div class="mt-6">
+   <h2 class="font-semibold text-gray-800 mb-2"><i class="fas fa-bolt text-amber-500 mr-2"></i>Quick access</h2>
+   <div class="flex flex-wrap gap-2">
+    ${q.map(x=>`<button id="${x.id}" class="ownerQuickBtn inline-flex items-center gap-2 bg-white border-2 rounded-xl px-4 py-2.5 text-sm font-medium hover:shadow-sm" style="border-color:${x.color}33" data-view="${x.view}">
+      <i class="fas fa-${x.icon}" style="color:${x.color}"></i>${x.label}</button>`).join('')}
+   </div></div>`;
+}
 function _ownerCategoryTiles(){
  const counts = { finance:6, academics:4, people:3, attendance:3, admin:3 };
  const tile = (key) => { const s=OWNER_SECTIONS[key];
@@ -11038,7 +11180,7 @@ function renderFinancialModel(){
  if (!finModel) finModel=_finModelAutofill();
  const m=finModel;
  const baseMonthly=_finBaseMonthly(m), baseTransport=_finBaseTransport(m);
- const section=(title,inner,extra)=>`<div class="bg-white rounded-xl border p-3 space-y-2"><div class="flex items-center justify-between"><div class="text-sm font-bold text-gray-800">${title}</div>${extra||''}</div>${inner}</div>`;
+ const section=(title,inner,extra)=>`<div class="bg-white rounded-xl border p-4 space-y-2.5"><div class="flex items-center justify-between"><div class="font-bold text-gray-800">${title}</div>${extra||''}</div>${inner}</div>`;
  // Salaries: teaching + non-teaching + added staff rows
  const yrOpts = (sel) => {
    let o = `<option value="0" ${Number(sel)===0?'selected':''}>Now</option>`;
@@ -11049,23 +11191,23 @@ function renderFinancialModel(){
    const cnt=_finStaffCount(s), mo=(s.months!==undefined&&s.months!==null&&s.months!=='')?Number(s.months):(Number(m.monthsPaid)||11);
    const fy=(s.firstYearMonths!==undefined&&s.firstYearMonths!==null&&s.firstYearMonths!=='')?Number(s.firstYearMonths):mo;
    const annual=cnt*(Number(s.monthly)||0)*mo;
-   return `<div class="border rounded p-1.5 mb-1 bg-gray-50">
-    <div class="flex gap-1 items-center">
-     <input type="text" value="${(s.label||'').replace(/"/g,'&quot;')}" placeholder="Name / role" class="finStaffLabel border rounded px-2 py-1 text-xs" style="flex:1;min-width:60px" data-i="${i}">
-     <select class="finStaffType border rounded px-1 py-1 text-xs" style="width:auto" data-i="${i}" title="Staff type">
-      ${STAFF_TYPES.map(v=>`<option value="${v}" ${((s.type||'Teaching')===v)?'selected':''}>${v==='Non-Teaching'?'Non-Teach':v}</option>`).join('')}
+   const fld=(lbl,inner)=>`<div><div class="text-[10px] text-gray-500 mb-0.5">${lbl}</div>${inner}</div>`;
+   return `<div class="border rounded-lg p-2.5 mb-2 bg-white">
+    <div class="flex gap-2 items-center mb-2">
+     <input type="text" value="${(s.label||'').replace(/"/g,'&quot;')}" placeholder="Role, e.g. PGT Physics" class="finStaffLabel border rounded-lg px-2 py-1.5 text-sm" style="width:46%" data-i="${i}">
+     <select class="finStaffType border rounded-lg px-2 py-1.5 text-sm" style="flex:1" data-i="${i}">
+      ${STAFF_TYPES.map(v=>`<option value="${v}" ${((s.type||'Teaching')===v)?'selected':''}>${v}</option>`).join('')}
      </select>
-     <button class="finStaffDel text-rose-500 hover:text-rose-700 px-1" data-i="${i}" title="Remove"><i class="fas fa-times"></i></button>
+     <button class="finStaffDel text-rose-500 hover:text-rose-700 px-1.5" data-i="${i}" title="Remove"><i class="fas fa-trash"></i></button>
     </div>
-    <div class="flex gap-1 items-center mt-1 flex-wrap">
-     <label class="text-[10px] text-gray-500">How many<input type="number" min="1" value="${cnt}" class="finStaffCount border rounded px-1 py-0.5 text-xs ml-1" style="width:46px" data-i="${i}" title="Number of staff on this line"></label>
-     <span class="text-[10px] text-gray-400">×</span>
-     <label class="text-[10px] text-gray-500">₹/mo each<input type="number" value="${s.monthly||0}" class="finStaffSal border rounded px-1 py-0.5 text-xs ml-1" style="width:70px" data-i="${i}"></label>
-     <label class="text-[10px] text-gray-500">joins<select class="finStaffYear border rounded px-1 py-0.5 text-xs ml-1" style="width:auto" data-i="${i}">${yrOpts(s.startYear||0)}</select></label>
-     <label class="text-[10px] text-gray-500">months/yr<input type="number" min="0" max="12" value="${mo}" class="finStaffMonths border rounded px-1 py-0.5 text-xs ml-1" style="width:44px" data-i="${i}" title="Months paid each full year"></label>
-     <label class="text-[10px] text-gray-500">1st yr<input type="number" min="0" max="12" value="${fy}" class="finStaffFirstMonths border rounded px-1 py-0.5 text-xs ml-1" style="width:44px" data-i="${i}" title="Months paid in their joining year (for a late start)"></label>
-     <span class="text-[10px] text-gray-500 ml-auto">= ${_inr(annual)}/yr</span>
+    <div class="grid grid-cols-5 gap-2">
+     ${fld('How many',`<input type="number" min="1" value="${cnt}" class="finStaffCount border rounded-lg px-2 py-1.5 text-sm w-full text-center" data-i="${i}">`)}
+     ${fld('Salary /mo',`<input type="number" value="${s.monthly||0}" class="finStaffSal border rounded-lg px-2 py-1.5 text-sm w-full text-right" data-i="${i}">`)}
+     ${fld('Joins',`<select class="finStaffYear border rounded-lg px-1 py-1.5 text-sm w-full" data-i="${i}">${yrOpts(s.startYear||0)}</select>`)}
+     ${fld('Months/yr',`<input type="number" min="0" max="12" value="${mo}" class="finStaffMonths border rounded-lg px-2 py-1.5 text-sm w-full text-center" data-i="${i}">`)}
+     ${fld('1st yr',`<input type="number" min="0" max="12" value="${fy}" class="finStaffFirstMonths border rounded-lg px-2 py-1.5 text-sm w-full text-center" data-i="${i}">`)}
     </div>
+    <div class="text-xs text-gray-600 mt-1.5 text-right">${cnt>1?`${cnt} × ${_inr(s.monthly||0)} × ${mo} months = `:''}<b>${_inr(annual)}/yr</b></div>
    </div>`;
   }).join('');
  const salaries=section('Salaries (monthly)',
@@ -11131,7 +11273,11 @@ function renderFinancialModel(){
       ${_finLoadedName?`<span class="text-[11px] text-gray-500 ml-auto">Working on: <b>${escapeHTML(_finLoadedName)}</b></span>`:'<span class="text-[11px] text-amber-600 ml-auto">Unsaved scenario</span>'}
      </div>`;
    })()}
-   <div class="grid lg:grid-cols-3 gap-3"><div class="lg:col-span-1 space-y-2" id="finInputs">${inputs}</div><div class="lg:col-span-2 space-y-3" id="finResults">${_finResultsHTML()}</div></div>
+   <div class="grid gap-4" style="grid-template-columns:1fr" id="finGrid">
+    <div class="space-y-3" id="finResults">${_finResultsHTML()}</div>
+    <div class="space-y-3" id="finInputs">${inputs}</div>
+   </div>
+   <style>@media(min-width:1280px){#finGrid{grid-template-columns:minmax(0,1fr) 430px}#finGrid>#finInputs{order:2}#finGrid>#finResults{order:1}}</style>
    <p class="text-xs text-gray-400">Salary split auto-summed from staff records (Teaching \u20b9${(m.teachingSalary).toLocaleString('en-IN')}/mo, Non-teaching \u20b9${(m.nonTeachingSalary).toLocaleString('en-IN')}/mo). Transport/maintenance/expenses seeded from recorded expenses where available, otherwise estimated — adjust to your actuals. Editing here never changes your real data.</p>
   </div>`;
 }
@@ -15913,6 +16059,7 @@ function attachOwnerEvents(){
  // Accounts & Audit navigation
  // Category tiles → open a section page; section back → return to tiles
  document.querySelectorAll('.ownerSecTile').forEach(t => t.addEventListener('click', () => { ownerSection = t.dataset.sec; renderApp(); }));
+ document.querySelectorAll('.ownerQuickBtn').forEach(b => b.addEventListener('click', () => { ownerSection = null; ownerView = b.dataset.view; renderApp(); }));
  document.getElementById('ownerSecBackBtn')?.addEventListener('click', () => { ownerSection = null; renderApp(); });
  document.getElementById('ownerOpenAccountsBtn')?.addEventListener('click', () => {
   ownerView = 'accounts';
@@ -15942,7 +16089,7 @@ function attachOwnerEvents(){
  // Students navigation
  document.getElementById('ownerOpenStudentsBtn')?.addEventListener('click', () => {
   ownerView = 'students';
-  studentFilter = { search: '', class: 'all', section: 'all', category: 'all' };
+  studentFilter = { search: '', class: 'all', section: 'all', category: 'all', sort: 'default' };
   renderApp();
  });
  // Staff navigation
@@ -16125,7 +16272,7 @@ function attachOwnerEvents(){
  // "Open Students" shortcut inside the Academic Snapshot card
  document.getElementById('ownerSnapshotStudentsBtn')?.addEventListener('click', () => {
   ownerView = 'students';
-  studentFilter = { search: '', class: 'all', section: 'all', category: 'all' };
+  studentFilter = { search: '', class: 'all', section: 'all', category: 'all', sort: 'default' };
   renderApp();
  });
 
@@ -16386,6 +16533,7 @@ function attachPrincipalEvents(){
  document.getElementById('logoutPrincipalBtn')?.addEventListener('click',()=>{currentUser=null;principalSection=null;activePrincipalTab='dashboard';chatPanelOpen=false;activeChatWith=null;renderApp()});
  // Category tile -> that section's cards
  document.querySelectorAll('.prinSecTile').forEach(b=>b.addEventListener('click',()=>{principalSection=b.dataset.sec;activePrincipalTab='dashboard';renderApp();}));
+ document.querySelectorAll('.prinQuickBtn').forEach(b=>b.addEventListener('click',()=>{principalSection=null;activePrincipalTab=b.dataset.tab;renderApp();}));
  // Card -> open the tool
  document.querySelectorAll('.prinOpenTab').forEach(b=>b.addEventListener('click',()=>{activePrincipalTab=b.dataset.tab;studentFilter={search:'',class:'all',section:'all',category:'all'};renderApp();}));
  // Back links
@@ -16432,6 +16580,10 @@ function attachStudentsTabEvents(){
  // archive, restore). These live in attachDataManagementEvents; calling it here makes the
  // Students list's Edit/Add/Archive buttons open and operate the full modal.
  if (typeof attachDataManagementEvents === 'function') attachDataManagementEvents();
+ document.getElementById('studentSort')?.addEventListener('change', e => { studentFilter.sort = e.target.value; refresh(); });
+ document.getElementById('topDefaultersBtn')?.addEventListener('click', () => {
+  studentFilter.category = 'feeDue'; studentFilter.sort = 'dueDesc'; refresh();
+ });
  document.querySelectorAll('.tcPrintBtn').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();openTCPrintModal(b.dataset.id);}));
  document.querySelectorAll('.kycPrintBtn').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();printStudentKYC(b.dataset.id);}));
  // Bulk KYC honours the class filter currently applied on screen
@@ -16457,7 +16609,7 @@ function attachStudentsTabEvents(){
  document.getElementById('studentClassFilter')?.addEventListener('change',e=>{studentFilter.class=e.target.value;refresh()});
  document.getElementById('studentSectionFilter')?.addEventListener('change',e=>{studentFilter.section=e.target.value;refresh()});
  document.getElementById('studentCategoryFilter')?.addEventListener('change',e=>{studentFilter.category=e.target.value;refresh()});
- document.getElementById('clearFilters')?.addEventListener('click',()=>{studentFilter={search:'',class:'all',section:'all',category:'all'};refresh()});
+ document.getElementById('clearFilters')?.addEventListener('click',()=>{studentFilter={search:'',class:'all',section:'all',category:'all',sort:'default'};refresh()});
  // Assign roll numbers alphabetically within each class+section
  document.getElementById('assignRollBtn')?.addEventListener('click',()=>{
   if(!confirm('Auto-assign roll numbers alphabetically (by student name) within each class and section? This will renumber all students. Continue?'))return;
