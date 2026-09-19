@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1789559012 - removed the Mark-a-day panel from staff attendance; staff names now sorted alphabetically everywhere (register, salary statement, staff page groups, archive, and all printed/exported copies) -->
+<!-- BUILD: v-1789793487 - student attendance overview can now show any date (was locked to today, so classes marked on an earlier day looked unmarked) and each class shows when it was last marked with a click to jump there; marks entry gains a Grade mode with CBSE A1-E2 and simple A+-D scales -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -3920,6 +3920,7 @@ function enterPortal() {
 /* ---------- OWNER DASHBOARD ---------- */
 let ownerView = 'dashboard'; // 'dashboard' | 'accounts' | 'users'
 let _tchTeachingRows = [];      // Staff modal: the {subject, classes[]} rows being edited
+let _adminAttGlanceDate = '';   // date shown on the student-attendance overview
 let _staffArchiveView = false; // Staff tab: showing archived (left) staff instead of current
 let ownerSection = null; // null = category tiles; 'finance'|'academics'|'people'|'attendance'|'admin' = that category's page
 
@@ -7567,6 +7568,10 @@ function _classesWithStudents(){
 function renderAdminAttendance(){
  const classes = _classesWithStudents();
  const today = new Date().toISOString().slice(0,10);
+ // The overview can look at any date, not just today — a class marked yesterday was
+ // otherwise showing as "not marked", which looked like the data had been lost.
+ if (!_adminAttGlanceDate) _adminAttGlanceDate = today;
+ const glanceDate = _adminAttGlanceDate;
  const ar = getAttendanceRecords();
  const students = getStudents().filter(s=>!s.archived);
  // Whole-school "today" summary
@@ -7574,22 +7579,35 @@ function renderAdminAttendance(){
  const perClass = classes.map(cls => {
   const sts = students.filter(s => s.class===cls);
   let p=0,a=0,l=0,m=0;
-  sts.forEach(s => { const v=(ar[s.id]||{})[today]; if(v)m++; if(v==='P')p++; else if(v==='A')a++; else if(v==='L')l++; });
+  let lastMarked='';
+  sts.forEach(s => { const recs=ar[s.id]||{};
+   const v=recs[glanceDate]; if(v)m++; if(v==='P')p++; else if(v==='A')a++; else if(v==='L')l++;
+   Object.keys(recs).forEach(dt => { if(dt>lastMarked) lastMarked=dt; }); });
   sPresent+=p; sAbsent+=a; sLate+=l; sMarked+=m;
   const pct = sts.length? Math.round(((p+l*0.5)/sts.length)*100):0;
-  return {cls, total:sts.length, p, a, l, marked:m, pct, notMarked:m===0};
+  return {cls, total:sts.length, p, a, l, marked:m, pct, notMarked:m===0, lastMarked};
  });
  const glanceCards = perClass.map(c => `<div class="border rounded-lg p-3 ${c.notMarked?'bg-gray-50':'bg-white'}">
    <div class="flex items-center justify-between mb-1">
     <div class="font-semibold text-sm">Class ${escapeHTML(c.cls)}</div>
     ${c.notMarked?`<span class="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">Not marked</span>`:`<span class="text-xs px-2 py-0.5 rounded-full ${c.pct>=75?'bg-emerald-100 text-emerald-800':c.pct>=50?'bg-amber-100 text-amber-800':'bg-rose-100 text-rose-800'}">${c.pct}%</span>`}
    </div>
-   ${c.notMarked?`<div class="text-xs text-gray-500">${c.total} students · not taken yet</div>`:`<div class="flex gap-3 text-xs"><span class="text-emerald-700 font-semibold">${c.p} P</span><span class="text-rose-700 font-semibold">${c.a} A</span>${c.l?`<span class="text-amber-700 font-semibold">${c.l} L</span>`:''}<span class="text-gray-400">/${c.total}</span></div>`}
+   ${c.notMarked?`<div class="text-xs text-gray-500">${c.total} students · not marked on this date${c.lastMarked?` <span class="text-blue-600 cursor-pointer underline attJumpDate" data-date="${c.lastMarked}" title="Show that day">· last marked ${fmtDate(c.lastMarked)}</span>`:' · never marked'}</div>`:`<div class="flex gap-3 text-xs"><span class="text-emerald-700 font-semibold">${c.p} P</span><span class="text-rose-700 font-semibold">${c.a} A</span>${c.l?`<span class="text-amber-700 font-semibold">${c.l} L</span>`:''}<span class="text-gray-400">/${c.total}</span></div>`}
   </div>`).join('');
 
  return `<div>
-  <h2 class="text-lg font-bold mb-1"><i class="fas fa-calendar-check text-blue-600 mr-1"></i>Student Attendance</h2>
-  <p class="text-xs text-gray-500 mb-3">View attendance for any class. Teachers mark it; here you can monitor and export it school-wide.</p>
+  <div class="flex flex-wrap justify-between items-end gap-2 mb-3">
+   <div>
+    <h2 class="text-lg font-bold mb-1"><i class="fas fa-calendar-check text-blue-600 mr-1"></i>Student Attendance</h2>
+    <p class="text-xs text-gray-500">Teachers mark it; here you can monitor and export it school-wide.</p>
+   </div>
+   <div class="flex items-end gap-2">
+    <label class="text-xs text-gray-600">Showing
+     <input type="date" id="attGlanceDate" value="${glanceDate}" max="${today}" class="border rounded-lg px-2 py-1 text-sm ml-1" style="width:auto">
+    </label>
+    ${glanceDate!==today?`<button id="attGlanceToday" class="bg-gray-100 hover:bg-gray-200 px-2.5 py-1 rounded-lg text-xs font-medium">Today</button>`:''}
+   </div>
+  </div>
 
   <div class="bg-white border rounded-lg p-4 mb-4">
    <div class="flex items-center justify-between mb-2">
@@ -7623,6 +7641,9 @@ function _admAttGrid(cls, from, to){
   <div class="mt-2 text-xs text-gray-500"><b>Legend:</b> <span class="text-emerald-600 font-bold">P</span> Present · <span class="text-rose-600 font-bold">A</span> Absent · <span class="text-amber-600 font-bold">L</span> Late · <span class="text-gray-400">·</span> Not marked.</div>`;
 }
 function _attachAdminAttendanceEvents(){
+ document.getElementById('attGlanceDate')?.addEventListener('change', e => { _adminAttGlanceDate = e.target.value; renderApp(); });
+ document.getElementById('attGlanceToday')?.addEventListener('click', () => { _adminAttGlanceDate = new Date().toISOString().slice(0,10); renderApp(); });
+ document.querySelectorAll('.attJumpDate').forEach(b => b.addEventListener('click', () => { _adminAttGlanceDate = b.dataset.date; renderApp(); }));
  const clsSel=document.getElementById('admAttClass'), fromSel=document.getElementById('admAttFrom'), toSel=document.getElementById('admAttTo'), res=document.getElementById('admAttResults');
  const render=()=>{ if(!clsSel.value){res.innerHTML='<div class="text-sm text-gray-500 py-3 text-center">Pick a class above to view its attendance record.</div>';return;} _admAttClass=clsSel.value; res.innerHTML=_admAttGrid(clsSel.value, fromSel.value, toSel.value); };
  clsSel?.addEventListener('change', render); fromSel?.addEventListener('change', render); toSel?.addEventListener('change', render);
@@ -8774,7 +8795,13 @@ function renderTchMarks(){
  if (_marksMode === 'tracker') return `<div>${toggle}${renderMarksTracker(_teacherAssignedClasses())}</div>`;
  return `<div>${toggle}<div>
   <div class="bg-white border rounded-lg p-4 mb-4">
-   <h3 class="font-semibold mb-3"><i class="fas fa-pen-to-square text-purple-600 mr-1"></i>Exam Marks Entry</h3>
+   <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+    <h3 class="font-semibold"><i class="fas fa-pen-to-square text-purple-600 mr-1"></i>Exam ${_mkEntryMode==='grade'?'Grade':'Marks'} Entry</h3>
+    <div class="flex gap-1">
+     <button class="mkEntryModeBtn px-3 py-1.5 rounded-lg text-xs font-medium ${_mkEntryMode==='marks'?'bg-purple-600 text-white':'bg-gray-100 hover:bg-gray-200 text-gray-700'}" data-mode="marks"><i class="fas fa-hashtag mr-1"></i>Marks</button>
+     <button class="mkEntryModeBtn px-3 py-1.5 rounded-lg text-xs font-medium ${_mkEntryMode==='grade'?'bg-purple-600 text-white':'bg-gray-100 hover:bg-gray-200 text-gray-700'}" data-mode="grade"><i class="fas fa-a mr-1"></i>Grade</button>
+    </div>
+   </div>
    <div class="grid md:grid-cols-2 gap-3 mb-3">
     <div>
      <label class="text-xs font-medium">Class *</label>
@@ -8797,13 +8824,15 @@ function renderTchMarks(){
      <input id="mkExam" placeholder="Type exam name" style="display:none" class="mt-1 text-sm w-full">
     </div>
     <div>
-     <label class="text-xs font-medium">Max Marks *</label>
-     <input type="number" id="mkMax" placeholder="e.g. 100" value="100">
+     <label class="text-xs font-medium">${_mkEntryMode==='grade'?'Recording':'Max Marks *'}</label>
+     ${_mkEntryMode==='grade'
+       ? `<div class="text-sm text-gray-500 py-2">Grades (no max marks)</div><input type="hidden" id="mkMax" value="100">`
+       : `<input type="number" id="mkMax" placeholder="e.g. 100" value="100">`}
     </div>
    </div>
    <div id="mkRoster" class="space-y-1 mb-3"></div>
    <div class="flex justify-end pt-3 border-t">
-    <button id="mkSaveBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-5 py-2 rounded-lg text-sm font-medium" disabled><i class="fas fa-save mr-1"></i>Save Marks</button>
+    <button id="mkSaveBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-5 py-2 rounded-lg text-sm font-medium" disabled><i class="fas fa-save mr-1"></i>Save ${_mkEntryMode==='grade'?'Grades':'Marks'}</button>
    </div>
   </div>
 
@@ -9623,6 +9652,9 @@ function _generateHomeworkBroadcast(hw){
 
 function _attachMarksEvents(){
  // Keep the Subject list in step with the chosen class (subjects come from the exam datesheet).
+ document.querySelectorAll('.mkEntryModeBtn').forEach(b => b.addEventListener('click', () => {
+  _mkEntryMode = b.dataset.mode; renderApp();
+ }));
  const _mkClassSel = document.getElementById('mkClass');
  const _mkSubSel = document.getElementById('mkSubject');
  if (_mkClassSel && _mkSubSel){
@@ -9651,11 +9683,14 @@ function _attachMarksEvents(){
   }
   const sts = getActiveStudents().filter(s => s.class === cls).sort((a,b) => (a.rollNo||0)-(b.rollNo||0));
   if (sts.length === 0) { roster.innerHTML = '<div class="text-sm text-gray-500 py-3">No students</div>'; saveBtn.disabled = true; return; }
-  roster.innerHTML = '<div class="bg-purple-50 text-purple-800 text-xs p-2 rounded mb-2">Enter marks below. Leave blank to skip a student.</div>' + sts.map(s => `
+  const isGrade = _mkEntryMode === 'grade';
+  roster.innerHTML = `<div class="bg-purple-50 text-purple-800 text-xs p-2 rounded mb-2">Enter ${isGrade?'a grade':'marks'} below. Leave blank to skip a student.</div>` + sts.map(s => `
    <div class="flex items-center gap-3 p-2 border rounded hover:bg-gray-50">
     <span class="w-8 text-xs text-gray-500">#${s.rollNo||'-'}</span>
     <span class="flex-1 text-sm font-medium">${s.name}</span>
-    <input type="number" data-sid="${s.id}" class="mkInput w-24" placeholder="Marks" min="0">
+    ${isGrade
+      ? `<select data-sid="${s.id}" class="mkInput" style="width:110px"><option value="">—</option>${Object.keys(GRADE_SCALES).map(g=>`<optgroup label="${g}">${GRADE_SCALES[g].map(x=>`<option value="${x}">${x}</option>`).join('')}</optgroup>`).join('')}</select>`
+      : `<input type="number" data-sid="${s.id}" class="mkInput w-24" placeholder="Marks" min="0">`}
    </div>`).join('');
   saveBtn.disabled = false;
  };
@@ -9674,7 +9709,22 @@ function _attachMarksEvents(){
   const all = getExamMarks();
   let count = 0;
   let seq = 0;
+  const isGrade = _mkEntryMode === 'grade';
   document.querySelectorAll('.mkInput').forEach(i => {
+   if (isGrade) {
+    const g = (i.value || '').trim();
+    if (!g) return;
+    all.push({
+     id: Date.now() + (seq++) * 1000 + Math.floor(Math.random() * 1000),
+     studentId: parseInt(i.dataset.sid),
+     examName: exam, subject: sub,
+     grade: g, marks: null, maxMarks: null,
+     date: new Date().toISOString().slice(0,10),
+     teacher: currentUser.name, teacherId: currentUser.id
+    });
+    count++;
+    return;
+   }
    const v = parseInt(i.value);
    if (!isNaN(v)) {
     all.push({
@@ -9688,9 +9738,9 @@ function _attachMarksEvents(){
     count++;
    }
   });
-  if (count === 0) { alert('No marks entered'); return; }
+  if (count === 0) { alert(isGrade ? 'No grades entered' : 'No marks entered'); return; }
   saveExamMarks(all);
-  showToast(count + ' marks saved for ' + exam);
+  showToast(count + (isGrade ? ' grades saved for ' : ' marks saved for ') + exam);
   renderApp();
  });
 
@@ -9726,7 +9776,8 @@ function _attachMarksEvents(){
       <tbody>${marks.sort((a,b) => (a.student?.rollNo||0)-(b.student?.rollNo||0)).map(m => {
         const pct = (m.marks / max) * 100;
         const grade = pct >= 90 ? 'A+' : pct >= 80 ? 'A' : pct >= 70 ? 'B+' : pct >= 60 ? 'B' : pct >= 50 ? 'C' : pct >= 33 ? 'D' : 'F';
-        return `<tr><td>${m.student?.rollNo||'-'}</td><td>${m.student?.name||'?'}</td><td>${m.marks}/${max}</td><td>${pct.toFixed(1)}%</td><td class="font-semibold">${grade}</td>
+        const isG = (m.marks === null || m.marks === undefined) && m.grade;
+        return `<tr><td>${m.student?.rollNo||'-'}</td><td>${m.student?.name||'?'}</td><td>${isG?'<span class="text-gray-400">grade only</span>':m.marks+'/'+max}</td><td>${isG?'—':pct.toFixed(1)+'%'}</td><td class="font-semibold">${isG?escapeHTML(m.grade):grade}</td>
           <td class="whitespace-nowrap"><button class="mkEditBtn text-blue-600 hover:text-blue-800" data-id="${m.id}" title="Edit marks"><i class="fas fa-edit"></i></button>
           <button class="mkDelBtn text-red-600 hover:text-red-800 ml-2" data-id="${m.id}" title="Delete marks"><i class="fas fa-trash"></i></button></td></tr>`;
        }).join('')}</tbody>
@@ -10669,6 +10720,14 @@ const FEE_HEADS = [
 var _rcptYearFilter = 'all';
 var _rcptHeads = []; // line items being added to the current receipt: [{head, amount}]
 // Standard exam names for marks entry. 'Other' reveals a free-text box.
+// Grades that can be recorded instead of marks (CBSE scholastic scale, plus a simple
+// primary scale for the junior classes).
+const GRADE_SCALES = {
+ 'CBSE (A1–E2)': ['A1','A2','B1','B2','C1','C2','D','E1','E2'],
+ 'Simple (A+–D)': ['A+','A','B+','B','C+','C','D']
+};
+const ALL_GRADES = Object.values(GRADE_SCALES).flat();
+var _mkEntryMode = 'marks';   // 'marks' | 'grade'
 const EXAM_NAMES = ['Class Test','Unit Test 1','Unit Test 2','Half Yearly','Final Examination','Other'];
 const RECEIPT_FEE_HEADS = [
   'Registration Fees', 'Admission Fee', 'Composite Fee', 'Tuition Fee', 'Book Fee', 'Computer Fee',
