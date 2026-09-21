@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1789990782 - principal updated to Vandana Bindal (B.Sc., B.Ed.) on the homepage, About page and the CBSE Mandatory Disclosure (was still publishing Reena Goyal); fixed TC signature printing [object Object]; Disclosure PDFs rows gain a direct Upload button (PDF/JPG/PNG, 10 MB) using the existing cloud storage, link option kept -->
+<!-- BUILD: v-1789992965 - Fee Reminders added to the Principal portal (Fees section), same list and actions as the accountant: WhatsApp reminder to one parent or a whole class, print and export -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -4449,7 +4449,7 @@ var PRINCIPAL_CATEGORIES = [
  {key:'people',     label:'People',      icon:'users',          tabs:['students','teachers','appraisal','facultygap']},
  {key:'academics',  label:'Academics',   icon:'graduation-cap', tabs:['homework','reportcards','resources','ptm','activities','gallery','calendar']},
  {key:'attendance', label:'Attendance',  icon:'calendar-check', tabs:['studentattendance','staffattendance','attendance']},
- {key:'finance',    label:'Fees',        icon:'chart-column',   tabs:['feedashboard']},
+ {key:'finance',    label:'Fees',        icon:'chart-column',   tabs:['feedashboard','feereminders']},
  {key:'comms',      label:'Communication',icon:'bullhorn',      tabs:['notices','broadcast','enquiries']},
  {key:'records',    label:'Compliance & Records', icon:'shield-halved', tabs:['compliance','documents','reports']}
 ];
@@ -7504,6 +7504,7 @@ const PRINCIPAL_TAB_INFO = {
  staffattendance:{label:'Staff Attendance', icon:'user-clock', color:'#059669', action:'Open Staff Attendance', desc:'Mark daily staff attendance and review each member\u2019s record.'},
  attendance:{label:'Attendance Insights', icon:'chart-pie', color:'#0891b2', action:'Open Insights', desc:'Overall %, monthly trends and students needing attention.'},
  feedashboard:{label:'Fee Dashboard', icon:'chart-column', color:'#059669', action:'Open Fee Dashboard', desc:'Class-wise fees expected, collected and outstanding with collection rates.'},
+ feereminders:{label:'Fee Reminders', icon:'bell', color:'#dc2626', action:'Open Fee Reminders', desc:'Everyone with fees due, class by class — send a WhatsApp reminder to one parent or all of them, print or export the list.'},
  notices:{label:'Notice Board', icon:'thumbtack', color:'#ea580c', action:'Manage Notices', desc:'Post announcements to students, parents, teachers or the whole school.'},
  broadcast:{label:'Broadcast', icon:'bullhorn', color:'#d97706', action:'Send Broadcast', desc:'Send a message to a whole class or the entire school at once.'},
  enquiries:{label:'Admissions', icon:'inbox', color:'#4f46e5', action:'View Enquiries', desc:'Admission enquiries received from the website.'},
@@ -7561,6 +7562,7 @@ function renderPrincipalPanel(){
   {id:'staffattendance',label:'Staff Attendance',icon:'user-clock'},
   {id:'attendance',label:'Attendance Insights',icon:'chart-pie'},
   {id:'feedashboard',label:'Fee Dashboard',icon:'chart-column'},
+  {id:'feereminders',label:'Fee Reminders',icon:'bell'},
   {id:'notices',label:'Notice Board',icon:'thumbtack'},
   {id:'broadcast',label:'Broadcast',icon:'bullhorn'},
   {id:'enquiries',label:'Admissions',icon:'inbox'},
@@ -7632,6 +7634,7 @@ function renderPrincipalTabContent(){
  else if(activePrincipalTab==='activities')return renderActivitiesPage();
  else if(activePrincipalTab==='gallery')return renderGalleryAdminTab();
  else if(activePrincipalTab==='feedashboard')return renderFeeDashboard();
+ else if(activePrincipalTab==='feereminders')return renderFeeRemindersTab();
  else if(activePrincipalTab==='broadcast')return renderBroadcastTab();
  else if(activePrincipalTab==='enquiries')return renderEnquiriesTab();
  else if(activePrincipalTab==='documents')return renderDocuments();
@@ -8065,7 +8068,8 @@ HELP_GUIDES.principal = { label:'Principal', icon:'user-tie', color:'#7a1e2e', s
   'The document icon on a student opens the Transfer Certificate form; the printer icon prints their full KYC record.']},
  {t:'Fee position', i:'chart-column', s:[
   '<b>Fees → Fee Dashboard</b> shows expected, collected and outstanding for every class.',
-  'Print the class-wise fee register or export it for the accountant.']},
+  'Print the class-wise fee register or export it for the accountant.',
+  '<b>Fees → Fee Reminders</b> lists every student with dues. Send a WhatsApp reminder to one parent, or to everyone in a class at once, and print the list.']},
  {t:'Notices, broadcast and admissions', i:'bullhorn', s:[
   '<b>Communication → Notices</b> posts announcements to a chosen audience.',
   '<b>Communication → Broadcast</b> messages a class or the whole school.',
@@ -18064,6 +18068,7 @@ function attachActivePrincipalTabEvents(){
  else if(activePrincipalTab==='activities')attachActivitiesEvents();
  else if(activePrincipalTab==='gallery')attachGalleryAdminEvents();
  else if(activePrincipalTab==='feedashboard')_attachFeeDashboardEvents();
+ else if(activePrincipalTab==='feereminders')attachFeeRemindersEvents();
  else if(activePrincipalTab==='broadcast')attachBroadcastEvents();
  else if(activePrincipalTab==='enquiries')attachEnquiriesTabEvents();
  else if(activePrincipalTab==='documents')attachGenericModuleEvents();
