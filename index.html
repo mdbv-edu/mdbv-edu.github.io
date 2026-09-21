@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1789992965 - Fee Reminders added to the Principal portal (Fees section), same list and actions as the accountant: WhatsApp reminder to one parent or a whole class, print and export -->
+<!-- BUILD: v-1789993919 - report cards as a zip: one A4 PDF per student named by student, a folder per class, for one class or the whole school; duplicate names get the roll number, students with no marks listed in README.txt, cancel keeps what is done; JSZip/html2canvas/jsPDF load only when used (verified end-to-end in Chromium) -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -2738,7 +2738,7 @@ function _diaryPrintShell(title, bodyHTML){
  const w = window.open('', '_blank', 'width=900,height=1000');
  if (!w) { alert('Pop-up blocked. Please allow pop-ups for this site, then try again.'); return; }
  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title}</title>
- <style>
+ <style>*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
   @page { size: A4 portrait; margin: 1.2cm; }
   * { box-sizing: border-box; }
   body { font-family: 'Segoe UI', Arial, sans-serif; color:#2a1410; margin:0; padding:0; }
@@ -5034,7 +5034,7 @@ function printTransferCertificate(studentId, data){
   return `<tr><td class="cl">${r.label}</td><td>${escapeHTML(d.adm||'')}</td><td>${escapeHTML(d.prom||'')}</td><td>${escapeHTML(d.sess||'')}</td><td>${escapeHTML(d.res||'')}</td><td>${escapeHTML(d.cond||'')}</td><td>${escapeHTML(d.work||'')}</td><td></td></tr>`;
  };
  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Transfer Certificate — ${escapeHTML(t.name||s.name||'')}</title>
- <style>
+ <style>*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
   @page { size: A4; margin: 12mm; }
   *{box-sizing:border-box}
   body{font-family:"Times New Roman",Georgia,serif;color:#000;margin:0;font-size:12.5px;line-height:1.55}
@@ -5102,7 +5102,7 @@ function generateStudentIDCard(s){
  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
  <title>ID Card - ${s.name}</title>
  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"><\/script>
- <style>
+ <style>*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}@page{size:A4 portrait;margin:10mm}
   *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',Arial,sans-serif}
   body{background:#e5e7eb;padding:20px;display:flex;flex-direction:column;align-items:center;gap:16px}
   .card{width:320px;background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,.18);display:flex;flex-direction:column}
@@ -5277,7 +5277,7 @@ function generateReportCard(student, examName, opts){
 
  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
  <title>Report Card - ${s.name}</title>
- <style>
+ <style>*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}@page{size:A4 portrait;margin:10mm}
   *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',Arial,sans-serif}
   body{background:#e5e7eb;padding:24px;display:flex;flex-direction:column;align-items:center;gap:18px}
   .sheet{width:760px;background:#fff;box-shadow:0 8px 28px rgba(0,0,0,.15);border:6px double #7a1e2e;padding:0}
@@ -5313,7 +5313,26 @@ function generateReportCard(student, examName, opts){
   .btns{display:flex;gap:10px}
   button{padding:10px 22px;border:0;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer}
   .pr{background:#7a1e2e;color:#fff}.cl{background:#ddd;color:#333}
-  @media print{body{background:#fff;padding:0}.btns{display:none}.sheet{box-shadow:none;border:6px double #7a1e2e;page-break-inside:avoid}}
+  @media print{
+   /* A4 portrait with 10mm margins leaves 190mm x 277mm. Size the card to that and
+      tighten spacing so a full subject list still fits on ONE page — otherwise, in a bulk
+      print, one card spilling over shifts every card after it onto the wrong page. */
+   html,body{width:210mm;background:#fff}
+   body{padding:0;display:block;gap:0}
+   .btns,.printhelp{display:none!important}
+   .sheet{width:190mm;max-width:190mm;margin:0 auto;box-shadow:none;border:4px double #7a1e2e;
+          page-break-inside:avoid;break-inside:avoid;overflow:hidden}
+   .head{padding:16px 22px;gap:16px}.head img{width:62px;height:62px}
+   .head .t1{font-size:23px}.head .t2{font-size:11px}.head .t3{font-size:13px;margin-top:6px}
+   .stuband{padding:16px 22px;gap:16px}.stuinfo .nm{font-size:21px}
+   .stugrid{font-size:12.5px;gap:4px 24px;margin-top:8px}
+   .stuphoto{width:86px;height:104px}.stuphoto .ini{font-size:32px}
+   th,td{padding:8px 12px;font-size:13px}thead th{font-size:11px}
+   .summary .box{padding:14px}.summary .v{font-size:26px}.summary .l{font-size:11px}
+   .remark{padding:14px 22px;font-size:13px}
+   .sign{padding:52px 22px 18px;font-size:12px}.sign .s{width:160px}
+   .foot{font-size:10px;padding:8px}.gradekey{font-size:9.5px;padding:7px 22px}
+  }
  </style></head><body>
   <div class="sheet">
    <div class="head">
@@ -5357,6 +5376,7 @@ function generateReportCard(student, examName, opts){
    <button class="pr" onclick="window.print()">Print / Save PDF</button>
    <button class="cl" onclick="window.close()">Close</button>
   </div>
+  ${_pdfHelpHTML(1)}
  </body></html>`;
  if (returnHTML) return html;
  const w = window.open('', '_blank', 'width=820,height=1000');
@@ -5365,6 +5385,168 @@ function generateReportCard(student, examName, opts){
  w.document.close();
 }
 // Every report card for a class (or the whole school) in ONE document, one card per page.
+// ===== REPORT CARDS AS A ZIP: one PDF per student, one folder per class =====
+// Printing can only save ONE combined PDF, so separate files need these libraries. They are
+// loaded the first time this is used, never on normal page loads.
+const _ZIP_LIBS = [
+ ['JSZip',       'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js'],
+ ['html2canvas', 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js'],
+ ['jspdf',       'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js']
+];
+function _loadScriptOnce(url){
+ return new Promise((resolve, reject) => {
+  if (document.querySelector(`script[data-lazy="${url}"]`)) return resolve();
+  const s = document.createElement('script');
+  s.src = url; s.async = true; s.dataset.lazy = url;
+  s.onload = () => resolve();
+  s.onerror = () => reject(new Error('Could not load ' + url.split('/npm/')[1]));
+  document.head.appendChild(s);
+ });
+}
+async function _ensureZipLibs(){
+ for (const [globalName, url] of _ZIP_LIBS) {
+  if (typeof window[globalName] === 'undefined') await _loadScriptOnce(url);
+ }
+ if (!window.JSZip || !window.html2canvas || !(window.jspdf && window.jspdf.jsPDF)) throw new Error('PDF libraries did not load.');
+}
+// The report card's print styles are what size it to A4. Canvas rendering uses screen styles,
+// so lift the rules out of "@media print{...}" and apply them always.
+function _printRulesOf(css){
+ const at = css.indexOf('@media print');
+ if (at < 0) return '';
+ const open = css.indexOf('{', at);
+ let depth = 0;
+ for (let i = open; i < css.length; i++) {
+  if (css[i] === '{') depth++;
+  else if (css[i] === '}') { depth--; if (depth === 0) return css.slice(open + 1, i); }
+ }
+ return '';
+}
+function _safeFileName(s){
+ return String(s || '').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Unnamed';
+}
+function _classFolderName(c){ return /^\d+$/.test(String(c)) ? 'Class ' + c : String(c); }
+// Render one report card document to a single-page A4 PDF (returns an ArrayBuffer).
+async function _reportCardToPdf(html, title){
+ const frame = document.createElement('iframe');
+ frame.setAttribute('aria-hidden', 'true');
+ frame.style.cssText = 'position:fixed;left:-10000px;top:0;width:820px;height:1300px;border:0;visibility:hidden';
+ document.body.appendChild(frame);
+ try {
+  const css = (html.match(/<style>([\s\S]*?)<\/style>/) || [,''])[1];
+  const printRules = _printRulesOf(css);
+  // <base> so relative image paths (the school logo) resolve as they do on the site
+  const withPrint = html
+    .replace('<head>', `<head><base href="${location.href.replace(/[^/]*$/, '')}">`)
+    .replace('</head>', `<style>${printRules}</style></head>`)
+    .replace(/<script[\s\S]*?<\/script>/g, '');           // no auto-print inside the frame
+  await new Promise(res => { frame.onload = res; frame.srcdoc = withPrint; });
+  const doc = frame.contentDocument;
+  await Promise.all(Array.from(doc.images).map(img => img.complete ? null : new Promise(r => { img.onload = img.onerror = r; })));
+  const sheet = doc.querySelector('.sheet');
+  if (!sheet) throw new Error('Report card layout not found');
+  const canvas = await window.html2canvas(sheet, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false });
+  const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true });
+  // Fit inside A4 with 10mm margins, keeping proportions.
+  let w = 190, h = w * canvas.height / canvas.width;
+  if (h > 277) { h = 277; w = h * canvas.width / canvas.height; }
+  pdf.addImage(canvas.toDataURL('image/jpeg', 0.88), 'JPEG', (210 - w) / 2, 10, w, h);
+  pdf.setProperties({ title: title, subject: 'Report Card', author: SCHOOL_INFO.name, creator: SCHOOL_INFO.name });
+  return pdf.output('arraybuffer');
+ } finally {
+  frame.remove();
+ }
+}
+var _rcZipCancel = false;
+async function downloadReportCardsZip(cls, examName){
+ const all = getActiveStudents();
+ const clsIdx = x => { const i = ALL_CLASSES.indexOf(String(x.class||'').trim()); return i < 0 ? 999 : i; };
+ const targets = (cls ? all.filter(s => String(s.class||'').trim() === String(cls).trim()) : all.slice())
+   .sort((a,b) => clsIdx(a) - clsIdx(b) || (Number(a.rollNo)||9999) - (Number(b.rollNo)||9999));
+ if (!targets.length) { alert('No students found.'); return; }
+ const examLabel = examName || 'Consolidated';
+
+ const m = document.createElement('div');
+ m.className = 'modal';
+ m.innerHTML = `<div class="modal-content" style="max-width:480px">
+   <h3 class="text-lg font-bold mb-1"><i class="fas fa-file-zipper text-emerald-600 mr-1"></i>Preparing report cards</h3>
+   <p class="text-sm text-gray-600 mb-3">${cls ? escapeHTML(_classFolderName(cls)) : 'Whole school'} · ${escapeHTML(examLabel)} · one PDF per student</p>
+   <div class="bg-gray-100 rounded-full h-3 overflow-hidden"><div id="rcZipBar" class="h-3 bg-emerald-600" style="width:0%"></div></div>
+   <div id="rcZipStatus" class="text-sm text-gray-700 mt-2">Loading PDF tools…</div>
+   <div class="text-xs text-gray-500 mt-1">Keep this tab open. About a second per student.</div>
+   <div class="flex justify-end mt-4"><button id="rcZipCancelBtn" class="bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg text-sm">Cancel</button></div>
+  </div>`;
+ document.body.appendChild(m);
+ const bar = m.querySelector('#rcZipBar'), status = m.querySelector('#rcZipStatus');
+ _rcZipCancel = false;
+ m.querySelector('#rcZipCancelBtn').addEventListener('click', () => { _rcZipCancel = true; status.textContent = 'Stopping…'; });
+
+ try {
+  await _ensureZipLibs();
+  const zip = new window.JSZip();
+  const used = {};                 // file names already taken, per class folder
+  const skipped = [], made = [];
+  for (let i = 0; i < targets.length; i++) {
+   if (_rcZipCancel) break;
+   const st = targets[i];
+   status.textContent = `${i + 1} of ${targets.length} · ${st.name} (${_classFolderName(st.class)})`;
+   bar.style.width = Math.round(i / targets.length * 100) + '%';
+   const html = generateReportCard(st, examName || '', { returnHTML: true });
+   if (!html) { skipped.push(st); continue; }
+   const folder = _classFolderName(st.class);
+   // Two children with the same name in one class get their roll number added.
+   let base = _safeFileName(st.name);
+   used[folder] = used[folder] || {};
+   if (used[folder][base.toLowerCase()]) base = _safeFileName(`${st.name} (Roll ${st.rollNo || st.id})`);
+   used[folder][base.toLowerCase()] = true;
+   const pdf = await _reportCardToPdf(html, `${st.name} — ${examLabel}`);
+   zip.file(`${folder}/${base} - ${_safeFileName(examLabel)}.pdf`, pdf, { compression: 'STORE' });
+   made.push(st);
+   await new Promise(r => setTimeout(r, 0));   // let the progress bar repaint
+  }
+  if (_rcZipCancel && !made.length) { m.remove(); return; }
+  bar.style.width = '100%';
+  status.textContent = 'Packing the zip file…';
+  const summary = [
+   `${SCHOOL_INFO.name} — Report Cards`,
+   `Exam: ${examLabel}`,
+   `Created: ${new Date().toLocaleString('en-IN')}`,
+   ``,
+   `${made.length} report card(s) included, one PDF per student, in a folder per class.`,
+   _rcZipCancel ? `Stopped early — ${targets.length - made.length - skipped.length} student(s) not processed.` : '',
+   skipped.length ? `\nNo marks for ${examLabel}, so no report card (${skipped.length}):` : '',
+   ...skipped.map(s => `  ${_classFolderName(s.class)} — ${s.name} (Roll ${s.rollNo || '-'})`)
+  ].filter(x => x !== '').join('\r\n');
+  zip.file('README.txt', summary);
+  const blob = await zip.generateAsync({ type: 'blob' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `MDBV_Report_Cards_${_safeFileName(cls ? _classFolderName(cls) : 'Whole_School').replace(/\s+/g,'_')}_${_safeFileName(examLabel).replace(/\s+/g,'_')}.zip`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  m.remove();
+  showToast(`${made.length} report card PDF${made.length===1?'':'s'} downloaded${skipped.length?` · ${skipped.length} skipped (no marks)`:''}`);
+ } catch (err) {
+  m.remove();
+  alert('Could not create the zip: ' + (err && err.message ? err.message : err) +
+        '\n\nCheck the internet connection — the PDF tools load from the web the first time.');
+ }
+}
+
+// Print-dialog settings that keep every page A4 and produce a single PDF.
+function _pdfHelpHTML(count){
+ return `<div class="printhelp" style="max-width:190mm;margin:0 auto 14px;background:#fff8e6;border:1px solid #e3b341;border-radius:8px;padding:10px 14px;font:13px/1.55 Arial,sans-serif;color:#3a2a00">
+  <b style="color:#7a1e2e">To save${count>1?' all '+count:''} as one PDF, click Print and set:</b>
+  <table style="margin-top:6px;border-collapse:collapse;font-size:12.5px">
+   <tr><td style="padding:2px 14px 2px 0">Destination</td><td><b>Save as PDF</b> &nbsp;<span style="color:#888">(or pick your printer to print directly)</span></td></tr>
+   <tr><td style="padding:2px 14px 2px 0">Paper size</td><td><b>A4</b></td></tr>
+   <tr><td style="padding:2px 14px 2px 0">Margins</td><td><b>Default</b></td></tr>
+   <tr><td style="padding:2px 14px 2px 0">Scale</td><td><b>100 / Default</b> &nbsp;<span style="color:#888">— not "Fit to page", which shrinks cards unevenly</span></td></tr>
+   <tr><td style="padding:2px 14px 2px 0">More settings</td><td>tick <b>Background graphics</b></td></tr>
+  </table>
+  ${count>1?`<div style="margin-top:6px;color:#555">You should see <b>${count} pages</b> in the preview — one card per page. If you see more, a card is spilling over; tell the office.</div>`:''}
+ </div>`;
+}
 function printBulkReportCards(cls, examName){
  let list = getActiveStudents();
  if (cls) list = list.filter(s => String(s.class||'').trim() === cls);
@@ -5382,14 +5564,17 @@ function printBulkReportCards(cls, examName){
  if (!sheets.length) { alert('None of these students have marks' + (examName ? ' for ' + examName : '') + ' yet.'); return; }
  const label = cls ? (/^\d+$/.test(cls) ? 'Class ' + cls : cls) : 'All Classes';
  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Report Cards — ${escapeHTML(label)}</title>
-  <style>${style}
+  <style>*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}@page{size:A4 portrait;margin:10mm}${style}
    .bulkbar{position:sticky;top:0;background:#fff;border-bottom:1px solid #ddd;padding:10px;text-align:center;z-index:5;font-family:Arial}
-   .bulkbar b{color:#7a1e2e}.sheet{margin:0 auto 24px}
-   @media print{.bulkbar{display:none}.sheet{page-break-after:always;margin:0 auto}.sheet:last-child{page-break-after:auto}}
+   .bulkbar b{color:#7a1e2e}.sheet{margin:0 auto 24px}.printhelp{display:block}
+   @media print{.bulkbar{display:none!important}
+    .sheet{page-break-after:always;break-after:page;margin:0 auto}
+    .sheet:last-of-type{page-break-after:auto;break-after:auto}}
   </style></head><body>
   <div class="bulkbar"><b>${sheets.length} report card${sheets.length===1?'':'s'}</b> · ${escapeHTML(label)}${examName?' · '+escapeHTML(examName):' · Consolidated'}
    ${skipped.length?` · <span style="color:#b45309">${skipped.length} skipped (no marks)</span>`:''}
-   &nbsp; <button class="pr" onclick="window.print()">Print all</button></div>
+   &nbsp; <button class="pr" onclick="window.print()">Print / Save as PDF</button></div>
+  ${_pdfHelpHTML(sheets.length)}
   ${sheets.join('')}
  </body></html>`;
  const w = window.open('', '_blank');
@@ -6503,7 +6688,14 @@ function renderReportCardsTab(){
     <span class="text-sm font-semibold text-gray-700"><i class="fas fa-layer-group text-emerald-600 mr-1"></i>Print in bulk:</span>
     <button id="rcBulkClassBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Every student in the selected class, one card per page"><i class="fas fa-print mr-1"></i>All report cards for this class</button>
     <button id="rcBulkAllBtn" class="bg-slate-700 hover:bg-slate-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Every student in the school, one card per page"><i class="fas fa-school mr-1"></i>Whole school</button>
+
     <span class="text-xs text-gray-500">Uses the exam chosen above. Students with no marks are skipped and counted.</span>
+   </div>
+   <div class="mt-2 pt-2 border-t border-dashed flex flex-wrap items-center gap-2">
+    <span class="text-sm font-semibold text-gray-700"><i class="fas fa-file-zipper text-indigo-600 mr-1"></i>Separate PDFs (zip):</span>
+    <button id="rcZipClassBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="One PDF per student, named by student, for this class"><i class="fas fa-download mr-1"></i>This class</button>
+    <button id="rcZipAllBtn" class="bg-indigo-800 hover:bg-indigo-900 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="A folder per class, one PDF per student"><i class="fas fa-download mr-1"></i>Whole school</button>
+    <span class="text-xs text-gray-500">One PDF per student, named by student, in a folder per class — ready to send to each parent.</span>
    </div>
   </div>
 
@@ -6572,6 +6764,16 @@ function attachReportCardsEvents(){
  document.getElementById('rcBulkAllBtn')?.addEventListener('click', () => {
   if (!confirm('Print report cards for every student in the school? This can be a large document.')) return;
   printBulkReportCards('', document.getElementById('rcExam')?.value || '');
+ });
+ document.getElementById('rcZipClassBtn')?.addEventListener('click', () => {
+  const cls = document.getElementById('rcClass')?.value;
+  if (!cls) { alert('Pick a class first.'); return; }
+  downloadReportCardsZip(cls, document.getElementById('rcExam')?.value || '');
+ });
+ document.getElementById('rcZipAllBtn')?.addEventListener('click', () => {
+  const n = getActiveStudents().length;
+  if (!confirm(`Create a PDF for every student in the school (${n})?\n\nThis takes a few minutes. Keep the tab open until the zip downloads.`)) return;
+  downloadReportCardsZip('', document.getElementById('rcExam')?.value || '');
  });
  document.getElementById('rcLoadBtn')?.addEventListener('click', loadList);
 }
@@ -7057,7 +7259,7 @@ function _printActivityCalendar(){
  const w = window.open('', '_blank', 'width=900,height=1000');
  if (!w) { alert('Pop-up blocked. Please allow pop-ups and try again.'); return; }
  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Activity Calendar ${year}</title>
-  <style>@page{size:A4 portrait;margin:1.2cm}body{font-family:Arial,sans-serif;color:#2a1410;margin:0}
+  <style>*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}@page{size:A4 portrait;margin:1.2cm}body{font-family:Arial,sans-serif;color:#2a1410;margin:0}
    .hdr{display:flex;align-items:center;gap:10px;border-bottom:3px solid #7a1e2e;padding-bottom:6px;margin-bottom:4px}
    .sn{font-size:15pt;font-weight:800;color:#7a1e2e}.sm{font-size:8pt;color:#57433d}
    .ttl{text-align:center;font-weight:700;color:#7a1e2e;margin:4px 0 8px}
@@ -8061,6 +8263,7 @@ HELP_GUIDES.principal = { label:'Principal', icon:'user-tie', color:'#7a1e2e', s
   'Filter by class or teacher, and check that homework is going out regularly.']},
  {t:'Report cards and PTM', i:'file-lines', s:[
   '<b>Academics → Report Cards</b> generates and prints term report cards for any class from the marks teachers have entered.',
+  '<b>Separate PDFs (zip)</b> gives one PDF per student, named by student, in a folder per class — teachers can then send each file to that child\'s parent. Use a laptop for the whole school; it takes a couple of minutes.',
   '<b>Academics → PTM</b> is where you schedule meetings; teachers then record which parents attended.']},
  {t:'Students, TCs and records', i:'user-graduate', s:[
   '<b>People → Students</b> gives the full student list with search and filters.',
@@ -8254,7 +8457,7 @@ function printHelpGuide(){
  const key = _helpGuideKey || _helpKeyForRole();
  const g = HELP_GUIDES[key];
  if (!g) return;
- const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>How to use the portal — ${escapeHTML(g.label)}</title><style>
+ const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>How to use the portal — ${escapeHTML(g.label)}</title><style>*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
   @page{size:A4;margin:14mm}body{font-family:Arial;color:#111;font-size:12px;line-height:1.55;margin:0}
   .head{text-align:center;border-bottom:2px solid #7a1e2e;padding-bottom:6px;margin-bottom:12px}
   .sch{font-size:17px;font-weight:bold;color:#7a1e2e}.ttl{font-size:14px;font-weight:bold;margin-top:3px}
@@ -8436,7 +8639,7 @@ function printStudentRegister(cls, ym){
   const m=p+a+l, pct=m?Math.round((p+l*0.5)/m*100):0;
   return `<tr><td class="nm">${s.rollNo||''}</td><td class="nm">${escapeHTML(s.name)}</td>${cells}<td class="tot">${p}</td><td class="tot">${a}</td><td class="tot">${l}</td><td class="tot b">${m?pct+'%':'-'}</td></tr>`;
  }).join('');
- const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Attendance Register — ${escapeHTML(String(cls))} ${escapeHTML(monthName)}</title><style>
+ const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Attendance Register — ${escapeHTML(String(cls))} ${escapeHTML(monthName)}</title><style>*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
   @page{size:A4 landscape;margin:7mm}body{font-family:Arial;margin:0;font-size:9px;color:#111}
   .head{text-align:center;border-bottom:2px solid #7a1e2e;padding-bottom:4px;margin-bottom:6px}
   .sch{font-size:15px;font-weight:bold;color:#7a1e2e}.ttl{font-size:12px;font-weight:bold;margin-top:2px}
@@ -8936,7 +9139,7 @@ function printStaffAttendanceRegister(ym){
   return `<tr><td class="nm">${escapeHTML(t.name)}<br><span class="ty">${escapeHTML(staffTypeOf(t))}</span></td>${cells.join('')}
    <td class="tot">${s.presentTotal}</td><td class="tot">${s.CL}</td><td class="tot">${s.HDL}</td><td class="tot">${s.A}</td><td class="tot b">${s.paidDays}</td></tr>`;
  }).join('');
- const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Staff Attendance Register — ${escapeHTML(monthName)}</title><style>
+ const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Staff Attendance Register — ${escapeHTML(monthName)}</title><style>*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
   @page{size:A4 landscape;margin:7mm}body{font-family:Arial;margin:0;font-size:9px;color:#111}
   .head{text-align:center;border-bottom:2px solid #7a1e2e;padding-bottom:4px;margin-bottom:6px}
   .sch{font-size:15px;font-weight:bold;color:#7a1e2e}.ttl{font-size:12px;font-weight:bold;margin-top:2px}
@@ -8983,7 +9186,7 @@ function printSalaryStatement(ym){
  const monthName=new Date(yy,mm-1,1).toLocaleDateString('en-IN',{month:'long',year:'numeric'});
  const inr=v=>'Rs.'+Math.round(v||0).toLocaleString('en-IN');
  const tG=rows.reduce((a,r)=>a+r.s.gross,0), tD=rows.reduce((a,r)=>a+r.s.deduction,0), tP=rows.reduce((a,r)=>a+r.s.payable,0);
- const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Salary Statement — ${escapeHTML(monthName)}</title><style>
+ const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Salary Statement — ${escapeHTML(monthName)}</title><style>*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
   @page{size:A4;margin:10mm}body{font-family:Arial;margin:0;font-size:11px;color:#111}
   .head{text-align:center;border-bottom:2px solid #7a1e2e;padding-bottom:5px;margin-bottom:8px}
   .sch{font-size:16px;font-weight:bold;color:#7a1e2e}.ttl{font-size:13px;font-weight:bold;margin-top:3px}
@@ -13067,7 +13270,7 @@ function _gapTableHTML(){
 function printFacultyGap(){
  const d = facultyGapData();
  const today = new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
- const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Faculty Gap Analysis</title><style>
+ const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Faculty Gap Analysis</title><style>*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
   @page{size:A4 landscape;margin:8mm}body{font-family:Arial;color:#111;margin:0;font-size:10px}
   .head{text-align:center;border-bottom:2px solid #7a1e2e;padding-bottom:5px;margin-bottom:8px}
   .sch{font-size:15px;font-weight:bold;color:#7a1e2e}.ttl{font-size:12px;font-weight:bold;margin-top:3px}
@@ -13217,7 +13420,7 @@ function exportFeeRegisterExcel(onlyClass){
 
 // ===== KYC / DETAIL PRINT SHEETS (students & staff) =====
 function _kycStyles(){
- return `@page{size:A4;margin:10mm}*{box-sizing:border-box}
+ return `@page{size:A4;margin:10mm}*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}*{box-sizing:border-box}
   body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;font-size:11.5px}
   .head{text-align:center;border-bottom:2px solid #7a1e2e;padding-bottom:6px;margin-bottom:10px}
   .sch{font-size:17px;font-weight:bold;color:#7a1e2e}.addr{font-size:10px;color:#444}
@@ -13240,7 +13443,7 @@ function _kycStyles(){
 }
 function _kycShell(title, bodyHTML){
  const today = new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
- const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${escapeHTML(title)}</title><style>${_kycStyles()}</style></head><body>
+ const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${escapeHTML(title)}</title><style>*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}${_kycStyles()}</style></head><body>
   <div class="noprint"><button onclick="window.print()">Print / Save as PDF</button></div>
   <div class="head"><div class="sch">${escapeHTML((SCHOOL_INFO.name||'').toUpperCase())}</div>
    <div class="addr">${escapeHTML([SCHOOL_INFO.addressLine1,SCHOOL_INFO.addressLine2].filter(Boolean).join(', '))}</div>
@@ -13418,7 +13621,7 @@ function printStudentDetailsTable(cls){
  }).join('');
  const title = cls ? `Student Details — ${/^\d+$/.test(cls)?'Class '+cls:cls}` : 'Student Details — All Classes';
  const today = new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
- const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${escapeHTML(title)}</title><style>
+ const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${escapeHTML(title)}</title><style>*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
   @page{size:A4 landscape;margin:7mm}*{box-sizing:border-box}
   body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;font-size:9px}
   .head{text-align:center;border-bottom:2px solid #7a1e2e;padding-bottom:4px;margin-bottom:6px}
@@ -13465,7 +13668,7 @@ function printDataTable(opts){
   const txt = v === null || v === undefined ? '' : (typeof v === 'number' ? v.toLocaleString('en-IN') : String(v));
   return `<td class="${al}">${o.rawHTML ? txt : escapeHTML(txt)}</td>`;
  };
- const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${escapeHTML(o.title||'Report')}</title><style>
+ const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${escapeHTML(o.title||'Report')}</title><style>*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
   @page{size:A4 ${wide?'landscape':'portrait'};margin:9mm}*{box-sizing:border-box}
   body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;font-size:10px}
   .head{text-align:center;border-bottom:2px solid #7a1e2e;padding-bottom:5px;margin-bottom:7px}
@@ -13614,7 +13817,7 @@ function printFeeRegister(onlyClass){
  }).join('');
  const title = onlyClass ? ((/^\d+$/.test(onlyClass)?'Class '+onlyClass:onlyClass)+' — Fee Register') : 'Fee Register — All Classes';
  const today = new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
- const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${escapeHTML(title)}</title><style>
+ const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${escapeHTML(title)}</title><style>*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
   @page{size:A4;margin:10mm}
   *{box-sizing:border-box}
   body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;font-size:11px}
