@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1789955202 - attendance % now measured against the class working days for that month, counted from each student first marked day (late joiners unaffected); one shared studentAttendanceCalc helper drives the register, teacher views, report cards and the parent/student portals, falls back to marked days where no working-day record exists, and can be switched back from the attendance page -->
+<!-- BUILD: v-1789956876 - FIX sync error ON CONFLICT DO UPDATE cannot affect row a second time: calendar import produced duplicate ids (~89% of runs); new newRowId() guarantees unique ids for calendar, working days, marks and gallery loops, and every cloud push now re-keys any duplicate id before upserting and saves the repair locally, so no record is lost -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -2308,7 +2308,14 @@ const DB = {
   const sqlTable = this._sqlTable(jsTable);
 
   if (meta.type === 'array') {
-   const rows = this.getAll(jsTable);
+   let rows = this.getAll(jsTable);
+   // Postgres rejects an upsert that touches the same id twice ("cannot affect row a second
+   // time"). Re-key any duplicates before sending, and persist the fix so it doesn't recur.
+   const fixed = _dedupeRowIds(rows);
+   if (fixed.changed) {
+    rows = fixed.rows;
+    try { localStorage.setItem(jsTable, JSON.stringify(rows)); } catch(e){}
+   }
    const localIds = rows.map(r => r.id);
 
    // Step 1: upsert all current local rows
@@ -6887,7 +6894,7 @@ function importActivityDaysToCalendar(){
  ACTIVITY_DAYS.forEach(a => {
   const date = `${year}-${String(a.m).padStart(2,'0')}-${String(a.d).padStart(2,'0')}`;
   const exists = cal.some(e => e.title === a.t && e.date === date);
-  if (!exists) { cal.push({ id: Date.now() + Math.floor(Math.random()*100000), title: a.t, date, type: 'Event', description: 'Home Room Activity', public: false }); added++; }
+  if (!exists) { cal.push({ id: newRowId(cal), title: a.t, date, type: 'Event', description: 'Home Room Activity', public: false }); added++; }
  });
  set('calendar', cal);
  return added;
@@ -8397,6 +8404,31 @@ function exportStudentRegisterExcel(cls, ym){
 // Mirrors the student bulk-import flow: read file -> build candidates -> preview -> confirm -> write.
 // Nothing is written before confirmation, and the attendance write is a single store update
 // so a failure part-way cannot leave half a month loaded.
+// Unique ids for new rows. Date.now() + random is NOT enough when many rows are created in the
+// same millisecond — the calendar import used to produce duplicates most of the time.
+var _lastIssuedId = 0;
+function newRowId(existing){
+ let maxExisting = 0;
+ (existing||[]).forEach(r => { const n = Number(r && r.id); if (n > maxExisting) maxExisting = n; });
+ let id = Math.max(Date.now(), maxExisting + 1, _lastIssuedId + 1);
+ _lastIssuedId = id;
+ return id;
+}
+// Give every duplicate id (after the first) a fresh unique one. Returns {rows, changed, fixedCount}.
+function _dedupeRowIds(rows){
+ const seen = new Set(); let changed = false, fixedCount = 0;
+ let next = Math.max(Date.now(), ...((rows||[]).map(r => Number(r && r.id) || 0)), _lastIssuedId) + 1;
+ const out = (rows||[]).map(r => {
+  if (!r || r.id === undefined || r.id === null) return r;
+  if (!seen.has(r.id)) { seen.add(r.id); return r; }
+  changed = true; fixedCount++;
+  const copy = Object.assign({}, r, { id: next++ });
+  seen.add(copy.id);
+  return copy;
+ });
+ _lastIssuedId = Math.max(_lastIssuedId, next);
+ return { rows: out, changed, fixedCount };
+}
 function getWorkingDays(){ const v = get('workingDays'); return Array.isArray(v) ? v : []; }
 function saveWorkingDays(d){ DB.setAll('workingDays', d); }
 // Working days recorded for one class in one month (e.g. '2026-04'), or null if not transcribed.
@@ -8566,9 +8598,8 @@ function _applyAttendanceImport(){
   if (alsoCal) {
    if (d.calNew.length) {
     const cal = DB.getAll('calendar') || [];
-    let seq = 0;
     d.calNew.forEach(c => {
-     cal.push({ id: Date.now() + (seq++) * 7 + Math.floor(Math.random()*1000),
+     cal.push({ id: newRowId(cal),
                 title: c.title, date: c.date, type: 'Holiday',
                 description: c.description, public: true });
      calAdded++;
@@ -8577,7 +8608,7 @@ function _applyAttendanceImport(){
    }
    if (d.wdNew.length) {
     const wdAll = getWorkingDays();
-    d.wdNew.forEach(w => { wdAll.push(Object.assign({ id: Date.now() + Math.floor(Math.random()*100000) }, w)); wdAdded++; });
+    d.wdNew.forEach(w => { wdAll.push(Object.assign({ id: newRowId(wdAll) }, w)); wdAdded++; });
     saveWorkingDays(wdAll);
    }
   }
@@ -10644,7 +10675,7 @@ function _attachMarksEvents(){
     const g = (i.value || '').trim();
     if (!g) return;
     all.push({
-     id: Date.now() + (seq++) * 1000 + Math.floor(Math.random() * 1000),
+     id: newRowId(all),
      studentId: parseInt(i.dataset.sid),
      examName: exam, subject: sub,
      grade: g, marks: null, maxMarks: null,
@@ -10657,7 +10688,7 @@ function _attachMarksEvents(){
    const v = parseInt(i.value);
    if (!isNaN(v)) {
     all.push({
-     id: Date.now() + (seq++) * 1000 + Math.floor(Math.random() * 1000),
+     id: newRowId(all),
      studentId: parseInt(i.dataset.sid),
      examName: exam, subject: sub,
      marks: v, maxMarks: max,
@@ -19760,7 +19791,7 @@ function attachGalleryAdminEvents(){
    try {
     const dataUrl = await compress(f);
     if (!dataUrl) { failed++; continue; }
-    photos.push({ id: Date.now() + Math.floor(Math.random() * 100000), src: dataUrl, title: defaultTitle || f.name.replace(/\.[^.]+$/, ''), category: defaultCat, addedAt: new Date().toISOString() });
+    photos.push({ id: newRowId(photos), src: dataUrl, title: defaultTitle || f.name.replace(/\.[^.]+$/, ''), category: defaultCat, addedAt: new Date().toISOString() });
     added++;
    } catch (e) { failed++; }
   }
