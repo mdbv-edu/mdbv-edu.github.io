@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1789956876 - FIX sync error ON CONFLICT DO UPDATE cannot affect row a second time: calendar import produced duplicate ids (~89% of runs); new newRowId() guarantees unique ids for calendar, working days, marks and gallery loops, and every cloud push now re-keys any duplicate id before upserting and saves the repair locally, so no record is lost -->
+<!-- BUILD: v-1789990782 - principal updated to Vandana Bindal (B.Sc., B.Ed.) on the homepage, About page and the CBSE Mandatory Disclosure (was still publishing Reena Goyal); fixed TC signature printing [object Object]; Disclosure PDFs rows gain a direct Upload button (PDF/JPG/PNG, 10 MB) using the existing cloud storage, link option kept -->
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -1042,8 +1042,9 @@ function renderHome() {
               <i class="fas fa-feather text-burgundy text-xl"></i>
             </div>
             <div>
-              <div class="font-semibold text-ink">The Principal's Office</div>
-              <div class="text-sm text-ink-soft">Murti Devi Balika Vidyapeeth</div>
+              <div class="font-semibold text-ink">${SCHOOL_INFO.principal.name}</div>
+              <div class="text-sm text-ink-soft">Principal · ${SCHOOL_INFO.principal.qualification}</div>
+              <div class="text-xs text-ink-soft">Murti Devi Balika Vidyapeeth</div>
             </div>
           </div>
         </div>
@@ -1206,7 +1207,7 @@ function renderAbout() {
         <h2 class="font-display text-5xl text-ink mb-12">The people behind the school</h2>
         <div class="grid md:grid-cols-3 gap-8">
           ${leadershipCard(SCHOOL_INFO.founder.name, SCHOOL_INFO.founder.title, SCHOOL_INFO.founder.bio, SCHOOL_INFO.founder.icon)}
-          ${leadershipCard("The Principal's Office", 'Academic Leadership', 'The Principal leads the school\'s academic vision, faculty, and day-to-day educational excellence, ensuring every student receives a nurturing, values-driven CBSE education.', SCHOOL_INFO.principal.icon)}
+          ${leadershipCard(SCHOOL_INFO.principal.name, 'Principal · ' + SCHOOL_INFO.principal.qualification, 'The Principal leads the school\'s academic vision, faculty, and day-to-day educational excellence, ensuring every student receives a nurturing, values-driven CBSE education.', SCHOOL_INFO.principal.icon)}
           ${leadershipCard('Management Committee', 'Governance', 'A committee of educators, parents and community leaders that oversees school policy, infrastructure, and long-term strategy.', 'fa-users-gear')}
         </div>
       </div>
@@ -1908,9 +1909,9 @@ const SCHOOL_INFO = {
     icon:  'fa-landmark'
   },
   principal: {
-    name:          'Reena Goyal',
-    qualification: 'M.A. (English), B.Ed.',
-    bio:           'M.A. (English), B.Ed. Brings over two decades of academic leadership, specialising in girl-child education and CBSE curriculum implementation.',
+    name:          'Vandana Bindal',
+    qualification: 'B.Sc., B.Ed.',
+    bio:           'Leads the school\'s academic programme, faculty and day-to-day functioning, with a focus on girl-child education and the CBSE curriculum.',
     icon:          'fa-feather'
   },
 
@@ -4585,6 +4586,19 @@ function renderAdminDashboardTab(){
 const ALL_CLASSES = ['Pre Nursery','Nursery','LKG','UKG','1','2','3','4','5','6','7','8','9','10','11','12'];
 const ALL_SECTIONS = ['A','B','C','D'];
 
+// A small ring beside Fee Due showing how much of the composite fee has been paid.
+function _feePaidRing(s){
+ const fee = Number(s.decidedFees) || 0;
+ if (fee <= 0) return '';
+ const due = Math.max(0, Number(s.feeBalance) || 0);
+ const pct = Math.max(0, Math.min(100, Math.round((fee - due) / fee * 100)));
+ const col = pct >= 100 ? '#16a34a' : pct >= 50 ? '#d97706' : '#dc2626';
+ return `<span class="inline-flex items-center justify-center align-middle ml-1.5 rounded-full"
+   title="${pct}% of the Rs.${fee.toLocaleString('en-IN')} fee paid"
+   style="width:30px;height:30px;background:conic-gradient(${col} ${pct*3.6}deg,#e5e7eb 0deg)">
+   <span class="inline-flex items-center justify-center rounded-full bg-white"
+    style="width:22px;height:22px;font-size:8.5px;font-weight:700;color:${col}">${pct}%</span></span>`;
+}
 function renderStudentsTab(){
  const all=getStudents();
  // Always show the full canonical list, plus any extras found in data (custom class names)
@@ -4638,7 +4652,7 @@ function renderStudentsTab(){
     <button id="bulkImportStudentsBtn" class="bg-cyan-600 hover:bg-cyan-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Upload filled template to bulk-add students"><i class="fas fa-file-arrow-up mr-1"></i>Bulk Import</button>
     <input type="file" id="bulkImportStudentsFile" class="hidden" accept=".xlsx,.xls,.csv">
     <button id="exportStudentsBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-file-excel mr-1"></i>Export</button>
-    <button id="printStudentKycBtn" class="bg-slate-700 hover:bg-slate-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Print full KYC sheets for the selected class (or all)"><i class="fas fa-print mr-1"></i>Print KYC</button>
+    <button id="printStudentKycBtn" class="bg-slate-700 hover:bg-slate-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Print every student's details in one table — follows the class filter"><i class="fas fa-print mr-1"></i>Print Student Details</button>
     <button id="xlsStudentKycBtn" class="bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Export every detail to Excel for the selected class (or all)"><i class="fas fa-file-excel mr-1"></i>Full Details XLSX</button>
     <button id="promoteStudentsBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-arrow-up mr-1"></i>Promote</button>
     <button id="assignRollBtn" class="bg-teal-600 hover:bg-teal-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Auto-number roll numbers alphabetically within each class"><i class="fas fa-sort-alpha-down mr-1"></i>Assign Roll Nos</button>
@@ -4685,7 +4699,7 @@ function renderStudentsTab(){
     </div>`;
   })()}
   <div class="overflow-x-auto">
-   <table class="border text-sm"><thead><tr><th>Photo</th><th>Adm No</th>${canSeeSRNumber()?'<th title="Scholar Register No — used for TC">SR No</th>':''}${canSeeConfidentialNumbers()?'<th title="UDISE/PEN — confidential">UDISE</th>':''}<th>Name</th><th>Class</th><th>Sec</th><th>Roll</th><th>Parent</th><th>Fee Due</th><th>Tags</th><th>Actions</th></tr></thead>
+   <table class="border text-sm"><thead><tr><th>Photo</th><th>Adm No</th>${canSeeSRNumber()?'<th title="Scholar Register No — used for TC">SR No</th>':''}${canSeeConfidentialNumbers()?'<th title="UDISE/PEN — confidential">UDISE</th>':''}<th>Name</th><th>Class</th><th>Sec</th><th>Roll</th><th>Parent</th><th title="Total composite fee for the year">Fee to be Paid</th><th title="Still outstanding">Fee Due</th><th>Tags</th><th>Actions</th></tr></thead>
    <tbody>
     ${filt.map(s=>`<tr>
      <td>${s.photo?`<img src="${s.photo}" class="w-8 h-8 rounded object-cover" alt="">`:`<div class="w-8 h-8 rounded bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold">${initials(s.name)}</div>`}</td>
@@ -4694,7 +4708,8 @@ function renderStudentsTab(){
      <td class="font-medium">${s.name}</td>
      <td>${s.class}</td><td>${s.section}</td><td>${s.rollNo}</td>
      <td class="text-xs">${s.fatherName||s.motherName||s.parentName||'-'}<br><span class="text-gray-500">${s.parentPhone||''}</span></td>
-     <td>${s.feeBalance>0?`<span class="pill pill-red">Rs.${s.feeBalance.toLocaleString('en-IN')}</span>`:`<span class="pill pill-green">Clear</span>`}</td>
+     <td class="text-sm whitespace-nowrap">${(Number(s.decidedFees)||0)>0?`Rs.${Number(s.decidedFees).toLocaleString('en-IN')}`:'<span class="text-gray-400 text-xs">not set</span>'}</td>
+     <td class="whitespace-nowrap">${s.feeBalance>0?`<span class="pill pill-red">Rs.${s.feeBalance.toLocaleString('en-IN')}</span>`:`<span class="pill pill-green">Clear</span>`}${_feePaidRing(s)}</td>
      <td class="text-xs">${s.bpl?'<span class="pill pill-amber mr-1">BPL</span>':''}${s.cwsn?'<span class="pill pill-blue mr-1">CWSN</span>':''}<span class="pill pill-gray">${s.caste}</span></td>
      <td class="whitespace-nowrap">
       <button class="viewStudentBtn text-indigo-600 hover:text-indigo-800" data-id="${s.id}" title="View"><i class="fas fa-eye"></i></button>
@@ -4704,10 +4719,10 @@ function renderStudentsTab(){
         ? `<button class="restoreStudentBtn text-emerald-700 hover:text-emerald-900 ml-1" data-id="${s.id}" title="Restore (re-admit)"><i class="fas fa-rotate-left"></i></button>`
         : `<button class="archiveStudentBtn text-amber-600 hover:text-amber-800 ml-1" data-id="${s.id}" title="Issue TC / Archive"><i class="fas fa-box-archive"></i></button>`}
         ${canSeeSRNumber()?`<button class="tcPrintBtn text-rose-700 hover:text-rose-900 ml-1" data-id="${s.id}" title="Transfer Certificate (edit &amp; print)"><i class="fas fa-file-contract"></i></button>`:''}
-        <button class="kycPrintBtn text-slate-600 hover:text-slate-900 ml-1" data-id="${s.id}" title="Print full KYC / record sheet"><i class="fas fa-print"></i></button>
+        <button class="kycPrintBtn text-slate-600 hover:text-slate-900 ml-1" data-id="${s.id}" title="Print this student's full details"><i class="fas fa-print"></i></button>
       <button class="delStudentBtn2 text-red-600 hover:text-red-800 ml-1" data-id="${s.id}" title="Delete"><i class="fas fa-trash"></i></button>
      </td>
-    </tr>`).join('')||`<tr><td colspan="${11+(canSeeSRNumber()?1:0)+(canSeeConfidentialNumbers()?1:0)}" class="text-center text-gray-500 py-6">No students match</td></tr>`}
+    </tr>`).join('')||`<tr><td colspan="${12+(canSeeSRNumber()?1:0)+(canSeeConfidentialNumbers()?1:0)}" class="text-center text-gray-500 py-6">No students match</td></tr>`}
    </tbody></table>
   </div>
 
@@ -5061,7 +5076,7 @@ function printTransferCertificate(studentId, data){
   <table><thead><tr><th>CLASS</th><th>DATE OF<br>ADMISSION</th><th>DATE OF<br>PROMOTION</th><th>SESSION</th><th>RESULT</th><th>CONDUCT</th><th>WORK</th><th>SIG. OF<br>PRINCIPAL</th></tr></thead>
    <tbody>${TC_CLASS_ROWS.map(rowHtml).join('')}</tbody></table>
   <div class="cert">Certified that the above Scholar's Register has been posted upto the date of the scholar's leaving as required by the Departmental Rules and that there are no dues of the School outstanding against his name.</div>
-  <div class="sign"><div>PREPARED BY ${dot(t.preparedBy)}</div><div>Date ${dot(t.issueDate)}</div><div style="text-align:center">${escapeHTML(school.principalName||school.principal||'')}<br><span style="font-size:11px">Principal</span></div></div>
+  <div class="sign"><div>PREPARED BY ${dot(t.preparedBy)}</div><div>Date ${dot(t.issueDate)}</div><div style="text-align:center">${escapeHTML((school.principal && school.principal.name) || school.principalName || '')}<br><span style="font-size:11px">Principal</span></div></div>
  </div>
  <script>window.onload=function(){setTimeout(function(){window.print()},400)}<\/script>
  </body></html>`;
@@ -5189,11 +5204,12 @@ function attendancePercent(studentId, fromDate, toDate){
 }
 
 // Generate the report card for a student & exam term
-function generateReportCard(student, examName){
+function generateReportCard(student, examName, opts){
  const s = student;
  const school = SCHOOL_INFO;
+ const returnHTML = !!(opts && opts.returnHTML);   // bulk printing collects the HTML instead of opening a window
  const allMarks = getExamMarks().filter(m => m.studentId === s.id && (!examName || m.examName === examName));
- if (allMarks.length === 0) { alert(`No marks found for ${s.name}${examName ? ' in '+examName : ''}.`); return; }
+ if (allMarks.length === 0) { if (returnHTML) return null; alert(`No marks found for ${s.name}${examName ? ' in '+examName : ''}.`); return; }
 
  const isConsolidated = !examName;
  // For a single exam: group by subject. For consolidated: build a subject × exam matrix.
@@ -5258,9 +5274,6 @@ function generateReportCard(student, examName){
  const photo = s.photo || '';
  const initialsTxt = (s.name||'?').split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
  const examTitle = examName ? examName : (examsInData.length > 1 ? 'Consolidated Report (All Exams)' : 'Consolidated Report');
-
- const w = window.open('', '_blank', 'width=820,height=1000');
- if (!w) { alert('Please allow popups to print the report card.'); return; }
 
  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
  <title>Report Card - ${s.name}</title>
@@ -5345,8 +5358,43 @@ function generateReportCard(student, examName){
    <button class="cl" onclick="window.close()">Close</button>
   </div>
  </body></html>`;
+ if (returnHTML) return html;
+ const w = window.open('', '_blank', 'width=820,height=1000');
+ if (!w) { alert('Please allow popups to print the report card.'); return; }
  w.document.write(html);
  w.document.close();
+}
+// Every report card for a class (or the whole school) in ONE document, one card per page.
+function printBulkReportCards(cls, examName){
+ let list = getActiveStudents();
+ if (cls) list = list.filter(s => String(s.class||'').trim() === cls);
+ const clsIdx = x => { const i = ALL_CLASSES.indexOf(String(x.class||'').trim()); return i<0?999:i; };
+ list.sort((a,b) => clsIdx(a)-clsIdx(b) || (Number(a.rollNo)||9999)-(Number(b.rollNo)||9999));
+ if (!list.length) { alert('No students found.'); return; }
+ let style = '', sheets = [], skipped = [];
+ list.forEach(st => {
+  const doc = generateReportCard(st, examName || '', { returnHTML: true });
+  if (!doc) { skipped.push(st.name); return; }
+  if (!style) { const m = doc.match(/<style>([\s\S]*?)<\/style>/); style = m ? m[1] : ''; }
+  const a = doc.indexOf('<div class="sheet">'), b = doc.lastIndexOf('<div class="btns">');
+  if (a > -1 && b > a) sheets.push(doc.slice(a, b));
+ });
+ if (!sheets.length) { alert('None of these students have marks' + (examName ? ' for ' + examName : '') + ' yet.'); return; }
+ const label = cls ? (/^\d+$/.test(cls) ? 'Class ' + cls : cls) : 'All Classes';
+ const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Report Cards — ${escapeHTML(label)}</title>
+  <style>${style}
+   .bulkbar{position:sticky;top:0;background:#fff;border-bottom:1px solid #ddd;padding:10px;text-align:center;z-index:5;font-family:Arial}
+   .bulkbar b{color:#7a1e2e}.sheet{margin:0 auto 24px}
+   @media print{.bulkbar{display:none}.sheet{page-break-after:always;margin:0 auto}.sheet:last-child{page-break-after:auto}}
+  </style></head><body>
+  <div class="bulkbar"><b>${sheets.length} report card${sheets.length===1?'':'s'}</b> · ${escapeHTML(label)}${examName?' · '+escapeHTML(examName):' · Consolidated'}
+   ${skipped.length?` · <span style="color:#b45309">${skipped.length} skipped (no marks)</span>`:''}
+   &nbsp; <button class="pr" onclick="window.print()">Print all</button></div>
+  ${sheets.join('')}
+ </body></html>`;
+ const w = window.open('', '_blank');
+ if (!w) { alert('Please allow pop-ups to print report cards.'); return; }
+ w.document.write(html); w.document.close();
 }
 
 function renderStudentProfile(id){
@@ -5586,7 +5634,8 @@ function renderTeachersTab(){
    <div class="flex gap-2">
     <button id="staffArchiveToggleBtn" class="bg-gray-600 hover:bg-gray-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Staff who have left — records kept">${inStaffArchive?'<i class="fas fa-arrow-left mr-1"></i>Back to Current Staff':`<i class="fas fa-box-archive mr-1"></i>Archive${archivedStaff.length?` (${archivedStaff.length})`:''}`}</button>
     <select id="staffKycScope" class="border rounded-lg px-2 py-1.5 text-sm" style="width:auto"><option value="all">All current staff</option><option value="teaching">Teaching only</option><option value="nonteaching">Non-teaching only</option><option value="principal">Principal</option><option value="manager">Manager</option><option value="archived">Archived staff</option></select>
-    <button id="printStaffKycBtn" class="bg-slate-700 hover:bg-slate-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Print staff records & KYC"><i class="fas fa-print mr-1"></i>Print Records</button>
+    <button id="printStaffTableBtn" class="bg-slate-700 hover:bg-slate-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Every staff member in one table"><i class="fas fa-table mr-1"></i>Print Staff List</button>
+    <button id="printStaffKycBtn" class="bg-slate-600 hover:bg-slate-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="One full record per staff member"><i class="fas fa-print mr-1"></i>Print Records</button>
     <button id="xlsStaffBtn" class="bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Export staff records to Excel"><i class="fas fa-file-excel mr-1"></i>XLSX</button>
     <button id="addTeacherBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-plus mr-1"></i>Add Staff</button>
    </div>
@@ -6450,6 +6499,12 @@ function renderReportCardsTab(){
      <button id="rcLoadBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium w-full"><i class="fas fa-list mr-1"></i>Show Students</button>
     </div>
    </div>
+   <div class="mt-3 pt-3 border-t flex flex-wrap items-center gap-2">
+    <span class="text-sm font-semibold text-gray-700"><i class="fas fa-layer-group text-emerald-600 mr-1"></i>Print in bulk:</span>
+    <button id="rcBulkClassBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Every student in the selected class, one card per page"><i class="fas fa-print mr-1"></i>All report cards for this class</button>
+    <button id="rcBulkAllBtn" class="bg-slate-700 hover:bg-slate-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Every student in the school, one card per page"><i class="fas fa-school mr-1"></i>Whole school</button>
+    <span class="text-xs text-gray-500">Uses the exam chosen above. Students with no marks are skipped and counted.</span>
+   </div>
   </div>
 
   <div id="rcStudentList"></div>
@@ -6509,6 +6564,15 @@ function attachReportCardsEvents(){
   });
  };
 
+ document.getElementById('rcBulkClassBtn')?.addEventListener('click', () => {
+  const cls = document.getElementById('rcClass')?.value;
+  if (!cls) { alert('Pick a class first.'); return; }
+  printBulkReportCards(cls, document.getElementById('rcExam')?.value || '');
+ });
+ document.getElementById('rcBulkAllBtn')?.addEventListener('click', () => {
+  if (!confirm('Print report cards for every student in the school? This can be a large document.')) return;
+  printBulkReportCards('', document.getElementById('rcExam')?.value || '');
+ });
  document.getElementById('rcLoadBtn')?.addEventListener('click', loadList);
 }
 
@@ -7681,7 +7745,8 @@ function renderAdminAttendance(){
      <input type="date" id="attGlanceDate" value="${glanceDate}" max="${today}" class="border rounded-lg px-2 py-1 text-sm ml-1" style="width:auto">
     </label>
     ${glanceDate!==today?`<button id="attGlanceToday" class="bg-gray-100 hover:bg-gray-200 px-2.5 py-1 rounded-lg text-xs font-medium">Today</button>`:''}
-    <button id="stuRegToggleBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Open the month register to mark or correct any day"><i class="fas fa-table-list mr-1"></i>${_adminShowStuRegister?'Hide Month Register':'Month Register'}</button>
+    <button id="attOverviewPrintBtn" class="bg-slate-700 hover:bg-slate-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Print the class-wise summary for the date shown"><i class="fas fa-print mr-1"></i>Print</button>
+   <button id="stuRegToggleBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Open the month register to mark or correct any day"><i class="fas fa-table-list mr-1"></i>${_adminShowStuRegister?'Hide Month Register':'Month Register'}</button>
    <button id="bulkImportAttendanceBtn" class="bg-cyan-600 hover:bg-cyan-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Import transcribed attendance registers from a workbook"><i class="fas fa-file-arrow-up mr-1"></i>Import Attendance</button>
     <input type="file" id="bulkImportAttendanceFile" class="hidden" accept=".xlsx,.xls">
    </div>
@@ -7737,6 +7802,7 @@ function _admAttGrid(cls, from, to){
 }
 function _attachAdminAttendanceEvents(){
  document.getElementById('stuRegToggleBtn')?.addEventListener('click', () => { _adminShowStuRegister = !_adminShowStuRegister; renderApp(); });
+ document.getElementById('attOverviewPrintBtn')?.addEventListener('click', () => printAttendanceOverview(_adminAttGlanceDate || new Date().toISOString().slice(0,10)));
  document.getElementById('attPctBasisBtn')?.addEventListener('click', () => { setAttPctBasis(!attPctUsesWorkingDays()); renderApp(); });
  if (_adminShowStuRegister) _attachStudentRegisterEvents();
  const attBulkBtn = document.getElementById('bulkImportAttendanceBtn');
@@ -11678,6 +11744,9 @@ const FEE_HEADS = [
 
 // Fee heads on the printed receipt book (order matches the school's paper receipt).
 var _rcptYearFilter = 'all';
+// The academic year picked on the receipt form. Kept here so it survives the redraw after each
+// save — previously it snapped back to the current session, silently mis-tagging later receipts.
+var _rcptYearSel = '';
 var _rcptHeads = []; // line items being added to the current receipt: [{head, amount}]
 // Standard exam names for marks entry. 'Other' reveals a free-text box.
 // Grades that can be recorded instead of marks (CBSE scholastic scale, plus a simple
@@ -13307,6 +13376,194 @@ function printStaffKYCBulk(which){
  _kycShell(titles[which] || 'Staff Records & KYC', list.map(_staffKYCCard).join(''));
 }
 
+// All students in one table — the "single block" view, one row per student.
+function printStudentDetailsTable(cls){
+ let list = getActiveStudents();
+ if (cls) list = list.filter(s => String(s.class||'').trim() === cls);
+ if (!list.length) { alert('No students found for that class.'); return; }
+ const clsIdx = x => { const i = ALL_CLASSES.indexOf(String(x.class||'').trim()); return i<0?999:i; };
+ list.sort((a,b) => clsIdx(a)-clsIdx(b) || (Number(a.rollNo)||9999)-(Number(b.rollNo)||9999) || String(a.name||'').localeCompare(String(b.name||'')));
+ const sr = canSeeSRNumber(), conf = canSeeConfidentialNumbers();
+ const n = v => Math.round(Number(v)||0);
+ const inr = v => n(v) ? n(v).toLocaleString('en-IN') : '—';
+ let totFee=0, totPaid=0, totDue=0;
+ const rows = list.map((s,i) => {
+  const fee=n(s.decidedFees), due=n(s.feeBalance), paid=Math.max(0,fee-due);
+  totFee+=fee; totPaid+=paid; totDue+=due;
+  const tags=[s.bpl?'BPL':'',s.cwsn?'CWSN':'',s.freeChild?'RTE':''].filter(Boolean).join(', ');
+  return `<tr>
+   <td class="c">${i+1}</td>
+   <td class="c">${escapeHTML(String(s.admissionNo||''))}</td>
+   ${sr?`<td class="c">${escapeHTML(String(s.registrationNo||''))}</td>`:''}
+   ${conf?`<td class="c">${escapeHTML(String(s.pen||''))}</td>`:''}
+   <td class="nm">${escapeHTML(s.name||'')}</td>
+   <td class="c">${escapeHTML(String(s.class||''))}${s.section?'-'+escapeHTML(s.section):''}</td>
+   <td class="c">${escapeHTML(String(s.rollNo||''))}</td>
+   <td class="c">${s.dob?fmtDate(s.dob):''}</td>
+   <td class="c">${escapeHTML(s.gender||'')}</td>
+   <td>${escapeHTML(s.fatherName||'')}</td>
+   <td>${escapeHTML(s.motherName||s.parentName||'')}</td>
+   <td class="c">${escapeHTML(String(s.parentPhone||''))}</td>
+   <td>${escapeHTML(s.village||s.address||'')}</td>
+   <td class="c">${escapeHTML(String(s.aadhaar||''))}</td>
+   <td class="c">${escapeHTML(s.caste||'')}${tags?`<br><span class="tg">${tags}</span>`:''}</td>
+   <td class="r">${inr(fee)}</td>
+   <td class="r">${inr(paid)}</td>
+   <td class="r ${due>0?'due':''}">${due>0?due.toLocaleString('en-IN'):'Clear'}</td>
+  </tr>`;
+ }).join('');
+ const title = cls ? `Student Details — ${/^\d+$/.test(cls)?'Class '+cls:cls}` : 'Student Details — All Classes';
+ const today = new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
+ const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${escapeHTML(title)}</title><style>
+  @page{size:A4 landscape;margin:7mm}*{box-sizing:border-box}
+  body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;font-size:9px}
+  .head{text-align:center;border-bottom:2px solid #7a1e2e;padding-bottom:4px;margin-bottom:6px}
+  .sch{font-size:15px;font-weight:bold;color:#7a1e2e}.ttl{font-size:12px;font-weight:bold;margin-top:2px}
+  .meta{font-size:9px;color:#555;display:flex;justify-content:space-between;margin-bottom:5px}
+  table{width:100%;border-collapse:collapse}
+  th,td{border:1px solid #aaa;padding:2px 3px;font-size:8.3px;vertical-align:top}
+  th{background:#efefef;font-weight:bold}
+  td.c,th.c{text-align:center}td.r,th.r{text-align:right}td.nm{font-weight:bold}
+  td.due{color:#b3261e;font-weight:bold}.tg{font-size:7px;color:#555}
+  tfoot td{background:#f5f5f5;font-weight:bold}
+  tr{page-break-inside:avoid}
+  .sign{margin-top:14px;display:flex;justify-content:space-between;font-size:9px}
+  .noprint{text-align:center;margin:8px 0}button{padding:7px 16px;border:none;border-radius:5px;background:#7a1e2e;color:#fff;cursor:pointer}
+  @media print{.noprint{display:none}thead{display:table-header-group}}</style></head><body>
+  <div class="noprint"><button onclick="window.print()">Print / Save as PDF</button></div>
+  <div class="head"><div class="sch">${escapeHTML((SCHOOL_INFO.name||'').toUpperCase())}</div><div class="ttl">${escapeHTML(title)}</div></div>
+  <div class="meta"><div>Session: ${escapeHTML(currentSession())} · ${list.length} student${list.length===1?'':'s'}</div><div>Printed: ${today}</div></div>
+  <table><thead><tr>
+   <th class="c">#</th><th class="c">Adm No</th>${sr?'<th class="c">SR No</th>':''}${conf?'<th class="c">UDISE/PEN</th>':''}
+   <th>Name</th><th class="c">Class</th><th class="c">Roll</th><th class="c">DOB</th><th class="c">Gender</th>
+   <th>Father</th><th>Mother</th><th class="c">Phone</th><th>Village / Address</th><th class="c">Aadhaar</th><th class="c">Category</th>
+   <th class="r">Fee to be Paid</th><th class="r">Paid</th><th class="r">Fee Due</th>
+  </tr></thead><tbody>${rows}</tbody>
+  <tfoot><tr><td colspan="${13+(sr?1:0)+(conf?1:0)}" class="r">TOTAL (${list.length})</td>
+   <td class="r">${totFee.toLocaleString('en-IN')}</td><td class="r">${totPaid.toLocaleString('en-IN')}</td><td class="r">${totDue.toLocaleString('en-IN')}</td></tr></tfoot>
+  </table>
+  <div class="sign"><div>Prepared by ____________</div><div>Verified by ____________</div><div>Principal ____________</div></div>
+ </body></html>`;
+ const w = window.open('', '_blank');
+ if (!w) { alert('Please allow pop-ups to print.'); return; }
+ w.document.write(html); w.document.close();
+}
+
+// One reusable printer for any table: letterhead, title, subtitle, header row, rows, optional
+// totals row and signature lines. Landscape when the table is wide.
+function printDataTable(opts){
+ const o = opts || {};
+ const cols = o.headers || [];
+ const wide = o.landscape !== undefined ? o.landscape : cols.length > 8;
+ const today = new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
+ const cell = (v, i) => {
+  const al = (o.align && o.align[i]) || 'l';
+  const txt = v === null || v === undefined ? '' : (typeof v === 'number' ? v.toLocaleString('en-IN') : String(v));
+  return `<td class="${al}">${o.rawHTML ? txt : escapeHTML(txt)}</td>`;
+ };
+ const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${escapeHTML(o.title||'Report')}</title><style>
+  @page{size:A4 ${wide?'landscape':'portrait'};margin:9mm}*{box-sizing:border-box}
+  body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;font-size:10px}
+  .head{text-align:center;border-bottom:2px solid #7a1e2e;padding-bottom:5px;margin-bottom:7px}
+  .sch{font-size:16px;font-weight:bold;color:#7a1e2e}.addr{font-size:9.5px;color:#444}
+  .ttl{font-size:13px;font-weight:bold;margin-top:3px}
+  .meta{font-size:9.5px;color:#555;display:flex;justify-content:space-between;margin-bottom:6px}
+  table{width:100%;border-collapse:collapse}
+  th,td{border:1px solid #aaa;padding:3px 4px;font-size:${wide?'8.8px':'9.6px'};vertical-align:top}
+  th{background:#efefef;font-weight:bold}
+  .c{text-align:center}.r{text-align:right}.l{text-align:left}
+  tfoot td{background:#f5f5f5;font-weight:bold}
+  tr{page-break-inside:avoid}
+  .note{margin-top:7px;font-size:9px;color:#444}
+  .sign{margin-top:20px;display:flex;justify-content:space-between;font-size:9.5px}
+  .noprint{text-align:center;margin:8px 0}button{padding:7px 16px;border:none;border-radius:5px;background:#7a1e2e;color:#fff;cursor:pointer}
+  @media print{.noprint{display:none}thead{display:table-header-group}}</style></head><body>
+  <div class="noprint"><button onclick="window.print()">Print / Save as PDF</button></div>
+  <div class="head"><div class="sch">${escapeHTML((SCHOOL_INFO.name||'').toUpperCase())}</div>
+   <div class="addr">${escapeHTML([SCHOOL_INFO.addressLine1,SCHOOL_INFO.addressLine2].filter(Boolean).join(', '))}</div>
+   <div class="ttl">${escapeHTML(o.title||'')}</div></div>
+  <div class="meta"><div>${escapeHTML(o.subtitle||('Session '+currentSession()))}</div><div>Printed: ${today}</div></div>
+  <table><thead><tr>${cols.map((h,i)=>`<th class="${(o.align&&o.align[i])||'l'}">${escapeHTML(h)}</th>`).join('')}</tr></thead>
+   <tbody>${(o.rows||[]).map(r=>`<tr>${r.map(cell).join('')}</tr>`).join('') || `<tr><td colspan="${cols.length}" class="c">Nothing to show</td></tr>`}</tbody>
+   ${o.footer?`<tfoot><tr>${o.footer.map(cell).join('')}</tr></tfoot>`:''}
+  </table>
+  ${o.note?`<div class="note">${o.note}</div>`:''}
+  <div class="sign">${(o.signatures||['Prepared by','Verified by','Principal']).map(x=>`<div>${escapeHTML(x)} ____________</div>`).join('')}</div>
+ </body></html>`;
+ const w = window.open('', '_blank');
+ if (!w) { alert('Please allow pop-ups to print.'); return; }
+ w.document.write(html); w.document.close();
+}
+// Fee-due students (the reminders list), optionally one class.
+function printFeeDueList(cls){
+ let list = getActiveStudents().filter(s => (Number(s.feeBalance)||0) > 0);
+ if (cls) list = list.filter(s => String(s.class||'').trim() === cls);
+ const clsIdx = x => { const i = ALL_CLASSES.indexOf(String(x.class||'').trim()); return i<0?999:i; };
+ list.sort((a,b) => clsIdx(a)-clsIdx(b) || (Number(b.feeBalance)||0)-(Number(a.feeBalance)||0));
+ const n = v => Math.round(Number(v)||0);
+ let tFee=0,tPaid=0,tDue=0;
+ const rows = list.map((s,i) => { const fee=n(s.decidedFees), due=n(s.feeBalance), paid=Math.max(0,fee-due);
+  tFee+=fee; tPaid+=paid; tDue+=due;
+  return [i+1, s.name||'', (s.class||'')+(s.section?'-'+s.section:''), s.rollNo||'', s.fatherName||s.parentName||'', s.parentPhone||'', fee, paid, due, '']; });
+ printDataTable({
+  title: 'Fee Due List' + (cls ? ' — '+(/^\d+$/.test(cls)?'Class '+cls:cls) : ' — All Classes'),
+  subtitle: `Session ${currentSession()} · ${list.length} student${list.length===1?'':'s'} with dues · sorted by class, largest due first`,
+  headers: ['#','Student','Class','Roll','Father / Parent','Phone','Fee to be Paid','Paid','Fee Due','Remarks'],
+  align: ['c','l','c','c','l','c','r','r','r','l'],
+  rows, footer: ['','TOTAL','','','','',tFee,tPaid,tDue,''],
+  signatures: ['Accountant','Principal']
+ });
+}
+// Day-wise class attendance summary (the Student Attendance overview).
+function printAttendanceOverview(date){
+ const ar = getAttendanceRecords() || {};
+ const classes = _classesWithStudents();
+ let tS=0,tP=0,tA=0,tL=0;
+ const rows = classes.map(cls => {
+  const sts = getActiveStudents().filter(s => String(s.class).trim() === String(cls).trim());
+  let p=0,a=0,l=0,last='';
+  sts.forEach(s => { const r=ar[s.id]||{}; const v=r[date]; if(v==='P')p++; else if(v==='A')a++; else if(v==='L')l++;
+   Object.keys(r).forEach(d=>{ if(d>last) last=d; }); });
+  const m=p+a+l; tS+=sts.length; tP+=p; tA+=a; tL+=l;
+  return [/^\d+$/.test(cls)?'Class '+cls:cls, sts.length, m?p:'—', m?a:'—', m?l:'—',
+          m?Math.round((p+l*0.5)/sts.length*100)+'%':'Not marked', last?fmtDate(last):'never'];
+ });
+ printDataTable({
+  title: 'Student Attendance — ' + fmtDate(date),
+  subtitle: `Class-wise summary for ${new Date(date+'T00:00:00').toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}`,
+  headers: ['Class','Students','Present','Absent','Late','Attendance','Last marked'],
+  align: ['l','c','c','c','c','c','c'], landscape: false,
+  rows, footer: ['TOTAL', tS, tP, tA, tL, tS?Math.round((tP+tL*0.5)/tS*100)+'%':'', ''],
+  signatures: ['Principal']
+ });
+}
+// Staff in one table (single block), grouped by type and sorted by name.
+function printStaffTable(which){
+ const all = getTeachers();
+ let list = (which==='archived') ? all.filter(t=>t.archived) : all.filter(t=>!t.archived);
+ const f = {teaching:'Teaching', nonteaching:'Non-Teaching', principal:'Principal', manager:'Manager'}[which];
+ if (f) list = list.filter(t => staffTypeOf(t) === f);
+ if (!list.length) { alert('No staff found for that selection.'); return; }
+ const order = ['Principal','Teaching','Manager','Non-Teaching'];
+ list.sort((a,b) => order.indexOf(staffTypeOf(a))-order.indexOf(staffTypeOf(b)) || String(a.name||'').localeCompare(String(b.name||'')));
+ const pay = canSeeSalary();
+ const rows = list.map((t,i) => {
+  const subj = isAcademicStaff(t) ? teacherTeaching(t).map(r=>r.subject+' ('+r.classes.join(', ')+')').join('; ') : (t.subject||'');
+  const r = [i+1, t.name||'', staffTypeOf(t), subj, t.qualification||'', t.employeeId||'', t.phone||'',
+             t.trainingDate?fmtDate(t.trainingDate):(t.joinDate?fmtDate(t.joinDate):'')];
+  if (pay) r.push(Math.round(Number(t.salary)||0));
+  if (which==='archived') r.push(t.archivedDate?fmtDate(t.archivedDate):'', t.archiveReason||'');
+  return r;
+ });
+ const headers = ['#','Name','Type','Subjects & classes / designation','Qualification','Emp ID','Phone','Joined']
+   .concat(pay?['Salary /mo']:[]).concat(which==='archived'?['Left','Reason']:[]);
+ const align = ['c','l','l','l','l','c','c','c'].concat(pay?['r']:[]).concat(which==='archived'?['c','l']:[]);
+ const titles = {archived:'Archived Staff', teaching:'Teaching Staff', nonteaching:'Non-Teaching Staff', principal:'Principal', manager:'Managers'};
+ printDataTable({ title: (titles[which]||'Staff List') + ' — '+list.length,
+  subtitle: `Session ${currentSession()} · ${staffCountLabel(list)}`,
+  headers, align, rows, landscape: true });
+}
+
 function printFeeRegister(onlyClass){
  const students = getActiveStudents();
  const order = ALL_CLASSES.slice();
@@ -13494,6 +13751,7 @@ function renderFeeRemindersTab(){
      ${ALL_CLASSES.filter(c => students.some(s => s.class===c && (s.feeBalance||0)>0)).map(c => `<option value="${c}">Class ${c}</option>`).join('')}
     </select>
     <button id="frBulkBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fab fa-whatsapp mr-1"></i>Send All Reminders</button>
+    <button id="frPrintBtn" class="bg-slate-700 hover:bg-slate-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Print the dues list — follows the class filter"><i class="fas fa-print mr-1"></i>Print Dues List</button>
     <button id="frExportBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-file-excel mr-1"></i>Export Dues List</button>
    </div>
 
@@ -13576,6 +13834,10 @@ function attachFeeRemindersEvents(){
  });
 
  // Export dues list
+ document.getElementById('frPrintBtn')?.addEventListener('click', () => {
+  const sel = document.getElementById('frClassFilter');
+  printFeeDueList(sel && sel.value && sel.value !== 'all' ? sel.value : '');
+ });
  document.getElementById('frExportBtn')?.addEventListener('click', () => {
   const overdue = getStudents().filter(s => !s.archived && (s.feeBalance||0) > 0).sort((a,b) => (b.feeBalance||0)-(a.feeBalance||0));
   const today = new Date().toISOString().slice(0,10);
@@ -14088,8 +14350,8 @@ function renderAccReceipts(){
     </div>
     <div>
      <label class="text-xs font-medium">Academic Year * <span class="text-gray-400 font-normal">(Apr–Mar)</span></label>
-     <select id="rcptYear">${academicYearOptions().map(y => `<option value="${y}" ${y===currentSession()?'selected':''}>${y}${y===currentSession()?' (current)':''}</option>`).join('')}</select>
-     <div class="text-xs text-amber-600 mt-0.5" id="rcptYearHint" style="display:none"><i class="fas fa-triangle-exclamation mr-1"></i>Recording against a past year's dues</div>
+     <select id="rcptYear">${academicYearOptions().map(y => `<option value="${y}" ${y===(_rcptYearSel||currentSession())?'selected':''}>${y}${y===currentSession()?' (current)':''}</option>`).join('')}</select>
+     <div class="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 mt-1" id="rcptYearHint" style="display:none"><i class="fas fa-triangle-exclamation mr-1"></i>Recording against ${escapeHTML(_rcptYearSel||'a past year')} — stays selected for the next receipt</div>
     </div>
     <div>
      <label class="text-xs font-medium">Date</label>
@@ -16590,7 +16852,8 @@ function _attachReceiptEvents(){
   const headLabel = heads.length === 1 ? heads[0].head : heads.map(h=>h.head+' Rs.'+h.amount).join(' + ');
   const mode = document.getElementById('rcptMode').value;
   const date = document.getElementById('rcptDate').value || new Date().toISOString().slice(0,10);
-  const academicYear = document.getElementById('rcptYear')?.value || currentSession();
+  const academicYear = document.getElementById('rcptYear')?.value || _rcptYearSel || currentSession();
+  _rcptYearSel = academicYear;   // keep it for the next receipt
   const chequeNo = document.getElementById('rcptChequeNo')?.value.trim();
   const bankAccRaw = document.getElementById('rcptBankAcc')?.value;
   const bankAccId = (mode !== 'Cash' && bankAccRaw && bankAccRaw !== '__manual__' && bankAccRaw !== '__school__') ? (parseInt(bankAccRaw) || null) : null;
@@ -16636,6 +16899,14 @@ function _attachReceiptEvents(){
    if (reducing > 0) {
     const ss = getStudents();
     const i = ss.findIndex(x => x.id === sid);
+    // A receipt for a past year normally clears previous-year dues. If none are on record, the
+    // money would silently come off this year's balance — ask before doing that.
+    if (i > -1 && academicYear && academicYear !== currentSession() && !((ss[i].previousDues||0) > 0)) {
+     if (!confirm(`${ss[i].name} has no ${academicYear} dues on record.\n\n`
+       + `This Rs.${reducing.toLocaleString('en-IN')} will be taken off the current ${currentSession()} balance `
+       + `(Rs.${(ss[i].feeBalance||0).toLocaleString('en-IN')} now).\n\n`
+       + `If the student really owed money for ${academicYear}, cancel and enter it as Previous Dues on their record first.\n\nContinue?`)) return;
+    }
     if (i > -1) {
      // If this receipt is for a PAST academic year, clear previous-year dues first; any
      // remainder reduces the current-year balance. For the current year, reduce balance directly.
@@ -16755,7 +17026,7 @@ function _attachReceiptEvents(){
  const yearHint = document.getElementById('rcptYearHint');
  if (yearSel && yearHint) {
   const updateYearHint = () => { yearHint.style.display = (yearSel.value !== currentSession()) ? '' : 'none'; };
-  yearSel.addEventListener('change', updateYearHint);
+  yearSel.addEventListener('change', () => { _rcptYearSel = yearSel.value; updateYearHint(); });
   updateYearHint();
  }
 
@@ -17834,7 +18105,7 @@ function attachStudentsTabEvents(){
  // Bulk KYC honours the class filter currently applied on screen
  document.getElementById('printStudentKycBtn')?.addEventListener('click',()=>{
   const cls = (studentFilter && studentFilter.class && studentFilter.class!=='all') ? studentFilter.class : '';
-  printStudentKYCBulk(cls);
+  printStudentDetailsTable(cls);
  });
  document.getElementById('xlsStudentKycBtn')?.addEventListener('click',()=>{
   const cls = (studentFilter && studentFilter.class && studentFilter.class!=='all') ? studentFilter.class : '';
@@ -18682,6 +18953,7 @@ function attachTeachersTabEvents(){
  document.getElementById('staffArchiveToggleBtn')?.addEventListener('click', () => { _staffArchiveView = !_staffArchiveView; refresh(); });
  document.querySelectorAll('.staffKycBtn').forEach(b => b.addEventListener('click', () => printStaffKYC(b.dataset.id)));
  document.getElementById('printStaffKycBtn')?.addEventListener('click', () => printStaffKYCBulk(document.getElementById('staffKycScope')?.value || 'all'));
+ document.getElementById('printStaffTableBtn')?.addEventListener('click', () => printStaffTable(document.getElementById('staffKycScope')?.value || 'all'));
  document.getElementById('xlsStaffBtn')?.addEventListener('click', () => exportStaffExcel(document.getElementById('staffKycScope')?.value || 'all'));
  document.querySelectorAll('.archiveTeacherBtn').forEach(b => b.addEventListener('click', () => {
   const all = getTeachers();
@@ -19838,9 +20110,11 @@ function renderDisclosureDocsTab(){
   </div>
   <div class="bg-amber-50 border-l-4 border-amber-400 p-3 rounded mb-4 text-sm text-amber-900">
    <i class="fas fa-info-circle mr-1"></i>
-   <b>Recommended:</b> Upload PDFs to your GitHub repo at <code class="bg-white px-1 rounded text-xs">assets/docs/</code>, then enter a relative path like <code class="bg-white px-1 rounded text-xs">assets/docs/your-document.pdf</code> below. Most documents below are already wired to existing files in your repo.<br><br>
-   <b>Alternative URLs accepted:</b> Google Drive (Anyone with link), Dropbox (direct link), school's own hosting, government portal URLs, etc. The document appears as a "View" link on the public <b>Disclosure</b> page. Documents without a URL show as "Pending upload".
+   <b>Easiest:</b> click <b>Upload</b> on the row and choose the PDF (or a scan as JPG/PNG) from your computer. It is stored securely and the public <b>Disclosure</b> page shows it straight away as a "Yes" link.<br><br>
+   <b>Or paste a link</b> in the box and press <b>Save link</b> — a Google Drive file set to "Anyone with the link", or a path in your repo such as <code class="bg-white px-1 rounded text-xs">assets/docs/file.pdf</code>.<br>
+   Documents with no file or link show as "Pending upload" on the public page. Maximum 10 MB per file.
   </div>
+  <input type="file" id="ddFileInput" class="hidden" accept="application/pdf,image/jpeg,image/png">
   <div class="overflow-x-auto"><table class="border text-sm w-full">
    <thead><tr><th>S.No</th><th>Document</th><th>Public URL</th><th>Status</th><th>Actions</th></tr></thead>
    <tbody>
@@ -19848,9 +20122,10 @@ function renderDisclosureDocsTab(){
      <td>${i + 1}</td>
      <td class="font-medium">${d.name}</td>
      <td><input type="url" class="ddUrl w-full text-xs" data-id="${d.id}" value="${(d.url || '').replace(/"/g, '&quot;')}" placeholder="https://drive.google.com/file/.../view"></td>
-     <td>${d.url ? '<span class="pill pill-green">✓ Linked</span>' : '<span class="pill pill-amber">Pending</span>'}</td>
+     <td>${d.url ? `<span class="pill pill-green">✓ ${d.fileName?'Uploaded':'Linked'}</span>${d.fileName?`<div class="text-[10px] text-gray-500 mt-0.5">${escapeHTML(d.fileName)}</div>`:''}` : '<span class="pill pill-amber">Pending</span>'}</td>
      <td class="whitespace-nowrap">
-      <button class="ddSaveBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${d.id}">Save</button>
+      <button class="ddUploadBtn bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1 rounded text-xs" data-id="${d.id}" title="Upload a PDF or image from this computer"><i class="fas fa-upload mr-1"></i>Upload</button>
+      <button class="ddSaveBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${d.id}" title="Save a pasted link">Save link</button>
       ${d.url ? `<a href="${d.url}" target="_blank" rel="noopener" class="bg-gray-500 hover:bg-gray-600 text-white px-2 py-1 rounded text-xs ml-1 inline-block"><i class="fas fa-external-link"></i></a>` : ''}
       <button class="ddDelBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${d.id}" title="Delete row">×</button>
      </td>
@@ -19871,6 +20146,39 @@ function renderDisclosureDocsTab(){
 
 function attachDisclosureDocsEvents(){
  const refresh = () => refreshAdminTabContent();
+ // Upload straight to cloud storage and link it to the row
+ let _ddTarget = null;
+ const fileInput = document.getElementById('ddFileInput');
+ document.querySelectorAll('.ddUploadBtn').forEach(b => b.addEventListener('click', () => {
+  _ddTarget = b.dataset.id;
+  if (fileInput) { fileInput.value = ''; fileInput.click(); }
+ }));
+ fileInput?.addEventListener('change', async e => {
+  const f = e.target.files && e.target.files[0];
+  if (!f || !_ddTarget) return;
+  if (f.size > 10*1024*1024) { alert('That file is over 10 MB. Please compress the PDF or scan at a lower resolution.'); return; }
+  if (!/^(application\/pdf|image\/(jpeg|png))$/.test(f.type)) { alert('Please choose a PDF, JPG or PNG file.'); return; }
+  const btn = document.querySelector(`.ddUploadBtn[data-id="${_ddTarget}"]`);
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Uploading'; }
+  try {
+   const { url, path } = await DB.uploadFile(f, 'disclosure');
+   const docs = DB.getAll('disclosureDocs');
+   const i = docs.findIndex(d => String(d.id) === String(_ddTarget));
+   if (i > -1) {
+    // remove the old uploaded file so storage doesn't fill with replaced versions
+    if (docs[i].filePath && docs[i].filePath !== path) { try { await DB.deleteFile(docs[i].filePath); } catch(_){} }
+    docs[i].url = url; docs[i].filePath = path; docs[i].fileName = f.name;
+    docs[i].uploadedAt = new Date().toISOString(); docs[i].uploadedBy = currentUser?.name || '';
+    DB.setAll('disclosureDocs', docs);
+    showToast('Uploaded — now live on the Disclosure page');
+   }
+  } catch(err) {
+   if (err && err.message === 'STORAGE_BUCKET_MISSING') alert('Cloud file storage is not set up yet, so files cannot be uploaded. Use "Save link" with a Google Drive link instead.');
+   else alert('Upload failed: ' + (err && err.message ? err.message : err));
+  }
+  _ddTarget = null;
+  refresh();
+ });
  document.querySelectorAll('.ddSaveBtn').forEach(b => b.addEventListener('click', () => {
   const inp = document.querySelector(`.ddUrl[data-id="${b.dataset.id}"]`);
   if (!inp) return;
