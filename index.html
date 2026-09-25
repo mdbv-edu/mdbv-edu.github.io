@@ -19833,6 +19833,8 @@ function attachDataManagementEvents(){
   fields.forEach(f => { const el = document.getElementById(f); if (el) el.value = ''; });
   ['dmStuBpl','dmStuCwsn','dmStuFreeChild'].forEach(f => { const el = document.getElementById(f); if (el) el.checked = false; });
   document.getElementById('dmStuClass').value = 'Pre Nursery';
+  document.getElementById('dmStuStreamWrap').style.display = 'none';
+  document.getElementById('dmStuStream').value = '';
   document.getElementById('dmStuSection').value = 'A';
   document.getElementById('dmStuGender').value = 'Female';
   document.getElementById('dmStuBlood').value = 'O+';
@@ -19848,6 +19850,8 @@ function attachDataManagementEvents(){
     document.getElementById('dmStuRegNo').value = s.registrationNo || '';
     document.getElementById('dmStuAdmNo').value = s.admissionNo || '';
     document.getElementById('dmStuClass').value = s.class || 'Pre Nursery';
+    document.getElementById('dmStuStreamWrap').style.display = (s.class==='11'||s.class==='12') ? 'block' : 'none';
+    document.getElementById('dmStuStream').value = s.stream || '';
     document.getElementById('dmStuSection').value = s.section || 'A';
     document.getElementById('dmStuRoll').value = s.rollNo || '';
     document.getElementById('dmStuFather').value = s.fatherName || '';
@@ -19965,6 +19969,7 @@ function attachDataManagementEvents(){
     name,
     admissionNo: admNo,
     class: document.getElementById('dmStuClass').value,
+    stream: (document.getElementById('dmStuClass').value==='11'||document.getElementById('dmStuClass').value==='12') ? (document.getElementById('dmStuStream').value||'') : '',
     section: document.getElementById('dmStuSection').value,
     rollNo: parseInt(document.getElementById('dmStuRoll').value) || 0,
     fatherName: document.getElementById('dmStuFather').value.trim(),
