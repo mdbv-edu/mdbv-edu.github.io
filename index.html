@@ -5356,33 +5356,46 @@ function _openMarksRowEditModal(studentId, examName, subjects, scopedMarks, onSa
  const rowsHtml = subjects.map(sub => {
   const rows = scopedMarks.filter(m => m.studentId === studentId && m.examName === examName && m.subject === sub);
   const isAbsent = rows.length > 0 && rows.every(r => r.absent);
-  const isSplit = rows.some(r => r.component);
-  const isGrade = rows.length > 0 && rows.every(r => r.marks === null || r.marks === undefined) && rows.some(r => r.grade);
+  const isSplit  = rows.some(r => r.component);
+  const isGrade  = rows.length > 0 && rows.every(r => r.marks === null || r.marks === undefined) && rows.some(r => r.grade);
   let kind = isGrade ? 'grade' : (isSplit ? 'split' : 'single');
+  const maxTh = (rows.find(r=>r.component==='Theory')?.maxMarks)   || 80;
+  const maxIn = (rows.find(r=>r.component==='Internal')?.maxMarks) || 20;
+  const max   = rows[0]?.maxMarks || 100;
   let fieldsHTML;
   if (kind === 'grade') {
    const g = rows[0]?.grade || '';
    fieldsHTML = `<input type="text" class="mkRowEditInput w-20" data-comp="" placeholder="Grade" value="${escapeHTML(g)}" ${isAbsent?'disabled':''}>`;
   } else if (kind === 'split') {
-   const th = rows.find(r => r.component === 'Theory');
+   const th  = rows.find(r => r.component === 'Theory');
    const inr = rows.find(r => r.component === 'Internal');
-   fieldsHTML = `<input type="number" class="mkRowEditInput w-16" data-comp="Theory" placeholder="Th" value="${th && !th.absent ? th.marks : ''}" ${isAbsent?'disabled':''}>
-                 <input type="number" class="mkRowEditInput w-16" data-comp="Internal" placeholder="Int" value="${inr && !inr.absent ? inr.marks : ''}" ${isAbsent?'disabled':''}>`;
+   fieldsHTML =
+     `<div class="flex items-center gap-1">
+        <input type="number" class="mkRowEditInput w-14" data-comp="Theory"   placeholder="Th"  value="${th  && !th.absent  ? th.marks  : ''}" ${isAbsent?'disabled':''}>
+        <span class="text-[10px] text-gray-400">/</span>
+        <input type="number" class="mkRowEditMax w-12 bg-amber-50" data-comp="Theory"   value="${maxTh}" ${isAbsent?'disabled':''} title="Theory max">
+      </div>
+      <div class="flex items-center gap-1">
+        <input type="number" class="mkRowEditInput w-14" data-comp="Internal" placeholder="Int" value="${inr && !inr.absent ? inr.marks : ''}" ${isAbsent?'disabled':''}>
+        <span class="text-[10px] text-gray-400">/</span>
+        <input type="number" class="mkRowEditMax w-12 bg-amber-50" data-comp="Internal" value="${maxIn}" ${isAbsent?'disabled':''} title="Internal max">
+      </div>`;
   } else {
    const v = rows.length && !rows[0].absent ? rows[0].marks : '';
-   fieldsHTML = `<input type="number" class="mkRowEditInput w-20" data-comp="" placeholder="Marks" value="${v}" ${isAbsent?'disabled':''}>`;
+   fieldsHTML =
+     `<input type="number" class="mkRowEditInput w-16" data-comp="" placeholder="Marks" value="${v}" ${isAbsent?'disabled':''}>
+      <span class="text-[10px] text-gray-400">/</span>
+      <input type="number" class="mkRowEditMax w-14 bg-amber-50" data-comp="" value="${max}" ${isAbsent?'disabled':''} title="Max marks">`;
   }
-  const maxTh = (rows.find(r=>r.component==='Theory')?.maxMarks) || 80;
-  const maxIn = (rows.find(r=>r.component==='Internal')?.maxMarks) || 20;
-  const max = rows[0]?.maxMarks || 100;
-  return `<div class="flex items-center gap-2 py-1.5 border-b last:border-0" data-sub="${escapeHTML(sub)}" data-kind="${kind}" data-max="${max}" data-maxth="${maxTh}" data-maxin="${maxIn}">
-    <div class="text-sm font-medium flex-1">${escapeHTML(sub)}${kind==='split'?' <span class="text-[10px] text-gray-400">(Th+Int)</span>':''}</div>
-    <div class="flex gap-1 items-center">
+  return `<div class="flex items-center gap-2 py-1.5 border-b last:border-0" data-sub="${escapeHTML(sub)}" data-kind="${kind}"
+               data-max="${max}" data-maxth="${maxTh}" data-maxin="${maxIn}">
+    <div class="text-sm font-medium flex-1 min-w-0 truncate">${escapeHTML(sub)}${kind==='split'?' <span class="text-[10px] text-gray-400">(Th+Int)</span>':''}</div>
+    <div class="flex flex-wrap gap-2 items-center justify-end">
      ${fieldsHTML}
      <label class="text-[10px] flex items-center gap-1 ml-1 cursor-pointer select-none"><input type="checkbox" class="mkRowEditAbsent w-auto" ${isAbsent?'checked':''}> AB</label>
     </div>
    </div>`;
- }).join('');
+  }).join('');
  el.innerHTML = `<div class="modal-content" style="max-width:520px">
    <h3 class="text-lg font-bold mb-1">${escapeHTML(stu.name)}</h3>
    <p class="text-xs text-gray-500 mb-3">${escapeHTML(examName)} — edit marks per subject. Leave a field blank (and AB unticked) to remove that subject's entry.</p>
@@ -5394,7 +5407,7 @@ function _openMarksRowEditModal(studentId, examName, subjects, scopedMarks, onSa
  // Ticking AB disables that subject's input field(s)
  el.querySelectorAll('.mkRowEditAbsent').forEach(chk => chk.addEventListener('change', () => {
   const wrap = chk.closest('[data-sub]');
-  wrap.querySelectorAll('.mkRowEditInput').forEach(inp => { inp.disabled = chk.checked; });
+  wrap.querySelectorAll('.mkRowEditInput, .mkRowEditMax').forEach(inp => { inp.disabled = chk.checked; });
  }));
  document.getElementById('mkRowEditSaveBtn').addEventListener('click', () => {
   const all = getExamMarks();
@@ -5410,28 +5423,38 @@ function _openMarksRowEditModal(studentId, examName, subjects, scopedMarks, onSa
     if (all[i].studentId === studentId && all[i].examName === examName && all[i].subject === sub) all.splice(i, 1);
    }
    const base = { studentId, examName, subject: sub, date: today, teacher: currentUser.name, teacherId: currentUser.id, editedAt: nowIso, editedBy: currentUser?.name || '' };
-   if (absent) {
-    if (kind === 'split') {
-     all.push({ ...base, id: newRowId(all), component: 'Theory', absent: true, marks: null, maxMarks: parseInt(rowEl.dataset.maxth)||80, grade: null });
-     all.push({ ...base, id: newRowId(all), component: 'Internal', absent: true, marks: null, maxMarks: parseInt(rowEl.dataset.maxin)||20, grade: null });
-    } else {
-     all.push({ ...base, id: newRowId(all), absent: true, marks: null, maxMarks: parseInt(rowEl.dataset.max)||100, grade: null });
+   const rowMaxEl = rowEl.querySelector('.mkRowEditMax[data-comp=""]');
+   const rowMaxTh = rowEl.querySelector('.mkRowEditMax[data-comp="Theory"]');
+   const rowMaxIn = rowEl.querySelector('.mkRowEditMax[data-comp="Internal"]');
+
+    if (absent) {
+      if (kind === 'split') {
+        const mTh = parseInt(rowMaxTh?.value) || parseInt(rowEl.dataset.maxth) || 80;
+        const mIn = parseInt(rowMaxIn?.value) || parseInt(rowEl.dataset.maxin) || 20;
+        all.push({ ...base, id: newRowId(all), component: 'Theory',   absent: true, marks: null, maxMarks: mTh, grade: null });
+        all.push({ ...base, id: newRowId(all), component: 'Internal', absent: true, marks: null, maxMarks: mIn, grade: null });
+      } else {
+        const m = parseInt(rowMaxEl?.value) || parseInt(rowEl.dataset.max) || 100;
+        all.push({ ...base, id: newRowId(all), absent: true, marks: null, maxMarks: m, grade: null });
+      }
+      return;
     }
-    return;
-   }
-   if (kind === 'grade') {
-    const g = rowEl.querySelector('.mkRowEditInput').value.trim();
-    if (!g) return; // blank + not absent -> subject entry stays removed
-    all.push({ ...base, id: newRowId(all), grade: g, marks: null, maxMarks: null });
-   } else if (kind === 'split') {
-    const thV = parseInt(rowEl.querySelector('[data-comp="Theory"]').value);
-    const inV = parseInt(rowEl.querySelector('[data-comp="Internal"]').value);
-    if (!isNaN(thV)) all.push({ ...base, id: newRowId(all), component: 'Theory', marks: thV, maxMarks: parseInt(rowEl.dataset.maxth)||80 });
-    if (!isNaN(inV)) all.push({ ...base, id: newRowId(all), component: 'Internal', marks: inV, maxMarks: parseInt(rowEl.dataset.maxin)||20 });
-   } else {
-    const v = parseInt(rowEl.querySelector('.mkRowEditInput').value);
-    if (!isNaN(v)) all.push({ ...base, id: newRowId(all), marks: v, maxMarks: parseInt(rowEl.dataset.max)||100 });
-   }
+    if (kind === 'grade') {
+      const g = rowEl.querySelector('.mkRowEditInput').value.trim();
+      if (!g) return;
+      all.push({ ...base, id: newRowId(all), grade: g, marks: null, maxMarks: null });
+    } else if (kind === 'split') {
+      const thV = parseInt(rowEl.querySelector('[data-comp="Theory"]').value);
+      const inV = parseInt(rowEl.querySelector('[data-comp="Internal"]').value);
+      const mTh = parseInt(rowMaxTh?.value) || 80;
+      const mIn = parseInt(rowMaxIn?.value) || 20;
+      if (!isNaN(thV)) all.push({ ...base, id: newRowId(all), component: 'Theory',   marks: thV, maxMarks: mTh });
+      if (!isNaN(inV)) all.push({ ...base, id: newRowId(all), component: 'Internal', marks: inV, maxMarks: mIn });
+    } else {
+      const v = parseInt(rowEl.querySelector('.mkRowEditInput').value);
+      const m = parseInt(rowMaxEl?.value) || 100;
+      if (!isNaN(v)) all.push({ ...base, id: newRowId(all), marks: v, maxMarks: m });
+    }
   });
   saveExamMarks(all);
   el.remove();
