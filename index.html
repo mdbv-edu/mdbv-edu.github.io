@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1789994705 - Students tab: fee filter (has dues, fully paid, partly paid, nothing paid, under 50%, over Rs.10k, fee not set); filtering moved into one shared getFilteredStudents() so Print and XLSX now output exactly the students on screen in the order shown, with the filters stated on the printout; print/XLSX buttons moved down beside the Showing count; MARKS ENTRY: added "Absent" checkbox so teachers can mark students who did not appear for an exam. Absent entries are excluded from averages and shown as AB everywhere -->
+<!-- BUILD: v-1790360145 - marks import: a Student ID that no longer exists (pupil deleted or merged since the sheet was made) now falls back to matching by name and is reported as id-changed, instead of dropping that pupil's marks -->
 <!-- BUILD: v-1790340000 - MARKS ENTRY FIX: saving marks used to always ADD a new row instead of replacing the old one, so re-entering/correcting a mark created a silent duplicate — this is what made a plain single mark for English display as "71 + 71 (Theory + Internal)" even though that option was never ticked. Saving now clears any prior row for that student+exam+subject first. MARKS VISIBILITY FIX: the marks entry/summary screen used to only show a teacher their own submissions, so nobody else — not admin, not principal, not another teacher on the same class — could see, correct, or delete what had been entered. It now shows every entry for the classes the user has access to (all classes for admin/principal/owner, assigned classes for a teacher), with an "Entered By" column, so any of them can override or delete it. Added a report-card shortcut button on each marks row. REPORT CARD: removed Scholar Reg No and UDISE/PEN from the student-facing report card entirely. -->
 <!-- BUILD: v-1790432000 - MARKS SUMMARY REDESIGNED: now a class-wise, exam-wise table (not a subject-per-row accordion). Class picker at the top lets you toggle between classes in one place. Exam dropdown: select a single exam to see/edit/delete one exam at a time, or "Combined" to view all exams' marks added together as an overall percentage per subject. Student rows × subject columns. For Class 11 and 12, Branch column shows PCM/PCB/Humanities. "Overall" column sums all subjects for a holistic picture. Actions: Edit (edit all of that exam's marks for one student in a modal), Delete (remove that exam's marks for one student), Report Card. Edit modal handles split Theory+Internal and single-mark subjects, with AB (absent) checkbox per subject. Report card can show a single exam or the full consolidated card. Stream/Branch field added to student form (shows only for 11/12). -->
 
@@ -5273,10 +5273,15 @@ function attendancePercent(studentId, fromDate, toDate){
 // Overall percentage for one student for a given exam ("" / null = consolidated, all exams),
 // counting only non-absent marks. Returns null if the student has no marks to score.
 function computeOverallPercent(studentId, examName){
- const marks = getExamMarks().filter(m => m.studentId === studentId && (!examName || m.examName === examName) && !m.absent);
- if (marks.length === 0) return null;
- const obt = marks.reduce((a,m) => a + (parseInt(m.marks) || 0), 0);
- const max = marks.reduce((a,m) => a + (parseInt(m.maxMarks) || 100), 0);
+ const rows = getExamMarks().filter(m => m.studentId === studentId && (!examName || m.examName === examName));
+ // Grade-only subjects (Drawing and the like) carry a letter, no marks and no maximum — they
+ // must not count toward the percentage, and must not silently add 100 to the denominator.
+ const scored = rows.filter(m => (parseInt(m.maxMarks) || 0) > 0);
+ if (!scored.length) return null;
+ // An absent paper scores zero but still counts toward the total, which is how the
+ // school's own register works it out.
+ const obt = scored.reduce((a,m) => a + (m.absent ? 0 : (parseFloat(m.marks) || 0)), 0);
+ const max = scored.reduce((a,m) => a + (parseInt(m.maxMarks) || 0), 0);
  return max > 0 ? Math.round((obt/max) * 100) : null;
 }
 
@@ -11286,9 +11291,10 @@ const _BULK_SUBJ_ALIASES = {
   'math':'Mathematics','maths':'Mathematics','mathematics':'Mathematics',
   'sci':'Science','science':'Science',
   'evs':'EVS','e v s':'EVS','environmental studies':'EVS',
-  'sst':'Social Science','s st':'Social Science','social science':'Social Science','ss':'Social Science',
+  'sst':'Social Science','s st':'Social Science','s s t':'Social Science','social science':'Social Science','ss':'Social Science',
+  'd':'Drawing',
   'sanskrit':'Sanskrit','sansk':'Sanskrit',
-  'comp':'Computer','compu':'Computer','computer':'Computer','computer science':'Computer',
+  'com':'Computer','comp':'Computer','compu':'Computer','computer':'Computer','computer science':'Computer',
   'gk':'General Knowledge','g k':'General Knowledge','general knowledge':'General Knowledge',
   'reas':'Reasoning','reaso':'Reasoning','reasoning':'Reasoning',
   'draw':'Drawing','drawing':'Drawing',
@@ -11357,11 +11363,19 @@ function _parseBulkMarksWorkbook(arrayBuffer){
       const a = String(row[0]||'').trim();
       const b = String(row[1]||'').trim();
       const c = String(row[2]||'').trim();
-      const looksLikeHeader = /^class$/i.test(a) || /^roll\s*no/i.test(b) || /^student\s*name$/i.test(c);
+      // A real header row needs at least two of the three markers. Requiring only one meant a
+      // notes sheet with a "Class" column was read as if it held marks.
+      const sig = (/^class$/i.test(a) ? 1 : 0) + (/^roll\s*no/i.test(b) ? 1 : 0) + (/^(student'?s?\s*name|name)$/i.test(c) ? 1 : 0);
+      const looksLikeHeader = sig >= 2;
       if (looksLikeHeader){
+        // A "Student ID" column removes all doubt when two pupils share a name.
+        let idCol = -1;
+        for (let i = 0; i < (row.length||0); i++) {
+          if (/^student\s*id$/i.test(String(row[i]||'').trim())) { idCol = i; break; }
+        }
         const cols = [];
-        for (let i = 3; i < (row.length||0); i++) cols.push(_parseBulkSubjectHeader(row[i]));
-        current = { sheetName, headerRowIdx: rowIdx, classNameRaw:'', subjectCols: cols, students: [] };
+        for (let i = 3; i < (row.length||0); i++) cols.push(i === idCol ? { skip:true } : _parseBulkSubjectHeader(row[i]));
+        current = { sheetName, headerRowIdx: rowIdx, classNameRaw:'', subjectCols: cols, students: [], idCol };
         sections.push(current);
         return;
       }
@@ -11372,7 +11386,8 @@ function _parseBulkMarksWorkbook(arrayBuffer){
       if (a && !current.classNameRaw) current.classNameRaw = a;
       const vals = [];
       for (let i = 3; i < 3 + current.subjectCols.length; i++) vals.push(row[i]);
-      current.students.push({ rowIdx, classNameRaw: a || current.classNameRaw, roll:b, name:c, vals });
+      const sid = current.idCol >= 0 ? String(row[current.idCol]||'').trim() : '';
+      current.students.push({ rowIdx, classNameRaw: a || current.classNameRaw, roll:b, name:c, studentId:sid, vals });
     });
   });
   return sections;
@@ -11402,9 +11417,24 @@ function _matchBulkStudents(sections, students){
     const norm = _normBulkClassForMatch(sec.classNameRaw);
     sec.class = norm.class; sec.stream = norm.stream;
     sec.students.forEach(stu => {
+      // An explicit Student ID always wins.
+      if (stu.studentId) {
+        const byId = students.find(s => String(s.id) === String(stu.studentId));
+        if (byId) { stu.matched = byId; stu.matchError = null; return; }
+        // The id is stale — the pupil was removed or merged since the sheet was prepared.
+        // Fall back to the name rather than dropping the marks, and say so.
+        stu.staleId = stu.studentId; stu.studentId = '';
+      }
       const k = String(norm.class||'') + '|' + _normBulkName(stu.name);
-      const hit = (index[k]||[])[0] || null;
-      stu.matched = hit; stu.matchError = hit ? null : 'not-found';
+      const pool2 = index[k] || [];
+      if (pool2.length > 1) {
+        // Two pupils of the same name in one class — refuse rather than guess wrong.
+        stu.matched = null; stu.matchError = 'ambiguous';
+        return;
+      }
+      const hit = pool2[0] || null;
+      stu.matched = hit;
+      stu.matchError = hit ? (stu.staleId ? 'id-changed' : null) : (stu.staleId ? 'bad-id' : 'not-found');
       if (!hit) {
         // Fuzzy: same class, one name starts the other
         const pool = students.filter(s => s.class === norm.class);
@@ -11611,10 +11641,14 @@ function _applyBulkMarksImport(){
   if (newRows.length === 0){ alert('No marks could be built — check that students matched and values were numeric.'); return; }
 
   const studentIds = new Set(newRows.map(r => r.studentId));
-  const replaceKeys = new Set(newRows.map(r => r.studentId + '|' + r.subject));
+  // Match on the canonical subject name, not the raw one. An earlier import stored the same
+  // subject under several spellings (COM. / Com / Computer, MATHS, S.S.T, D); keying on the raw
+  // name would leave those behind and the report card would show the subject twice.
+  const _rk = (sid, subj) => sid + '|' + String(_canonBulkSubject(subj)).toLowerCase();
+  const replaceKeys = new Set(newRows.map(r => _rk(r.studentId, r.subject)));
   const existing = getExamMarks();
   const willRemove = existing.filter(m =>
-    m.examName === examName && replaceKeys.has(m.studentId + '|' + m.subject)
+    m.examName === examName && replaceKeys.has(_rk(m.studentId, m.subject))
   ).length;
 
   if (!confirm(
@@ -11625,7 +11659,7 @@ function _applyBulkMarksImport(){
   )) return;
 
   // Remove anything we're replacing
-  const keep = existing.filter(m => !(m.examName === examName && replaceKeys.has(m.studentId + '|' + m.subject)));
+  const keep = existing.filter(m => !(m.examName === examName && replaceKeys.has(_rk(m.studentId, m.subject))));
 
   // Assign fresh unique IDs (safe even for thousands of rows)
   let nextId = Math.max(Date.now(),
