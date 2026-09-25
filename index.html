@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1790363525 - CRITICAL sync fix: pulling a table read only the first 1000 rows (Supabase default) and then overwrote local storage with them, silently destroying everything beyond - this truncated exam marks from 1941 rows to ~1000; pull now pages through every row and push upserts in batches of 500 with a paged id fetch -->
+<!-- BUILD: v-1790367043 - data-loss fix: the app only pulled at page load, so a tab left open pushed its stale copy and DELETED rows other staff had added; a push now only removes rows this browser has seen, and the app quietly re-pulls every 90s (never while typing) with a visible Refresh button; bulk marks import limited to office/Principal; Theory+Practical is now a clear labelled toggle; teacher dashboard gains performance and attendance trackers; a short how-to pop-up on login, once a day -->
 <!-- BUILD: v-1790340000 - MARKS ENTRY FIX: saving marks used to always ADD a new row instead of replacing the old one, so re-entering/correcting a mark created a silent duplicate — this is what made a plain single mark for English display as "71 + 71 (Theory + Internal)" even though that option was never ticked. Saving now clears any prior row for that student+exam+subject first. MARKS VISIBILITY FIX: the marks entry/summary screen used to only show a teacher their own submissions, so nobody else — not admin, not principal, not another teacher on the same class — could see, correct, or delete what had been entered. It now shows every entry for the classes the user has access to (all classes for admin/principal/owner, assigned classes for a teacher), with an "Entered By" column, so any of them can override or delete it. Added a report-card shortcut button on each marks row. REPORT CARD: removed Scholar Reg No and UDISE/PEN from the student-facing report card entirely. -->
 <!-- BUILD: v-1790432000 - MARKS SUMMARY REDESIGNED: now a class-wise, exam-wise table (not a subject-per-row accordion). Class picker at the top lets you toggle between classes in one place. Exam dropdown: select a single exam to see/edit/delete one exam at a time, or "Combined" to view all exams' marks added together as an overall percentage per subject. Student rows × subject columns. For Class 11 and 12, Branch column shows PCM/PCB/Humanities. "Overall" column sums all subjects for a holistic picture. Actions: Edit (edit all of that exam's marks for one student in a modal), Delete (remove that exam's marks for one student), Report Card. Edit modal handles split Theory+Internal and single-mark subjects, with AB (absent) checkbox per subject. Report card can show a single exam or the full consolidated card. Stream/Branch field added to student form (shows only for 11/12). -->
 
@@ -702,6 +702,13 @@ function canSeeConfidentialNumbers(){
 // principal and owner-level roles can all see and edit it. UDISE/PEN stays Owner/MD only.
 // Salary figures are restricted: Owner / Managing Director / Trustee and the Principal can see
 // them. The Accountant also can, because recording salary payments is their job. Admin cannot.
+// Bulk marks import is an office job — a mistake there affects a whole class, so teachers
+// enter marks through the roster instead.
+function canBulkImportMarks(){
+ if (!currentUser) return false;
+ const rs = userRoles(currentUser.role);
+ return rs.some(r => OWNER_LEVEL_ROLES.includes(r)) || rs.includes('admin') || rs.includes('principal');
+}
 function canSeeSalary(){
  if (!currentUser) return false;
  const rs = userRoles(currentUser.role);
@@ -2342,12 +2349,18 @@ const DB = {
     if (from > 200000) break;
    }
    const localSet = new Set(localIds.map(String));
-   const toDelete = cloudIds.filter(id => !localSet.has(String(id)));
+   // Only delete rows this browser has actually seen. A row created by another teacher since
+   // our last pull is unknown to us — deleting it would silently wipe their work.
+   const seen = this._seenIds[jsTable];
+   const toDelete = cloudIds.filter(id => !localSet.has(String(id)) && (!seen || seen.has(String(id))));
+   const skipped = cloudIds.length - localSet.size - toDelete.length;
    for (let i = 0; i < toDelete.length; i += BATCH) {
     const { error: delErr } = await sb.from(sqlTable).delete().in('id', toDelete.slice(i, i + BATCH));
     if (delErr) throw new Error(`${sqlTable} (delete): ${delErr.message}`);
    }
 
+   // Remember what the cloud holds now, so the next push knows what it may remove.
+   this._seenIds[jsTable] = new Set(cloudIds.map(String).concat(localIds.map(String)));
    return { count: rows.length, deleted: toDelete.length, table: sqlTable };
   }
 
@@ -2389,6 +2402,7 @@ const DB = {
     if (from > 200000) break;               // hard stop, should never be reached
    }
    this.setAll(jsTable, arr);
+   this._seenIds[jsTable] = new Set(arr.map(r => String(r && r.id)));
    return { count: arr.length, table: sqlTable };
   }
 
@@ -2460,6 +2474,28 @@ const DB = {
 
  _syncEnabled: false,       // master switch — OFF until startup pull completes (prevents seed→push race that wiped cloud data)
  _pendingTables: new Set(), // tables waiting to be pushed
+ _seenIds: {},              // per table: ids this browser knows about (from the last pull/push)
+ _autoPullMs: 90000,        // quietly refresh from the cloud every 90 seconds
+ _autoPullTimer: null,
+ // Keeps a tab that has been left open in step with everyone else, WITHOUT reloading the page —
+ // a reload would throw away whatever the teacher is halfway through typing.
+ startAutoRefresh(){
+  if (this._autoPullTimer) clearInterval(this._autoPullTimer);
+  this._autoPullTimer = setInterval(() => this.autoRefresh(), this._autoPullMs);
+ },
+ async autoRefresh(force){
+  if (this.mode !== 'cloud' || !this._syncEnabled || !this._startupDone) return;
+  if (this._syncState === 'syncing') return;              // a push is in flight
+  if (this._pendingTables && this._pendingTables.size) return;  // we have unpushed work
+  if (!force && typeof document !== 'undefined' && document.hidden) return;   // tab not in use
+  if (!force && typeof _formInProgress === 'function' && _formInProgress()) return;
+  try {
+   await this.pullAll();
+   this._lastSyncAt = new Date();
+   this._notifySyncUI('idle');
+   if (typeof _afterAutoRefresh === 'function') _afterAutoRefresh();
+  } catch(e){ /* stay quiet; the next tick will try again */ }
+ },
  _syncTimer: null,          // debounce timer
  _syncState: 'idle',        // 'idle' | 'syncing' | 'error' | 'offline'
  _lastSyncAt: null,         // timestamp of last successful sync
@@ -2572,6 +2608,7 @@ const DB = {
    this._syncState = 'idle';
    this._lastSyncAt = new Date();
    this._notifySyncUI('idle');
+   this.startAutoRefresh();
    return { ok: true };
   } catch (e) {
    // On error, leave sync OFF so we never push local placeholders over cloud data.
@@ -8524,6 +8561,8 @@ const HELP_GUIDES = {
    'Choose the exam from the dropdown (Class Test, Unit Test 1 or 2, Half Yearly, Final Examination, or Other for anything else).',
    'Pick the class — the subject list then shows that class\'s subjects.',
    'Leave the mode on <b>Marks</b>, set Max Marks, and type each student\'s score. Leave a student blank to skip them.',
+   'If the subject is marked out of two parts, tick <b>This subject has Theory + Internal/Practical</b> and each pupil gets two boxes.',
+   'Importing marks from a spreadsheet is done by the office or the Principal, not by teachers.',
    'Click <b>Save Marks</b>.'],
    tip:'Entered a wrong score? In the summary below, use the pencil to edit or the bin to delete that one entry.'},
   {t:'Entering grades instead of marks', i:'a', s:[
@@ -8556,6 +8595,18 @@ const HELP_GUIDES = {
    'Open <b>Resources</b> to find CBSE and NCERT syllabus links plus the school\'s own material.',
    'Use the class and subject filters to narrow the list.',
    'In <b>Curriculum</b>, tick the topics you have completed so the Principal can see your progress.']},
+  {t:'Keeping your work — read this first', i:'floppy-disk', s:[
+   'Nothing is stored until you press <b>Save</b>. Typing into a box is not enough.',
+   'After saving you will see a green message. If you do not, the work was not saved.',
+   'The portal refreshes itself every minute or two, so a screen left open stays up to date. It never refreshes while you are typing.',
+   'If something looks stale, press <b>Refresh</b> at the top of the screen.',
+   'Do not keep the same page open for days without saving — finish and save each task.'],
+   tip:'If two teachers work on the same class at once, each should save before the other starts. Save often.'},
+  {t:'Your dashboard trackers', i:'chart-line', s:[
+   'The <b>Performance tracker</b> shows each of your classes with its average, the highest score, and how many pupils are below 40%.',
+   'The <b>Attendance tracker</b> shows each class\'s attendance percentage and how many pupils are below 75%.',
+   'Click the link on either card to jump straight to the full screen.'],
+   tip:'A class showing "no marks entered yet" means that exam has not been recorded for it.'},
   {t:'Messages', i:'comments', s:[
    'Click the chat bubble at the bottom right to message the office or another staff member.',
    'Notices from the school appear on your dashboard.']}
@@ -8875,6 +8926,67 @@ function _refreshHelp(){
  const body = document.getElementById('helpBody');
  if (body) { body.innerHTML = renderHelpCenter(); _attachHelpEvents(); }
 }
+// Show the guide once per day on login, so staff are reminded how the portal works without
+// it becoming a nuisance. Anyone can switch it off from the pop-up itself.
+var _loginHelpShown = false;
+function _maybeShowLoginHelp(){
+ if (_loginHelpShown || !currentUser) return;
+ const key = _helpKeyForRole();
+ if (!key) return;                                  // owner-level: no guide
+ _loginHelpShown = true;
+ try {
+  if (DB.getScalar('helpOnLogin') === 'off') return;
+  const today = new Date().toISOString().slice(0,10);
+  const seen = DB.getScalar('helpSeen_' + currentUser.id);
+  if (seen === today) return;
+  DB.setScalar('helpSeen_' + currentUser.id, today);
+ } catch(e){ return; }
+ setTimeout(() => _showLoginHelpModal(), 400);
+}
+function _showLoginHelpModal(){
+ const key = _helpKeyForRole(); const g = HELP_GUIDES[key];
+ if (!g) return;
+ document.getElementById('loginHelpModal')?.remove();
+ const tips = {
+  teacher: ['Mark attendance every working day — the Principal can see which classes are outstanding.',
+            'Always press <b>Save</b> after entering marks or attendance. Nothing is kept until you do.',
+            'Use <b>Month Register</b> to correct an earlier day without hunting for the date.'],
+  principal: ['Staff attendance is marked here daily; the salary statement is worked out from it.',
+              'The Fee Dashboard and Fee Reminders show who still owes money.'],
+  admin: ['Take a backup every week, and always before a bulk import.',
+          'Archive staff and pupils who leave — never delete them.'],
+  accountant: ['Record receipts as they are paid; the ledger and dashboards follow automatically.',
+               'Use "Who owes the most" on the Students tab to chase dues.']
+ }[key] || [];
+ const m = document.createElement('div');
+ m.id = 'loginHelpModal'; m.className = 'modal';
+ m.innerHTML = `<div class="modal-content" style="max-width:600px">
+   <div class="flex items-center gap-3 mb-2">
+    <span class="w-11 h-11 rounded-xl flex items-center justify-center text-white text-lg" style="background:${g.color}"><i class="fas fa-${g.icon}"></i></span>
+    <div><h3 class="text-lg font-bold">Welcome, ${escapeHTML((currentUser.name||'').split(' ')[0])}</h3>
+     <p class="text-xs text-gray-600">A quick reminder of how the ${escapeHTML(g.label)} portal works</p></div>
+   </div>
+   ${tips.length?`<ul class="text-sm text-gray-700 space-y-1.5 my-3 list-disc ml-5">${tips.map(t=>`<li>${t}</li>`).join('')}</ul>`:''}
+   <div class="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-900">
+    <b>If your screen looks out of date:</b> the portal now refreshes itself every minute or two.
+    You can also press the <b>Refresh</b> button at the top, or Ctrl+Shift+R.
+   </div>
+   <div class="flex flex-wrap justify-between items-center gap-2 mt-4">
+    <label class="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+     <input type="checkbox" id="loginHelpOff" class="w-auto"> Do not show this again
+    </label>
+    <div class="flex gap-2">
+     <button id="loginHelpOpen" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium">Open the full guide</button>
+     <button class="closeModal bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded-lg text-sm">Start working</button>
+    </div>
+   </div>
+  </div>`;
+ document.body.appendChild(m);
+ m.querySelector('#loginHelpOpen').addEventListener('click', () => { m.remove(); openHelpCenter(); });
+ m.querySelector('#loginHelpOff').addEventListener('change', e => {
+  try { DB.setScalar('helpOnLogin', e.target.checked ? 'off' : 'on'); } catch(err){}
+ });
+}
 function openHelpCenter(){
  const key = _helpKeyForRole();
  if (!key) { alert('No guide is available for this role.'); return; }
@@ -8921,6 +9033,15 @@ function printHelpGuide(){
  w.document.write(html); w.document.close();
 }
 // A floating Help button for everyone except owner-level roles.
+// A visible refresh control, so a teacher who suspects stale data can pull the latest
+// without reloading the page (a reload would lose anything half-typed).
+function _renderRefreshFab(){
+ if (!currentUser) return '';
+ return `<button id="refreshFab" title="Fetch the latest data from the school server"
+   class="fixed bottom-24 right-20 h-12 px-4 rounded-full bg-white border-2 border-emerald-600 text-emerald-700 shadow-lg z-40 flex items-center gap-2 text-sm font-medium">
+   <i class="fas fa-rotate"></i><span class="hidden sm:inline">Refresh</span>
+   <span id="lastRefreshedAt" class="text-[10px] text-gray-400"></span></button>`;
+}
 function _renderHelpFab(){
  if (!currentUser || !_helpKeyForRole()) return '';
  return `<button id="helpFab" title="How to use the portal"
@@ -9827,7 +9948,63 @@ function renderTchDashboard(){
     </div>`}
    </div>
   </div>
+  ${_tchTrackers(students, myClasses)}
  </div>`;
+}
+// Two at-a-glance trackers on the teacher's dashboard: how each class is performing, and
+// how attendance is running. Both link straight through to the full screens.
+function _tchTrackers(students, myClasses){
+ const exams = [...new Set(getExamMarks().map(m => m.examName).filter(Boolean))];
+ const exam = exams.includes('Half Yearly') ? 'Half Yearly' : (exams[exams.length-1] || '');
+ const bar = (pct, col) => `<div class="bg-gray-100 rounded-full h-2 overflow-hidden" style="min-width:70px"><div style="width:${Math.max(0,Math.min(100,pct))}%;background:${col}" class="h-2"></div></div>`;
+ // ---- performance ----
+ const perfRows = myClasses.map(c => {
+  const cls = students.filter(s => String(s.class).trim() === String(c).trim());
+  const pcts = cls.map(s => computeOverallPercent(s.id, exam)).filter(p => p !== null);
+  if (!pcts.length) return { c, n: cls.length, done: 0 };
+  const avg = Math.round(pcts.reduce((a,b)=>a+b,0)/pcts.length);
+  const top = Math.max(...pcts), weak = pcts.filter(p => p < 40).length;
+  return { c, n: cls.length, done: pcts.length, avg, top, weak };
+ });
+ const perf = `<div class="bg-white rounded-xl border p-4">
+   <div class="flex items-center justify-between mb-2">
+    <div class="font-bold text-gray-800"><i class="fas fa-chart-line text-purple-600 mr-1.5"></i>Performance tracker</div>
+    <button class="tchGoTab text-xs text-purple-700 hover:underline" data-tab="marks">Open marks →</button>
+   </div>
+   <div class="text-[11px] text-gray-500 mb-2">${exam ? escapeHTML(exam) : 'No exams yet'}</div>
+   ${perfRows.length ? perfRows.map(r => `<div class="flex items-center gap-2 py-1.5 border-b last:border-0">
+     <span class="text-sm font-semibold" style="min-width:64px">${/^\d+$/.test(r.c)?'Class '+r.c:escapeHTML(r.c)}</span>
+     ${r.done ? `${bar(r.avg, r.avg>=60?'#1f8f4e':r.avg>=40?'#c8860d':'#b3261e')}
+       <span class="text-sm font-bold" style="min-width:42px">${r.avg}%</span>
+       <span class="text-[11px] text-gray-500">avg · top ${r.top}%${r.weak?` · <b class="text-rose-600">${r.weak} below 40%</b>`:''}</span>
+       <span class="text-[11px] text-gray-400 ml-auto">${r.done}/${r.n} marked</span>`
+      : `<span class="text-xs text-gray-400">no marks entered yet (${r.n} pupils)</span>`}
+    </div>`).join('') : '<div class="text-sm text-gray-500 py-2">No classes assigned to you.</div>'}
+  </div>`;
+ // ---- attendance ----
+ const attRows = myClasses.map(c => {
+  const cls = students.filter(s => String(s.class).trim() === String(c).trim());
+  const vals = cls.map(s => studentAttendanceCalc(s).pct).filter(p => p !== null);
+  const low = cls.filter(s => { const p = studentAttendanceCalc(s).pct; return p !== null && p < 75; }).length;
+  const avg = vals.length ? Math.round(vals.reduce((a,b)=>a+b,0)/vals.length) : null;
+  return { c, n: cls.length, avg, low };
+ });
+ const att = `<div class="bg-white rounded-xl border p-4">
+   <div class="flex items-center justify-between mb-2">
+    <div class="font-bold text-gray-800"><i class="fas fa-calendar-check text-blue-600 mr-1.5"></i>Attendance tracker</div>
+    <button class="tchGoTab text-xs text-blue-700 hover:underline" data-tab="attendance">Open attendance →</button>
+   </div>
+   <div class="text-[11px] text-gray-500 mb-2">Percentage so far this session</div>
+   ${attRows.length ? attRows.map(r => `<div class="flex items-center gap-2 py-1.5 border-b last:border-0">
+     <span class="text-sm font-semibold" style="min-width:64px">${/^\d+$/.test(r.c)?'Class '+r.c:escapeHTML(r.c)}</span>
+     ${r.avg !== null ? `${bar(r.avg, r.avg>=75?'#1f8f4e':r.avg>=60?'#c8860d':'#b3261e')}
+       <span class="text-sm font-bold" style="min-width:42px">${r.avg}%</span>
+       <span class="text-[11px] ${r.low?'text-rose-600 font-semibold':'text-gray-500'}">${r.low?`${r.low} below 75%`:'all above 75%'}</span>
+       <span class="text-[11px] text-gray-400 ml-auto">${r.n} pupils</span>`
+      : `<span class="text-xs text-gray-400">not marked yet (${r.n} pupils)</span>`}
+    </div>`).join('') : ''}
+  </div>`;
+ return `<div class="grid md:grid-cols-2 gap-3 mt-3">${perf}${att}</div>`;
 }
 
 /* ---------- TAB 2: ATTENDANCE ---------- */
@@ -10478,9 +10655,9 @@ function renderTchMarks(){
      <button class="mkEntryModeBtn px-3 py-1.5 rounded-lg text-xs font-medium ${_mkEntryMode==='marks'?'bg-purple-600 text-white':'bg-gray-100 hover:bg-gray-200 text-gray-700'}" data-mode="marks"><i class="fas fa-hashtag mr-1"></i>Marks</button>
      <button class="mkEntryModeBtn px-3 py-1.5 rounded-lg text-xs font-medium ${_mkEntryMode==='grade'?'bg-purple-600 text-white':'bg-gray-100 hover:bg-gray-200 text-gray-700'}" data-mode="grade"><i class="fas fa-a mr-1"></i>Grade</button>
      <span class="mx-1 text-gray-300">|</span>
-     <button id="bulkImportMarksBtn" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 hover:bg-emerald-700 text-white" title="Import marks from an Excel register — reads class, subjects, and Theory/Internal splits automatically">
+${canBulkImportMarks()?`     <button id="bulkImportMarksBtn" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 hover:bg-emerald-700 text-white" title="Import marks from an Excel register — reads class, subjects, and Theory/Internal splits automatically">
       <i class="fas fa-file-import mr-1"></i>Bulk Import from Excel
-     </button>
+     </button>`:''}
     </div>
    </div>
    <div class="grid md:grid-cols-2 gap-3 mb-3">
@@ -10508,13 +10685,23 @@ function renderTchMarks(){
      <label class="text-xs font-medium">${_mkEntryMode==='grade'?'Recording':'Max Marks *'}</label>
      ${_mkEntryMode==='grade'
        ? `<div class="text-sm text-gray-500 py-2">Grades (no max marks)</div><input type="hidden" id="mkMax" value="100">`
-       : `<label class="text-xs flex items-center gap-1.5 cursor-pointer select-none mb-1.5">
-           <input type="checkbox" id="mkSplit" class="w-auto" onchange="
+       : `<label id="mkSplitBox" class="flex items-start gap-2.5 cursor-pointer select-none mb-2 rounded-lg border-2 px-3 py-2.5 transition" style="border-color:#e5e7eb;background:#fff">
+           <input type="checkbox" id="mkSplit" class="w-auto mt-0.5" style="width:18px;height:18px;accent-color:#7a1e2e" onchange="
              document.getElementById('mkMaxSingleWrap').style.display=this.checked?'none':'block';
              document.getElementById('mkMaxSplitWrap').style.display=this.checked?'flex':'none';
+             var b=document.getElementById('mkSplitBox');
+             b.style.borderColor=this.checked?'#7a1e2e':'#e5e7eb';
+             b.style.background=this.checked?'#fdf6ef':'#fff';
+             var t=document.getElementById('mkSplitState');
+             if(t){t.textContent=this.checked?'ON — two boxes per pupil':'OFF — one mark per pupil';
+                   t.style.color=this.checked?'#7a1e2e':'#9ca3af';}
              window._mkRenderRoster && window._mkRenderRoster();
            ">
-           <span>Theory + Internal/Practical (e.g. Hindi, English)</span>
+           <span class="flex-1">
+            <span class="block text-sm font-semibold text-gray-800"><i class="fas fa-layer-group mr-1.5" style="color:#7a1e2e"></i>This subject has Theory + Internal/Practical</span>
+            <span class="block text-[11px] text-gray-500 mt-0.5">Tick for subjects marked out of two parts, such as Hindi 80 + 20. Leave unticked for a single total.</span>
+            <span id="mkSplitState" class="block text-[11px] font-semibold mt-1" style="color:#9ca3af">OFF — one mark per pupil</span>
+           </span>
           </label>
           <div id="mkMaxSingleWrap"><input type="number" id="mkMax" placeholder="e.g. 100" value="100"></div>
           <div id="mkMaxSplitWrap" class="gap-2" style="display:none">
@@ -10895,6 +11082,7 @@ function _attachCurriculumEvents(){
 
 function _attachAttendanceEvents(){
  // Mode toggle
+ document.querySelectorAll('.tchGoTab').forEach(b => b.addEventListener('click', () => { activeTeacherTab = b.dataset.tab; renderApp(); }));
  document.querySelectorAll('.att-mode').forEach(b => b.addEventListener('click', () => {
   attendanceMode = b.dataset.mode;
   renderApp();
@@ -11595,6 +11783,7 @@ function _buildBulkMarksRowsForStudent(stu, sec, examName, today, tName, tId){
 var _bulkMarksParsed = null;
 
 function _openBulkMarksModal(){
+  if (!canBulkImportMarks()) { alert('Bulk import is available to the office and the Principal only.'); return; }
   const old = document.getElementById('bulkMarksModal'); if (old) old.remove();
   _bulkMarksParsed = null;
   const el = document.createElement('div');
@@ -11751,7 +11940,7 @@ function _applyBulkMarksImport(){
 
 function _attachMarksEvents(){
  // Keep the Subject list in step with the chosen class (subjects come from the exam datesheet).
- document.getElementById('bulkImportMarksBtn')?.addEventListener('click', _openBulkMarksModal);
+ document.getElementById('bulkImportMarksBtn')?.addEventListener('click', () => { if(!canBulkImportMarks()){alert('Bulk import is available to the office and the Principal. Please enter marks using the roster below.');return;} _openBulkMarksModal(); });
  document.querySelectorAll('.mkEntryModeBtn').forEach(b => b.addEventListener('click', () => {
   _mkEntryMode = b.dataset.mode; renderApp();
  }));
@@ -18684,6 +18873,27 @@ function renderChatOnly(){
 }
 
 /* ---------- MAIN ROUTER ---------- */
+// True when the person is part-way through entering something, so a background refresh
+// would be disruptive. We never pull while a form has unsaved input.
+function _formInProgress(){
+ try {
+  const a = document.activeElement;
+  if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.type !== 'button') return true;
+  // any marks/attendance grid with something typed but not yet saved
+  const grids = document.querySelectorAll('.mkInput, .attCell, .stuRegCell, .staffAttCell');
+  for (const g of grids) if (g.value && g.dataset && g.dataset.dirty === '1') return true;
+  return false;
+ } catch(e){ return false; }
+}
+// After a quiet refresh, repaint the screen only if the person is not typing.
+function _afterAutoRefresh(){
+ try {
+  if (_formInProgress()) return;
+  if (typeof currentUser !== 'undefined' && currentUser) renderApp();
+  const el = document.getElementById('lastRefreshedAt');
+  if (el) el.textContent = new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
+ } catch(e){}
+}
 function renderApp(){
  // If no user, return to public site (integrated flow)
  if(!currentUser){portalLogout();return}
@@ -18706,8 +18916,15 @@ function renderApp(){
   case 'teacher_activityincharge':html=_comboSwitcher('activityincharge','teacher')+(comboView==='teacher'?renderTeacherPanel():renderActivityInchargePanel());break;
   default:html='<div class="p-6">Unknown role</div>';
  }
- app.innerHTML=html+_renderHelpFab();
+ app.innerHTML=html+_renderHelpFab()+_renderRefreshFab();
  document.getElementById('helpFab')?.addEventListener('click', openHelpCenter);
+ document.getElementById('refreshFab')?.addEventListener('click', async () => {
+  const b = document.getElementById('refreshFab');
+  if (b) b.innerHTML = '<i class="fas fa-rotate fa-spin"></i><span class="hidden sm:inline">Refreshing…</span>';
+  try { await DB.autoRefresh(true); showToast('Up to date'); } catch(e){ alert('Could not refresh: '+e.message); }
+  renderApp();
+ });
+ _maybeShowLoginHelp();
  if(currentUser.role==='owner'||currentUser.role==='managing_director'||currentUser.role==='trustee')attachOwnerEvents();
  else if(currentUser.role==='admin'){refreshAdminTabContent();attachAdminEvents()}
  else if(currentUser.role==='principal'){refreshPrincipalTabContent();attachPrincipalEvents()}
