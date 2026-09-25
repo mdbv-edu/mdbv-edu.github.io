@@ -4857,8 +4857,9 @@ function renderDataManagementModals(){
     <div><label class="text-xs font-medium">Full Name *</label><input id="dmStuName"></div>
     <div${canSeeSRNumber()?'':' style="display:none"'}><label class="text-xs font-medium">Scholar Reg No <i class="fas fa-id-badge text-amber-500" title="Scholar Register number — used for TC"></i></label><input id="dmStuRegNo" placeholder="SR register number" autocomplete="off"></div>
     <div><label class="text-xs font-medium">Admission No</label><input id="dmStuAdmNo"></div>
-    <div><label class="text-xs font-medium">Class *</label><select id="dmStuClass">${ALL_CLASSES.map(c=>`<option>${c}</option>`).join('')}</select></div>
+    <div><label class="text-xs font-medium">Class *</label><select id="dmStuClass" onchange="document.getElementById('dmStuStreamWrap').style.display=(this.value==='11'||this.value==='12')?'block':'none'">${ALL_CLASSES.map(c=>`<option>${c}</option>`).join('')}</select></div>
     <div><label class="text-xs font-medium">Section</label><select id="dmStuSection">${ALL_SECTIONS.map(c=>`<option>${c}</option>`).join('')}</select></div>
+    <div id="dmStuStreamWrap" style="display:none"><label class="text-xs font-medium">Branch / Stream</label><select id="dmStuStream"><option value="">— Select —</option><option>PCM</option><option>PCB</option><option>Humanities</option></select></div>
     <div><label class="text-xs font-medium">Roll No</label><input type="number" id="dmStuRoll"></div>
     <div><label class="text-xs font-medium">Father's Name</label><input id="dmStuFather"></div>
     <div><label class="text-xs font-medium">Mother's Name</label><input id="dmStuMother"></div>
@@ -5315,6 +5316,127 @@ function combineSubjectRows(rows){
   return String(v);
  });
  return { absent: false, obtained, max, display: parts.join(' + '), split: sorted.length > 1 };
+}
+
+// One cell of the Marks Summary table: a student's result in one subject, across whichever
+// exam(s) are in scope (a single exam, or every exam when "Combined" is selected). Works the
+// same way either way — group by exam, combine each exam's rows (handles Theory+Internal),
+// then add the exam totals together — so a single-exam view and the combined view share one
+// code path instead of drifting apart.
+function _studentSubjectCell(studentId, subject, marksScope){
+ const rows = marksScope.filter(m => m.studentId === studentId && m.subject === subject);
+ if (rows.length === 0) return { display: '—', hasData: false };
+ const byExam = {};
+ rows.forEach(r => { (byExam[r.examName] = byExam[r.examName] || []).push(r); });
+ const perExam = Object.values(byExam).map(combineSubjectRows);
+ if (perExam.every(e => e.absent)) return { display: 'AB', absent: true, hasData: true };
+ // Grade-only rows (no numeric marks at all) — show the grade(s) rather than a fraction.
+ if (rows.every(r => r.marks === null || r.marks === undefined)) {
+  const grades = [...new Set(rows.filter(r => r.grade).map(r => r.grade))];
+  return { display: grades.length ? grades.join(', ') : '—', hasData: true, isGrade: true };
+ }
+ let obtained = 0, max = 0;
+ perExam.forEach(e => { if (!e.absent) { obtained += e.obtained; max += e.max; } });
+ const pct = max > 0 ? Math.round((obtained / max) * 100) : null;
+ return { display: max > 0 ? `${obtained}/${max}` : '—', hasData: true, obtained, max, pct };
+}
+
+// Modal to edit (or add) every subject's marks for one student, for one specific exam, in a
+// single save — this is the "Edit" action on a row of the Marks Summary table. Each subject
+// row clears and re-writes the underlying exam-mark row(s) for that student+exam+subject, the
+// same overwrite-not-duplicate rule the main entry form uses. Ticking "AB" records the student
+// as absent for that subject; leaving a field blank (and AB unticked) removes that subject's
+// entry entirely.
+function _openMarksRowEditModal(studentId, examName, subjects, scopedMarks, onSaved){
+ const stu = getStudents().find(x => x.id === studentId);
+ if (!stu) return;
+ const existing = document.getElementById('mkRowEditModal'); if (existing) existing.remove();
+ const el = document.createElement('div'); el.id = 'mkRowEditModal'; el.className = 'modal';
+ const rowsHtml = subjects.map(sub => {
+  const rows = scopedMarks.filter(m => m.studentId === studentId && m.examName === examName && m.subject === sub);
+  const isAbsent = rows.length > 0 && rows.every(r => r.absent);
+  const isSplit = rows.some(r => r.component);
+  const isGrade = rows.length > 0 && rows.every(r => r.marks === null || r.marks === undefined) && rows.some(r => r.grade);
+  let kind = isGrade ? 'grade' : (isSplit ? 'split' : 'single');
+  let fieldsHTML;
+  if (kind === 'grade') {
+   const g = rows[0]?.grade || '';
+   fieldsHTML = `<input type="text" class="mkRowEditInput w-20" data-comp="" placeholder="Grade" value="${escapeHTML(g)}" ${isAbsent?'disabled':''}>`;
+  } else if (kind === 'split') {
+   const th = rows.find(r => r.component === 'Theory');
+   const inr = rows.find(r => r.component === 'Internal');
+   fieldsHTML = `<input type="number" class="mkRowEditInput w-16" data-comp="Theory" placeholder="Th" value="${th && !th.absent ? th.marks : ''}" ${isAbsent?'disabled':''}>
+                 <input type="number" class="mkRowEditInput w-16" data-comp="Internal" placeholder="Int" value="${inr && !inr.absent ? inr.marks : ''}" ${isAbsent?'disabled':''}>`;
+  } else {
+   const v = rows.length && !rows[0].absent ? rows[0].marks : '';
+   fieldsHTML = `<input type="number" class="mkRowEditInput w-20" data-comp="" placeholder="Marks" value="${v}" ${isAbsent?'disabled':''}>`;
+  }
+  const maxTh = (rows.find(r=>r.component==='Theory')?.maxMarks) || 80;
+  const maxIn = (rows.find(r=>r.component==='Internal')?.maxMarks) || 20;
+  const max = rows[0]?.maxMarks || 100;
+  return `<div class="flex items-center gap-2 py-1.5 border-b last:border-0" data-sub="${escapeHTML(sub)}" data-kind="${kind}" data-max="${max}" data-maxth="${maxTh}" data-maxin="${maxIn}">
+    <div class="text-sm font-medium flex-1">${escapeHTML(sub)}${kind==='split'?' <span class="text-[10px] text-gray-400">(Th+Int)</span>':''}</div>
+    <div class="flex gap-1 items-center">
+     ${fieldsHTML}
+     <label class="text-[10px] flex items-center gap-1 ml-1 cursor-pointer select-none"><input type="checkbox" class="mkRowEditAbsent w-auto" ${isAbsent?'checked':''}> AB</label>
+    </div>
+   </div>`;
+ }).join('');
+ el.innerHTML = `<div class="modal-content" style="max-width:520px">
+   <h3 class="text-lg font-bold mb-1">${escapeHTML(stu.name)}</h3>
+   <p class="text-xs text-gray-500 mb-3">${escapeHTML(examName)} — edit marks per subject. Leave a field blank (and AB unticked) to remove that subject's entry.</p>
+   <div class="max-h-96 overflow-y-auto">${rowsHtml || '<div class="text-sm text-gray-500 py-3">No subjects</div>'}</div>
+   <div class="flex justify-end gap-2 mt-4"><button class="closeModal bg-gray-300 px-3 py-1.5 rounded">Cancel</button><button id="mkRowEditSaveBtn" class="bg-purple-600 text-white px-4 py-1.5 rounded">Save</button></div>
+  </div>`;
+ document.body.appendChild(el);
+ el.querySelectorAll('.closeModal').forEach(b => b.addEventListener('click', () => el.remove()));
+ // Ticking AB disables that subject's input field(s)
+ el.querySelectorAll('.mkRowEditAbsent').forEach(chk => chk.addEventListener('change', () => {
+  const wrap = chk.closest('[data-sub]');
+  wrap.querySelectorAll('.mkRowEditInput').forEach(inp => { inp.disabled = chk.checked; });
+ }));
+ document.getElementById('mkRowEditSaveBtn').addEventListener('click', () => {
+  const all = getExamMarks();
+  const today = new Date().toISOString().slice(0,10);
+  const nowIso = new Date().toISOString();
+  el.querySelectorAll('[data-sub]').forEach(rowEl => {
+   const sub = rowEl.dataset.sub;
+   const kind = rowEl.dataset.kind;
+   const absent = rowEl.querySelector('.mkRowEditAbsent').checked;
+   // Clear any existing row(s) for this student+exam+subject before writing the new value(s) —
+   // same rule as the main entry form, so editing here can never create a duplicate.
+   for (let i = all.length - 1; i >= 0; i--) {
+    if (all[i].studentId === studentId && all[i].examName === examName && all[i].subject === sub) all.splice(i, 1);
+   }
+   const base = { studentId, examName, subject: sub, date: today, teacher: currentUser.name, teacherId: currentUser.id, editedAt: nowIso, editedBy: currentUser?.name || '' };
+   if (absent) {
+    if (kind === 'split') {
+     all.push({ ...base, id: newRowId(all), component: 'Theory', absent: true, marks: null, maxMarks: parseInt(rowEl.dataset.maxth)||80, grade: null });
+     all.push({ ...base, id: newRowId(all), component: 'Internal', absent: true, marks: null, maxMarks: parseInt(rowEl.dataset.maxin)||20, grade: null });
+    } else {
+     all.push({ ...base, id: newRowId(all), absent: true, marks: null, maxMarks: parseInt(rowEl.dataset.max)||100, grade: null });
+    }
+    return;
+   }
+   if (kind === 'grade') {
+    const g = rowEl.querySelector('.mkRowEditInput').value.trim();
+    if (!g) return; // blank + not absent -> subject entry stays removed
+    all.push({ ...base, id: newRowId(all), grade: g, marks: null, maxMarks: null });
+   } else if (kind === 'split') {
+    const thV = parseInt(rowEl.querySelector('[data-comp="Theory"]').value);
+    const inV = parseInt(rowEl.querySelector('[data-comp="Internal"]').value);
+    if (!isNaN(thV)) all.push({ ...base, id: newRowId(all), component: 'Theory', marks: thV, maxMarks: parseInt(rowEl.dataset.maxth)||80 });
+    if (!isNaN(inV)) all.push({ ...base, id: newRowId(all), component: 'Internal', marks: inV, maxMarks: parseInt(rowEl.dataset.maxin)||20 });
+   } else {
+    const v = parseInt(rowEl.querySelector('.mkRowEditInput').value);
+    if (!isNaN(v)) all.push({ ...base, id: newRowId(all), marks: v, maxMarks: parseInt(rowEl.dataset.max)||100 });
+   }
+  });
+  saveExamMarks(all);
+  el.remove();
+  showToast('Marks updated for ' + stu.name);
+  if (typeof onSaved === 'function') onSaved();
+ });
 }
 
 function generateReportCard(student, examName, opts){
@@ -10065,6 +10187,8 @@ function _renderQuickHomework(){
 let _marksMode = 'entry';       // 'entry' | 'tracker'
 let _marksTrackerClass = '';
 let _marksTrackerFilter = 'all'; // 'all' | 'low' | 'good'
+let _mkSummaryClass = '';       // class currently shown in the Marks Summary table
+let _mkSummaryExam = '';        // '' means Combined (all exams), else one exam name
 
 // Performance tracker: per-student averages, trend, and flags, with a "Notify parent" action.
 function renderMarksTracker(classes){
@@ -10194,6 +10318,8 @@ function renderTchMarks(){
  if (mkClasses.length === 0) return _noClassAssignedNotice();
  const myMarks = _marksVisibleToCurrentUser();
  const exams = [...new Set(myMarks.map(m => m.examName))];
+ // Keep the summary's class toggle pointed at a class the user can actually see.
+ if (!_mkSummaryClass || !mkClasses.includes(_mkSummaryClass)) _mkSummaryClass = mkClasses[0];
  const toggle = `<div class="flex flex-wrap gap-2 mb-4">
    <button class="mkModeBtn px-4 py-2 rounded-lg text-sm font-medium ${_marksMode==='entry'?'bg-purple-600 text-white':'bg-gray-100 hover:bg-gray-200'}" data-mode="entry"><i class="fas fa-pen-to-square mr-1"></i>Enter Marks</button>
    <button class="mkModeBtn px-4 py-2 rounded-lg text-sm font-medium ${_marksMode==='tracker'?'bg-purple-600 text-white':'bg-gray-100 hover:bg-gray-200'}" data-mode="tracker"><i class="fas fa-chart-line mr-1"></i>Performance Tracker</button>
@@ -10260,12 +10386,15 @@ function renderTchMarks(){
     <h3 class="font-semibold"><i class="fas fa-chart-line text-blue-600 mr-1"></i>Marks Summary</h3>
     <div class="flex gap-2">
      <select id="mkFilterExam" class="text-sm">
-      <option value="">All Exams</option>
-      ${exams.map(e => `<option>${e}</option>`).join('')}
+      <option value="" ${!_mkSummaryExam?'selected':''}>Combined (All Exams)</option>
+      ${exams.map(e => `<option ${_mkSummaryExam===e?'selected':''}>${escapeHTML(e)}</option>`).join('')}
      </select>
      <button id="mkExportBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs"><i class="fas fa-file-excel mr-1"></i>Export</button>
     </div>
    </div>
+   ${mkClasses.length > 1 ? `<div class="flex flex-wrap gap-2 mb-3">
+     ${mkClasses.map(c => `<button class="mkSummaryClassBtn px-3 py-1.5 rounded-full text-xs font-medium ${String(c)===String(_mkSummaryClass)?'bg-blue-600 text-white':'bg-gray-100 hover:bg-gray-200 text-gray-700'}" data-cls="${escapeHTML(String(c))}">Class ${escapeHTML(String(c))}</button>`).join('')}
+    </div>` : ''}
    <div id="mkResults">
     ${myMarks.length === 0 ? '<div class="text-sm text-gray-500 py-3">No marks entered yet</div>' : ''}
    </div>
@@ -11246,122 +11375,108 @@ function _attachMarksEvents(){
   renderApp();
  });
 
- // Render marks summary
+ // ===== MARKS SUMMARY: class-wise, exam-wise (or Combined), one table — student rows × subject columns =====
  const renderSummary = () => {
   const filterExam = document.getElementById('mkFilterExam').value;
-  const all = _marksVisibleToCurrentUser().filter(m => !filterExam || m.examName === filterExam);
-  const students = getStudents();
+  _mkSummaryExam = filterExam;
   const out = document.getElementById('mkResults');
-  if (all.length === 0) { out.innerHTML = '<div class="text-sm text-gray-500 py-3">No marks match filter</div>'; return; }
-  const groups = {};
-  all.forEach(m => {
-   const s = students.find(x => x.id === m.studentId);
-   const key = m.examName + '|' + (s?.class || '?') + '|' + m.subject + '|' + (m.component || '');
-   (groups[key] = groups[key] || []).push({ ...m, student: s });
+  const cls = _mkSummaryClass;
+  const isCombined = !filterExam;
+  const showBranch = cls === '11' || cls === '12';
+
+  // Everything visible to this user, scoped to the selected class, then to the selected exam
+  // (or every exam, for Combined).
+  const classMarks = _marksVisibleToCurrentUser().filter(m => {
+   const s = getStudents().find(x => x.id === m.studentId);
+   return s && s.class === cls;
   });
-  out.innerHTML = Object.entries(groups).map(([key, marks]) => {
-   const [exam, cls, sub, comp] = key.split('|');
-   const present = marks.filter(m => !m.absent && m.marks !== null && m.marks !== undefined && (m.maxMarks||0) > 0);
-   const absentCount = marks.filter(m => m.absent).length;
-   const max = present.length ? present[0].maxMarks : 100;
-   const total = present.reduce((s,m) => s + m.marks, 0);
-   const avg = present.length ? total / present.length : 0;
-   const high = present.length ? Math.max(...present.map(m => m.marks)) : 0;
-   const low = present.length ? Math.min(...present.map(m => m.marks)) : 0;
-   return `
-    <details class="border rounded mb-2">
-     <summary class="cursor-pointer px-3 py-2 bg-gray-50 hover:bg-gray-100 flex flex-wrap items-center justify-between gap-2 text-sm">
-      <span class="font-semibold">${exam} · Class ${cls} · ${sub}${comp?` <span class="text-[11px] font-normal text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded">${comp}</span>`:''} <span class="text-gray-500">(${marks.length})</span></span>
-      <span class="text-xs">${present.length ? `Avg: <b>${avg.toFixed(1)}/${max}</b> · High: <b>${high}</b> · Low: <b>${low}</b>` : '<span class="text-gray-500">No marks recorded</span>'}${absentCount ? ` · <span class="text-rose-600 font-semibold">Absent: <b>${absentCount}</b></span>` : ''}</span>
-     </summary>
-     <div class="overflow-x-auto p-2"><table class="text-xs w-full border">
-      <thead class="bg-gray-100"><tr><th>Roll</th><th>Name</th><th>Marks</th><th>%</th><th>Grade</th><th>Entered By</th><th>Actions</th></tr></thead>
-      <tbody>${marks.sort((a,b) => (a.student?.rollNo||0)-(b.student?.rollNo||0)).map(m => {
-        const enteredBy = `${escapeHTML(m.teacher||'—')}${m.editedBy && m.editedBy !== m.teacher ? ` <span class="text-gray-400">(edited by ${escapeHTML(m.editedBy)})</span>` : ''}`;
-        if (m.absent) {
-         return `<tr class="bg-rose-50"><td>${m.student?.rollNo||'-'}</td><td>${m.student?.name||'?'}</td>
-          <td colspan="3" class="text-center font-semibold text-rose-700"><i class="fas fa-user-slash mr-1"></i>Absent</td>
-          <td class="text-gray-500">${enteredBy}</td>
-          <td class="whitespace-nowrap">
-           <button class="mkEditBtn text-blue-600 hover:text-blue-800" data-id="${m.id}" title="Change / record marks"><i class="fas fa-edit"></i></button>
-           <button class="mkDelBtn text-red-600 hover:text-red-800 ml-2" title="Delete"><i class="fas fa-trash"></i></button>
-           <button class="mkRcBtn text-indigo-600 hover:text-indigo-800 ml-2" data-sid="${m.studentId}" title="View this student's report card"><i class="fas fa-file-lines"></i></button>
-          </td></tr>`;
-        }
-        const isG = (m.marks === null || m.marks === undefined) && m.grade;
-        const pct = isG ? null : (m.marks / max) * 100;
-        const grade = isG ? escapeHTML(m.grade) : (pct >= 90 ? 'A+' : pct >= 80 ? 'A' : pct >= 70 ? 'B+' : pct >= 60 ? 'B' : pct >= 50 ? 'C' : pct >= 33 ? 'D' : 'F');
-        return `<tr><td>${m.student?.rollNo||'-'}</td><td>${m.student?.name||'?'}</td>
-         <td>${isG?'<span class="text-gray-400">grade only</span>':m.marks+'/'+max}</td>
-         <td>${isG?'—':pct.toFixed(1)+'%'}</td><td class="font-semibold">${grade}</td>
-         <td class="text-gray-500">${enteredBy}</td>
-         <td class="whitespace-nowrap"><button class="mkEditBtn text-blue-600 hover:text-blue-800" data-id="${m.id}" title="Edit marks"><i class="fas fa-edit"></i></button>
-         <button class="mkDelBtn text-red-600 hover:text-red-800 ml-2" data-id="${m.id}" title="Delete marks"><i class="fas fa-trash"></i></button>
-         <button class="mkRcBtn text-indigo-600 hover:text-indigo-800 ml-2" data-sid="${m.studentId}" title="View this student's report card"><i class="fas fa-file-lines"></i></button></td></tr>`;
-       }).join('')}</tbody>
-     </table></div>
-    </details>`;
+  const scopedMarks = classMarks.filter(m => isCombined || m.examName === filterExam);
+
+  const roster = getActiveStudents().filter(s => s.class === cls).sort((a,b) => (a.rollNo||0)-(b.rollNo||0));
+  if (roster.length === 0) { out.innerHTML = '<div class="text-sm text-gray-500 py-3">No students in this class</div>'; return; }
+
+  // Subject columns: the class's usual subjects first, then any extra subject actually present
+  // in the data (e.g. a custom "Other" subject typed in during entry).
+  const canonicalSubs = subjectsForClass(cls) || [];
+  const dataSubs = [...new Set(scopedMarks.map(m => m.subject))];
+  const subjects = [...canonicalSubs, ...dataSubs.filter(s => !canonicalSubs.includes(s))];
+
+  if (subjects.length === 0) {
+   out.innerHTML = `<div class="text-sm text-gray-500 py-3">No marks recorded yet for Class ${escapeHTML(String(cls))}${isCombined?'':' in '+escapeHTML(filterExam)}.</div>`;
+   return;
+  }
+
+  const canEditHere = !isCombined; // editing/deleting a single exam's row is unambiguous; combined spans many exams
+  const rows = roster.map(s => {
+   let totalObtained = 0, totalMax = 0;
+   const cells = subjects.map(sub => {
+    const c = _studentSubjectCell(s.id, sub, scopedMarks);
+    if (c.hasData && !c.absent && !c.isGrade && c.max) { totalObtained += c.obtained; totalMax += c.max; }
+    const cls2 = c.absent ? 'text-rose-700 font-semibold' : (c.pct!=null && c.pct<33 ? 'text-rose-600' : '');
+    return `<td class="text-center ${cls2}">${escapeHTML(String(c.display))}</td>`;
+   }).join('');
+   const overallPct = totalMax > 0 ? Math.round((totalObtained/totalMax)*100) : null;
+   return `<tr>
+    <td class="text-center">${s.rollNo||'-'}</td>
+    <td class="font-medium whitespace-nowrap">${escapeHTML(s.name)}</td>
+    ${showBranch ? `<td class="text-center text-gray-600">${escapeHTML(s.stream||'—')}</td>` : ''}
+    ${cells}
+    <td class="text-center font-semibold">${overallPct!=null ? overallPct+'%' : '—'}</td>
+    <td class="whitespace-nowrap text-center">
+     <button class="mkRowEditBtn text-blue-600 hover:text-blue-800 ${canEditHere?'':'opacity-30 cursor-not-allowed'}" ${canEditHere?'':'disabled'} data-sid="${s.id}" title="${canEditHere?'Edit marks':'Select a specific exam to edit'}"><i class="fas fa-edit"></i></button>
+     <button class="mkRowDelBtn text-red-600 hover:text-red-800 ml-2 ${canEditHere?'':'opacity-30 cursor-not-allowed'}" ${canEditHere?'':'disabled'} data-sid="${s.id}" title="${canEditHere?'Delete this exam marks for this student':'Select a specific exam to delete'}"><i class="fas fa-trash"></i></button>
+     <button class="mkRcBtn text-indigo-600 hover:text-indigo-800 ml-2" data-sid="${s.id}" title="View report card"><i class="fas fa-file-lines"></i></button>
+    </td>
+   </tr>`;
   }).join('');
-  // Re-bind row actions after every re-render
-  document.querySelectorAll('.mkEditBtn').forEach(b => b.addEventListener('click', () => {
-   const all = getExamMarks();
-   const m = all.find(x => String(x.id) === String(b.dataset.id));
-   if (!m) return;
-   const stu = getStudents().find(x => x.id === m.studentId);
-   if (m.absent) {
-    const ans = prompt(`Edit entry for ${stu ? stu.name : 'student'}\n${m.examName} · ${m.subject}\n\nCurrently marked ABSENT.\n\n• Enter marks (out of 100) to replace the absent mark with a score.\n• Leave blank and press OK to KEEP absent.\n• Type "delete" to remove the entry entirely.`, '');
-    if (ans === null) return;
-    const t = ans.trim();
-    if (t.toLowerCase() === 'delete') {
-     saveExamMarks(all.filter(x => x.id !== m.id));
-     showToast('Entry deleted');
-     renderSummary();
-     return;
-    }
-    if (t === '') return; // keep absent
-    const v = parseFloat(t);
-    if (isNaN(v) || v < 0 || v > 100) { alert('Please enter a number between 0 and 100.'); return; }
-    delete m.absent; m.marks = v; m.maxMarks = 100;
-    m.editedAt = new Date().toISOString(); m.editedBy = currentUser?.name || '';
-    saveExamMarks(all);
-    showToast('Marks recorded — absent flag cleared');
-    renderSummary();
-    return;
-   }
-   const cur = prompt(`Edit marks for ${stu ? stu.name : 'student'}\n${m.examName} · ${m.subject}\n\nMarks obtained (out of ${m.maxMarks}):`, m.marks);
-   if (cur === null) return;
-   const v = parseFloat(cur);
-   if (isNaN(v) || v < 0 || v > m.maxMarks) { alert(`Please enter a number between 0 and ${m.maxMarks}.`); return; }
-   m.marks = v; m.editedAt = new Date().toISOString(); m.editedBy = currentUser?.name || '';
-   saveExamMarks(all);
-   showToast('Marks updated');
+
+  out.innerHTML = `
+   ${isCombined ? `<div class="bg-indigo-50 text-indigo-800 text-xs p-2 rounded mb-2"><i class="fas fa-circle-info mr-1"></i>Showing marks combined across every exam. Pick one exam above to edit or delete a specific entry.</div>` : ''}
+   <div class="overflow-x-auto"><table class="text-xs w-full border">
+    <thead class="bg-gray-100"><tr>
+     <th>Roll</th><th>Name</th>${showBranch?'<th>Branch</th>':''}${subjects.map(s=>`<th class="text-center">${escapeHTML(s)}</th>`).join('')}<th class="text-center">Overall</th><th>Actions</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+   </table></div>`;
+
+  // Class toggle pills
+  document.querySelectorAll('.mkSummaryClassBtn').forEach(b => b.addEventListener('click', () => {
+   _mkSummaryClass = b.dataset.cls;
+   document.querySelectorAll('.mkSummaryClassBtn').forEach(x => x.classList.remove('bg-blue-600','text-white'));
+   document.querySelectorAll('.mkSummaryClassBtn').forEach(x => x.classList.add('bg-gray-100','hover:bg-gray-200','text-gray-700'));
+   b.classList.add('bg-blue-600','text-white'); b.classList.remove('bg-gray-100','hover:bg-gray-200','text-gray-700');
    renderSummary();
   }));
-  document.querySelectorAll('.mkDelBtn').forEach(b => b.addEventListener('click', () => {
-   const all = getExamMarks();
-   const m = all.find(x => String(x.id) === String(b.dataset.id));
-   if (!m) return;
-   const stu = getStudents().find(x => x.id === m.studentId);
-   const desc = m.absent ? `${stu ? stu.name : 'Student'} — ${m.examName} · ${m.subject} — ABSENT` : `${stu ? stu.name : 'Student'} — ${m.examName} · ${m.subject} — ${m.marks}/${m.maxMarks}`;
-   if (!confirm(`Delete this marks entry?\n\n${desc}\n\nThis cannot be undone.`)) return;
-   saveExamMarks(all.filter(x => String(x.id) !== String(b.dataset.id)));
-   showToast('Marks entry deleted');
-   renderSummary();
-  }));
-  // Jump straight from a marks row to that student's report card, so marks review and the
-  // report card live in the same screen instead of two disconnected tabs.
+  // Report card — works for a single exam or the full consolidated card
   document.querySelectorAll('.mkRcBtn').forEach(b => b.addEventListener('click', () => {
    const s = getStudents().find(x => x.id === parseInt(b.dataset.sid));
-   if (s) generateReportCard(s, null);
+   if (s) generateReportCard(s, isCombined ? null : filterExam);
   }));
+  if (canEditHere) {
+   document.querySelectorAll('.mkRowEditBtn').forEach(b => b.addEventListener('click', () => {
+    _openMarksRowEditModal(parseInt(b.dataset.sid), filterExam, subjects, scopedMarks, renderSummary);
+   }));
+   document.querySelectorAll('.mkRowDelBtn').forEach(b => b.addEventListener('click', () => {
+    const sid = parseInt(b.dataset.sid);
+    const stu = getStudents().find(x => x.id === sid);
+    if (!confirm(`Delete ALL of ${stu?stu.name:'this student'}'s marks for "${filterExam}"?\n\nThis removes every subject entered for this exam for this student. This cannot be undone.`)) return;
+    const all = getExamMarks().filter(m => !(m.studentId === sid && m.examName === filterExam));
+    saveExamMarks(all);
+    showToast('Marks deleted for ' + (stu?stu.name:'student'));
+    renderSummary();
+   }));
+  }
  };
  document.getElementById('mkFilterExam')?.addEventListener('change', renderSummary);
  renderSummary();
 
- // Export marks
+ // Export marks — respects the same class + exam scope currently shown in the summary table
  document.getElementById('mkExportBtn')?.addEventListener('click', () => {
   const filterExam = document.getElementById('mkFilterExam').value;
-  const all = _marksVisibleToCurrentUser().filter(m => !filterExam || m.examName === filterExam);
+  const all = _marksVisibleToCurrentUser().filter(m => {
+   const s = getStudents().find(x => x.id === m.studentId);
+   return s && s.class === _mkSummaryClass && (!filterExam || m.examName === filterExam);
+  });
   const students = getStudents();
   let h = '<table border="1"><tr><th>Exam</th><th>Class</th><th>Subject</th><th>Roll</th><th>Name</th><th>Marks</th><th>Max</th><th>%</th><th>Date</th><th>Entered By</th></tr>';
   all.forEach(m => {
@@ -11372,7 +11487,7 @@ function _attachMarksEvents(){
    h += `<tr><td>${m.examName}</td><td>${s?.class||''}</td><td>${m.subject}</td><td>${s?.rollNo||''}</td><td>${s?.name||''}</td><td>${marksCell}</td><td>${maxCell}</td><td>${pct}</td><td>${m.date}</td><td>${m.teacher||''}</td></tr>`;
   });
   h += '</table>';
-  downloadExcel(h, SCHOOL_INFO.shortName + '_Marks_' + (filterExam||'all') + '_' + new Date().toISOString().slice(0,10));
+  downloadExcel(h, SCHOOL_INFO.shortName + '_Marks_Class' + _mkSummaryClass + '_' + (filterExam||'combined') + '_' + new Date().toISOString().slice(0,10));
   showToast('Marks exported');
  });
 }
