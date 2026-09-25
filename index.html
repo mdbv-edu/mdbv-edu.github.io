@@ -5353,109 +5353,152 @@ function _openMarksRowEditModal(studentId, examName, subjects, scopedMarks, onSa
  if (!stu) return;
  const existing = document.getElementById('mkRowEditModal'); if (existing) existing.remove();
  const el = document.createElement('div'); el.id = 'mkRowEditModal'; el.className = 'modal';
+
  const rowsHtml = subjects.map(sub => {
   const rows = scopedMarks.filter(m => m.studentId === studentId && m.examName === examName && m.subject === sub);
   const isAbsent = rows.length > 0 && rows.every(r => r.absent);
   const isSplit  = rows.some(r => r.component);
   const isGrade  = rows.length > 0 && rows.every(r => r.marks === null || r.marks === undefined) && rows.some(r => r.grade);
-  let kind = isGrade ? 'grade' : (isSplit ? 'split' : 'single');
+  const kind = isGrade ? 'grade' : (isSplit ? 'split' : 'single');
   const maxTh = (rows.find(r=>r.component==='Theory')?.maxMarks)   || 80;
   const maxIn = (rows.find(r=>r.component==='Internal')?.maxMarks) || 20;
   const max   = rows[0]?.maxMarks || 100;
-  let fieldsHTML;
+  const dis   = isAbsent ? 'disabled' : '';
+  const inSt  = 'padding:6px 8px;font-size:13px;text-align:center';
+
+  // --- Score cell ---
+  let scoreCell = '';
   if (kind === 'grade') {
    const g = rows[0]?.grade || '';
-   fieldsHTML = `<input type="text" class="mkRowEditInput w-20" data-comp="" placeholder="Grade" value="${escapeHTML(g)}" ${isAbsent?'disabled':''}>`;
+   scoreCell = `<input type="text" class="mkRowEditInput" style="${inSt}" data-comp="" placeholder="Grade" value="${escapeHTML(g)}" ${dis}>`;
   } else if (kind === 'split') {
    const th  = rows.find(r => r.component === 'Theory');
    const inr = rows.find(r => r.component === 'Internal');
-   fieldsHTML =
+   scoreCell =
      `<div class="flex items-center gap-1">
-        <input type="number" class="mkRowEditInput w-14" data-comp="Theory"   placeholder="Th"  value="${th  && !th.absent  ? th.marks  : ''}" ${isAbsent?'disabled':''}>
-        <span class="text-[10px] text-gray-400">/</span>
-        <input type="number" class="mkRowEditMax w-12 bg-amber-50" data-comp="Theory"   value="${maxTh}" ${isAbsent?'disabled':''} title="Theory max">
+        <span class="text-[10px] text-gray-400 w-9 text-right shrink-0">Th</span>
+        <input type="number" class="mkRowEditInput w-full" style="${inSt}" data-comp="Theory" placeholder="—" value="${th && !th.absent ? th.marks : ''}" ${dis}>
       </div>
-      <div class="flex items-center gap-1">
-        <input type="number" class="mkRowEditInput w-14" data-comp="Internal" placeholder="Int" value="${inr && !inr.absent ? inr.marks : ''}" ${isAbsent?'disabled':''}>
-        <span class="text-[10px] text-gray-400">/</span>
-        <input type="number" class="mkRowEditMax w-12 bg-amber-50" data-comp="Internal" value="${maxIn}" ${isAbsent?'disabled':''} title="Internal max">
+      <div class="flex items-center gap-1 mt-1">
+        <span class="text-[10px] text-gray-400 w-9 text-right shrink-0">Int</span>
+        <input type="number" class="mkRowEditInput w-full" style="${inSt}" data-comp="Internal" placeholder="—" value="${inr && !inr.absent ? inr.marks : ''}" ${dis}>
       </div>`;
   } else {
    const v = rows.length && !rows[0].absent ? rows[0].marks : '';
-   fieldsHTML =
-     `<input type="number" class="mkRowEditInput w-16" data-comp="" placeholder="Marks" value="${v}" ${isAbsent?'disabled':''}>
-      <span class="text-[10px] text-gray-400">/</span>
-      <input type="number" class="mkRowEditMax w-14 bg-amber-50" data-comp="" value="${max}" ${isAbsent?'disabled':''} title="Max marks">`;
+   scoreCell = `<input type="number" class="mkRowEditInput w-full" style="${inSt};font-weight:600" data-comp="" placeholder="—" value="${v}" ${dis}>`;
   }
-  return `<div class="flex items-center gap-2 py-1.5 border-b last:border-0" data-sub="${escapeHTML(sub)}" data-kind="${kind}"
-               data-max="${max}" data-maxth="${maxTh}" data-maxin="${maxIn}">
-    <div class="text-sm font-medium flex-1 min-w-0 truncate">${escapeHTML(sub)}${kind==='split'?' <span class="text-[10px] text-gray-400">(Th+Int)</span>':''}</div>
-    <div class="flex flex-wrap gap-2 items-center justify-end">
-     ${fieldsHTML}
-     <label class="text-[10px] flex items-center gap-1 ml-1 cursor-pointer select-none"><input type="checkbox" class="mkRowEditAbsent w-auto" ${isAbsent?'checked':''}> AB</label>
+
+  // --- Max cell ---
+  let maxCell = '';
+  if (kind === 'grade') {
+   maxCell = `<div class="text-center text-xs text-gray-400 pt-1.5">—</div>`;
+  } else if (kind === 'split') {
+   maxCell =
+     `<input type="number" class="mkRowEditMax w-full" style="${inSt};background:#fffbeb;color:#92400e" data-comp="Theory" value="${maxTh}" ${dis}>
+      <input type="number" class="mkRowEditMax w-full mt-1" style="${inSt};background:#fffbeb;color:#92400e" data-comp="Internal" value="${maxIn}" ${dis}>`;
+  } else {
+   maxCell = `<input type="number" class="mkRowEditMax w-full" style="${inSt};background:#fffbeb;color:#92400e;font-weight:600" data-comp="" value="${max}" ${dis}>`;
+  }
+
+  const badge = kind === 'split' ? '<span class="text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded ml-1 shrink-0">Th+Int</span>'
+              : kind === 'grade' ? '<span class="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded ml-1 shrink-0">Grade</span>'
+              : '';
+
+  return `<div class="grid items-start gap-3 py-2 px-3 border-b last:border-0 hover:bg-gray-50"
+               data-sub="${escapeHTML(sub)}" data-kind="${kind}"
+               data-max="${max}" data-maxth="${maxTh}" data-maxin="${maxIn}"
+               style="grid-template-columns: minmax(130px, 1fr) 110px 90px 56px;">
+    <div class="text-sm font-medium truncate pt-1.5" title="${escapeHTML(sub)}">${escapeHTML(sub)}${badge}</div>
+    <div>${scoreCell}</div>
+    <div>${maxCell}</div>
+    <div class="pt-1 text-center">
+      <label class="inline-flex flex-col items-center gap-0.5 cursor-pointer select-none">
+        <input type="checkbox" class="mkRowEditAbsent w-auto" ${isAbsent?'checked':''}>
+        <span class="text-[10px] font-bold ${isAbsent?'text-rose-600':'text-gray-400'}">AB</span>
+      </label>
     </div>
-   </div>`;
-  }).join('');
- el.innerHTML = `<div class="modal-content" style="max-width:520px">
+  </div>`;
+ }).join('');
+
+ el.innerHTML = `<div class="modal-content" style="max-width:760px">
    <h3 class="text-lg font-bold mb-1">${escapeHTML(stu.name)}</h3>
    <p class="text-xs text-gray-500 mb-3">${escapeHTML(examName)} — edit marks per subject. Leave a field blank (and AB unticked) to remove that subject's entry.</p>
-   <div class="max-h-96 overflow-y-auto">${rowsHtml || '<div class="text-sm text-gray-500 py-3">No subjects</div>'}</div>
-   <div class="flex justify-end gap-2 mt-4"><button class="closeModal bg-gray-300 px-3 py-1.5 rounded">Cancel</button><button id="mkRowEditSaveBtn" class="bg-purple-600 text-white px-4 py-1.5 rounded">Save</button></div>
+   <div class="border rounded-lg overflow-hidden">
+     <div class="grid items-center gap-3 py-2 px-3 bg-gray-100 text-[11px] font-semibold text-gray-600 uppercase tracking-wide border-b-2 border-gray-300"
+          style="grid-template-columns: minmax(130px, 1fr) 110px 90px 56px;">
+       <div>Subject</div>
+       <div class="text-center">Score</div>
+       <div class="text-center">Max</div>
+       <div class="text-center">Absent</div>
+     </div>
+     <div class="max-h-[55vh] overflow-y-auto">${rowsHtml || '<div class="text-sm text-gray-500 py-3 px-3">No subjects</div>'}</div>
+   </div>
+   <div class="flex justify-end gap-2 mt-4">
+     <button class="closeModal bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded-lg text-sm font-medium">Cancel</button>
+     <button id="mkRowEditSaveBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-save mr-1"></i>Save Changes</button>
+   </div>
   </div>`;
+
  document.body.appendChild(el);
  el.querySelectorAll('.closeModal').forEach(b => b.addEventListener('click', () => el.remove()));
- // Ticking AB disables that subject's input field(s)
+
+ // Ticking AB disables that subject's inputs (score AND max)
  el.querySelectorAll('.mkRowEditAbsent').forEach(chk => chk.addEventListener('change', () => {
   const wrap = chk.closest('[data-sub]');
   wrap.querySelectorAll('.mkRowEditInput, .mkRowEditMax').forEach(inp => { inp.disabled = chk.checked; });
+  const lbl = chk.parentElement.querySelector('span');
+  if (lbl) { lbl.classList.toggle('text-rose-600', chk.checked); lbl.classList.toggle('text-gray-400', !chk.checked); }
  }));
+
  document.getElementById('mkRowEditSaveBtn').addEventListener('click', () => {
   const all = getExamMarks();
   const today = new Date().toISOString().slice(0,10);
   const nowIso = new Date().toISOString();
+
   el.querySelectorAll('[data-sub]').forEach(rowEl => {
-   const sub = rowEl.dataset.sub;
-   const kind = rowEl.dataset.kind;
+   const sub    = rowEl.dataset.sub;
+   const kind   = rowEl.dataset.kind;
    const absent = rowEl.querySelector('.mkRowEditAbsent').checked;
-   // Clear any existing row(s) for this student+exam+subject before writing the new value(s) —
-   // same rule as the main entry form, so editing here can never create a duplicate.
+
+   // Read the entered max(es) — fall back to dataset defaults
+   const elMaxSingle = rowEl.querySelector('.mkRowEditMax[data-comp=""]');
+   const elMaxTh     = rowEl.querySelector('.mkRowEditMax[data-comp="Theory"]');
+   const elMaxIn     = rowEl.querySelector('.mkRowEditMax[data-comp="Internal"]');
+   const maxSingle   = parseInt(elMaxSingle?.value) || parseInt(rowEl.dataset.max)   || 100;
+   const maxTh       = parseInt(elMaxTh?.value)     || parseInt(rowEl.dataset.maxth) || 80;
+   const maxIn       = parseInt(elMaxIn?.value)     || parseInt(rowEl.dataset.maxin) || 20;
+
+   // Clear every existing row for this student+exam+subject
    for (let i = all.length - 1; i >= 0; i--) {
     if (all[i].studentId === studentId && all[i].examName === examName && all[i].subject === sub) all.splice(i, 1);
    }
    const base = { studentId, examName, subject: sub, date: today, teacher: currentUser.name, teacherId: currentUser.id, editedAt: nowIso, editedBy: currentUser?.name || '' };
-   const rowMaxEl = rowEl.querySelector('.mkRowEditMax[data-comp=""]');
-   const rowMaxTh = rowEl.querySelector('.mkRowEditMax[data-comp="Theory"]');
-   const rowMaxIn = rowEl.querySelector('.mkRowEditMax[data-comp="Internal"]');
 
-    if (absent) {
-      if (kind === 'split') {
-        const mTh = parseInt(rowMaxTh?.value) || parseInt(rowEl.dataset.maxth) || 80;
-        const mIn = parseInt(rowMaxIn?.value) || parseInt(rowEl.dataset.maxin) || 20;
-        all.push({ ...base, id: newRowId(all), component: 'Theory',   absent: true, marks: null, maxMarks: mTh, grade: null });
-        all.push({ ...base, id: newRowId(all), component: 'Internal', absent: true, marks: null, maxMarks: mIn, grade: null });
-      } else {
-        const m = parseInt(rowMaxEl?.value) || parseInt(rowEl.dataset.max) || 100;
-        all.push({ ...base, id: newRowId(all), absent: true, marks: null, maxMarks: m, grade: null });
-      }
-      return;
-    }
-    if (kind === 'grade') {
-      const g = rowEl.querySelector('.mkRowEditInput').value.trim();
-      if (!g) return;
-      all.push({ ...base, id: newRowId(all), grade: g, marks: null, maxMarks: null });
-    } else if (kind === 'split') {
-      const thV = parseInt(rowEl.querySelector('[data-comp="Theory"]').value);
-      const inV = parseInt(rowEl.querySelector('[data-comp="Internal"]').value);
-      const mTh = parseInt(rowMaxTh?.value) || 80;
-      const mIn = parseInt(rowMaxIn?.value) || 20;
-      if (!isNaN(thV)) all.push({ ...base, id: newRowId(all), component: 'Theory',   marks: thV, maxMarks: mTh });
-      if (!isNaN(inV)) all.push({ ...base, id: newRowId(all), component: 'Internal', marks: inV, maxMarks: mIn });
+   if (absent) {
+    if (kind === 'split') {
+     all.push({ ...base, id: newRowId(all), component: 'Theory',   absent: true, marks: null, maxMarks: maxTh, grade: null });
+     all.push({ ...base, id: newRowId(all), component: 'Internal', absent: true, marks: null, maxMarks: maxIn, grade: null });
     } else {
-      const v = parseInt(rowEl.querySelector('.mkRowEditInput').value);
-      const m = parseInt(rowMaxEl?.value) || 100;
-      if (!isNaN(v)) all.push({ ...base, id: newRowId(all), marks: v, maxMarks: m });
+     all.push({ ...base, id: newRowId(all), absent: true, marks: null, maxMarks: maxSingle, grade: null });
     }
+    return;
+   }
+
+   if (kind === 'grade') {
+    const g = rowEl.querySelector('.mkRowEditInput').value.trim();
+    if (!g) return;                                  // blank + not absent → subject removed
+    all.push({ ...base, id: newRowId(all), grade: g, marks: null, maxMarks: null });
+   } else if (kind === 'split') {
+    const thV = parseInt(rowEl.querySelector('.mkRowEditInput[data-comp="Theory"]').value);
+    const inV = parseInt(rowEl.querySelector('.mkRowEditInput[data-comp="Internal"]').value);
+    if (!isNaN(thV)) all.push({ ...base, id: newRowId(all), component: 'Theory',   marks: thV, maxMarks: maxTh });
+    if (!isNaN(inV)) all.push({ ...base, id: newRowId(all), component: 'Internal', marks: inV, maxMarks: maxIn });
+   } else {
+    const v = parseInt(rowEl.querySelector('.mkRowEditInput[data-comp=""]').value);
+    if (!isNaN(v)) all.push({ ...base, id: newRowId(all), marks: v, maxMarks: maxSingle });
+   }
   });
+
   saveExamMarks(all);
   el.remove();
   showToast('Marks updated for ' + stu.name);
