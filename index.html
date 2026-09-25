@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <!-- BUILD: v-1789994705 - Students tab: fee filter (has dues, fully paid, partly paid, nothing paid, under 50%, over Rs.10k, fee not set); filtering moved into one shared getFilteredStudents() so Print and XLSX now output exactly the students on screen in the order shown, with the filters stated on the printout; print/XLSX buttons moved down beside the Showing count; MARKS ENTRY: added "Absent" checkbox so teachers can mark students who did not appear for an exam. Absent entries are excluded from averages and shown as AB everywhere -->
 <!-- BUILD: v-1790340000 - MARKS ENTRY FIX: saving marks used to always ADD a new row instead of replacing the old one, so re-entering/correcting a mark created a silent duplicate — this is what made a plain single mark for English display as "71 + 71 (Theory + Internal)" even though that option was never ticked. Saving now clears any prior row for that student+exam+subject first. MARKS VISIBILITY FIX: the marks entry/summary screen used to only show a teacher their own submissions, so nobody else — not admin, not principal, not another teacher on the same class — could see, correct, or delete what had been entered. It now shows every entry for the classes the user has access to (all classes for admin/principal/owner, assigned classes for a teacher), with an "Entered By" column, so any of them can override or delete it. Added a report-card shortcut button on each marks row. REPORT CARD: removed Scholar Reg No and UDISE/PEN from the student-facing report card entirely. -->
+<!-- BUILD: v-1790432000 - MARKS SUMMARY REDESIGNED: now a class-wise, exam-wise table (not a subject-per-row accordion). Class picker at the top lets you toggle between classes in one place. Exam dropdown: select a single exam to see/edit/delete one exam at a time, or "Combined" to view all exams' marks added together as an overall percentage per subject. Student rows × subject columns. For Class 11 and 12, Branch column shows PCM/PCB/Humanities. "Overall" column sums all subjects for a holistic picture. Actions: Edit (edit all of that exam's marks for one student in a modal), Delete (remove that exam's marks for one student), Report Card. Edit modal handles split Theory+Internal and single-mark subjects, with AB (absent) checkbox per subject. Report card can show a single exam or the full consolidated card. Stream/Branch field added to student form (shows only for 11/12). -->
 
 <html lang="en">
 <head>
@@ -19833,9 +19834,9 @@ function attachDataManagementEvents(){
   fields.forEach(f => { const el = document.getElementById(f); if (el) el.value = ''; });
   ['dmStuBpl','dmStuCwsn','dmStuFreeChild'].forEach(f => { const el = document.getElementById(f); if (el) el.checked = false; });
   document.getElementById('dmStuClass').value = 'Pre Nursery';
-  document.getElementById('dmStuStreamWrap').style.display = 'none';
-  document.getElementById('dmStuStream').value = '';
   document.getElementById('dmStuSection').value = 'A';
+  document.getElementById('dmStuStream').value = '';
+  document.getElementById('dmStuStreamWrap').style.display = 'none';
   document.getElementById('dmStuGender').value = 'Female';
   document.getElementById('dmStuBlood').value = 'O+';
   document.getElementById('dmStuCaste').value = 'General';
@@ -19850,9 +19851,10 @@ function attachDataManagementEvents(){
     document.getElementById('dmStuRegNo').value = s.registrationNo || '';
     document.getElementById('dmStuAdmNo').value = s.admissionNo || '';
     document.getElementById('dmStuClass').value = s.class || 'Pre Nursery';
-    document.getElementById('dmStuStreamWrap').style.display = (s.class==='11'||s.class==='12') ? 'block' : 'none';
-    document.getElementById('dmStuStream').value = s.stream || '';
     document.getElementById('dmStuSection').value = s.section || 'A';
+    const cls = s.class || 'Pre Nursery';
+    document.getElementById('dmStuStream').value = s.stream || '';
+    document.getElementById('dmStuStreamWrap').style.display = (cls === '11' || cls === '12') ? 'block' : 'none';
     document.getElementById('dmStuRoll').value = s.rollNo || '';
     document.getElementById('dmStuFather').value = s.fatherName || '';
     document.getElementById('dmStuMother').value = s.parentName || '';
@@ -19969,8 +19971,8 @@ function attachDataManagementEvents(){
     name,
     admissionNo: admNo,
     class: document.getElementById('dmStuClass').value,
-    stream: (document.getElementById('dmStuClass').value==='11'||document.getElementById('dmStuClass').value==='12') ? (document.getElementById('dmStuStream').value||'') : '',
     section: document.getElementById('dmStuSection').value,
+    stream: document.getElementById('dmStuStream').value || null,
     rollNo: parseInt(document.getElementById('dmStuRoll').value) || 0,
     fatherName: document.getElementById('dmStuFather').value.trim(),
     parentName: document.getElementById('dmStuMother').value.trim(),
