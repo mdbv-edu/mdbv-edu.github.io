@@ -4438,7 +4438,7 @@ function renderOwnerDashboard(){
 var ADMIN_CATEGORIES = [
  {key:'main',       label:'Dashboard',        icon:'gauge-high',     tabs:['dashboard']},
  {key:'people',     label:'People',           icon:'users',          tabs:['users','students','teachers']},
- {key:'academics',  label:'Academics',        icon:'graduation-cap', tabs:['homework','ptm','resources','reportcards','activities','gallery','calendar']},
+ {key:'academics',  label:'Academics',        icon:'graduation-cap', tabs:['homework','marks','ptm','resources','reportcards','activities','gallery','calendar']},
  {key:'attendance', label:'Attendance',       icon:'calendar-check', tabs:['attendance','staffattendance']},
  {key:'finance',    label:'Finance & Assets', icon:'sack-dollar',    tabs:['feestructure','bank','vehicles','maintenance','inventory']},
  {key:'comms',      label:'Communication',    icon:'bullhorn',       tabs:['notices','broadcast','enquiries']},
@@ -4447,7 +4447,7 @@ var ADMIN_CATEGORIES = [
 var PRINCIPAL_CATEGORIES = [
  {key:'main',       label:'Dashboard',   icon:'gauge-high',     tabs:['dashboard']},
  {key:'people',     label:'People',      icon:'users',          tabs:['students','teachers','appraisal','facultygap']},
- {key:'academics',  label:'Academics',   icon:'graduation-cap', tabs:['homework','reportcards','resources','ptm','activities','gallery','calendar']},
+ {key:'academics',  label:'Academics',   icon:'graduation-cap', tabs:['homework','marks','reportcards','resources','ptm','activities','gallery','calendar']},
  {key:'attendance', label:'Attendance',  icon:'calendar-check', tabs:['studentattendance','staffattendance','attendance']},
  {key:'finance',    label:'Fees',        icon:'chart-column',   tabs:['feedashboard','feereminders']},
  {key:'comms',      label:'Communication',icon:'bullhorn',      tabs:['notices','broadcast','enquiries']},
@@ -4480,6 +4480,7 @@ function renderAdminPanel(){
   {id:'teachers',label:'Staff',icon:'users'},
   {id:'staffattendance',label:'Staff Attendance',icon:'user-clock'},
   {id:'homework',label:'Homework',icon:'book-open'},
+  {id:'marks',label:'Marks',icon:'pen-to-square'},
   {id:'ptm',label:'PTM',icon:'people-arrows'},
   {id:'resources',label:'Resources',icon:'book-open-reader'},
   {id:'datamanagement',label:'Data',icon:'database'},
@@ -4531,6 +4532,7 @@ function renderAdminTabContent(){
   case 'teachers':return renderTeachersTab();
   case 'staffattendance':return renderStaffAttendance();
   case 'homework':return renderHomeworkOversight();
+  case 'marks':return renderTchMarks();
   case 'ptm':return renderPtmManagement();
   case 'resources':return renderResourceCatalog();
   case 'datamanagement':return renderDataManagement();
@@ -5263,7 +5265,56 @@ function attendancePercent(studentId, fromDate, toDate){
  return total > 0 ? { percent: Math.round((present/total)*100), present, total } : { percent: null, present: 0, total: 0 };
 }
 
+// ===== MERIT BADGE — class rank calculation =====
+// Overall percentage for one student for a given exam ("" / null = consolidated, all exams),
+// counting only non-absent marks. Returns null if the student has no marks to score.
+function computeOverallPercent(studentId, examName){
+ const marks = getExamMarks().filter(m => m.studentId === studentId && (!examName || m.examName === examName) && !m.absent);
+ if (marks.length === 0) return null;
+ const obt = marks.reduce((a,m) => a + (parseInt(m.marks) || 0), 0);
+ const max = marks.reduce((a,m) => a + (parseInt(m.maxMarks) || 100), 0);
+ return max > 0 ? Math.round((obt/max) * 100) : null;
+}
+
+// Rank a student against classmates (same class & section, when the student has a section)
+// for the given exam term. Badge rule: class strength > 15 -> top 5 get a badge,
+// class strength <= 15 -> top 3 get a badge. Ties share the same rank (1224 ranking).
+function getClassRankInfo(student, examName){
+ if (!student) return null;
+ const peers = getActiveStudents().filter(p =>
+  p.class === student.class && (student.section ? p.section === student.section : true)
+ );
+ const strength = peers.length;
+ const scored = peers
+  .map(p => ({ id: p.id, pct: computeOverallPercent(p.id, examName) }))
+  .filter(p => p.pct !== null);
+ const mine = scored.find(p => p.id === student.id);
+ if (!mine) return { strength, rank: null, threshold: null, eligible: false };
+ const rank = 1 + scored.filter(p => p.pct > mine.pct).length;
+ const threshold = strength > 15 ? 5 : 3;
+ return { strength, rank, threshold, eligible: rank <= threshold };
+}
+
 // Generate the report card for a student & exam term
+// Combine one or more exam-mark rows for the same subject (Theory + Internal/Practical, or
+// just a single plain row) into one report-card entry, e.g. "60 + 18" out of "100".
+// Theory is always shown before Internal. If every row is absent, the whole subject is AB.
+function combineSubjectRows(rows){
+ const order = { Theory: 0, Internal: 1 };
+ const sorted = rows.slice().sort((a,b) => (order[a.component] ?? 2) - (order[b.component] ?? 2));
+ const allAbsent = sorted.every(r => r.absent);
+ const max = sorted.reduce((a,r) => a + (parseInt(r.maxMarks) || 0), 0);
+ if (allAbsent) return { absent: true, obtained: 0, max, display: 'AB', split: sorted.length > 1 };
+ let obtained = 0;
+ const parts = sorted.map(r => {
+  if (r.absent) return 'AB';
+  const v = parseInt(r.marks) || 0;
+  obtained += v;
+  return String(v);
+ });
+ return { absent: false, obtained, max, display: parts.join(' + '), split: sorted.length > 1 };
+}
+
 function generateReportCard(student, examName, opts){
  const s = student;
  const school = SCHOOL_INFO;
@@ -5282,7 +5333,13 @@ function generateReportCard(student, examName, opts){
  if (isConsolidated && examsInData.length > 1) {
   // CONSOLIDATED / COMPLETE REPORT CARD — show every exam's performance
   const subjects = [...new Set(allMarks.map(m => m.subject))].sort();
-  // Per-exam totals (exclude absent from totals)
+  // Group rows by subject+exam so a Theory+Internal subject combines into one cell.
+  const bySubjectExam = {};
+  allMarks.forEach(m => {
+   const k = m.subject + '|' + m.examName;
+   (bySubjectExam[k] = bySubjectExam[k] || []).push(m);
+  });
+  // Per-exam totals (exclude absent rows from totals)
   const examTotals = examsInData.map(ex => {
    const em = allMarks.filter(m => m.examName === ex && !m.absent);
    const obt = em.reduce((a,m)=>a+(parseInt(m.marks)||0),0);
@@ -5294,12 +5351,12 @@ function generateReportCard(student, examName, opts){
   const bodyRows = subjects.map(subj => {
    let sObt=0, sMax=0;
    const cells = examsInData.map(ex => {
-    const m = allMarks.find(x => x.subject===subj && x.examName===ex);
-    if (!m) return '<td class="num">—</td>';
-    if (m.absent) return '<td class="num" style="color:#b91c1c;font-weight:bold">AB</td>';
-    const obt=parseInt(m.marks)||0, max=parseInt(m.maxMarks)||100;
-    sObt+=obt; sMax+=max;
-    return `<td class="num">${obt}/${max}</td>`;
+    const rowsForCell = bySubjectExam[subj+'|'+ex];
+    if (!rowsForCell || rowsForCell.length === 0) return '<td class="num">—</td>';
+    const c = combineSubjectRows(rowsForCell);
+    if (c.absent) return '<td class="num" style="color:#b91c1c;font-weight:bold">AB</td>';
+    sObt += c.obtained; sMax += c.max;
+    return `<td class="num">${c.display}/${c.max}</td>`;
    });
    const pct = sMax>0?Math.round(sObt/sMax*100):0;
    const overallCell = sMax>0 ? pct+'%' : '—';
@@ -5315,31 +5372,31 @@ function generateReportCard(student, examName, opts){
  } else {
   // SINGLE-EXAM REPORT CARD (e.g. UT1) — focused subject table
   const bySubject = {};
-  allMarks.forEach(m => { bySubject[m.subject] = m; });
+  allMarks.forEach(m => { (bySubject[m.subject] = bySubject[m.subject] || []).push(m); });
   const subjects = Object.keys(bySubject).sort();
   const rows = subjects.map(subj => {
-   const m = bySubject[subj];
-   if (m.absent) return { subject: subj, absent: true };
-   const obt = parseInt(m.marks) || 0;
-   const max = parseInt(m.maxMarks) || 100;
-   totalObtained += obt;
-   totalMax += max;
+   const c = combineSubjectRows(bySubject[subj]);
+   if (c.absent) return { subject: subj, absent: true };
+   totalObtained += c.obtained;
+   totalMax += c.max;
    anyPresent = true;
-   const pct = max > 0 ? Math.round((obt/max)*100) : 0;
-   return { subject: subj, obt, max, pct, grade: gradeFromPercent(pct).grade };
+   const pct = c.max > 0 ? Math.round((c.obtained/c.max)*100) : 0;
+   return { subject: subj, obtDisplay: c.display, max: c.max, pct, grade: gradeFromPercent(pct).grade, split: c.split };
   });
   const overallPctTmp = totalMax > 0 ? Math.round((totalObtained/totalMax)*100) : 0;
   marksTableHTML = `<table>
    <thead><tr><th>Subject</th><th class="num">Marks Obtained</th><th class="num">Max Marks</th><th class="num">%</th><th class="num">Grade</th></tr></thead>
    <tbody>${rows.map(r => r.absent
      ? `<tr style="background:#fef2f2"><td>${r.subject}</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num"><b style="color:#b91c1c">AB</b></td></tr>`
-     : `<tr><td>${r.subject}</td><td class="num">${r.obt}</td><td class="num">${r.max}</td><td class="num">${r.pct}%</td><td class="num"><b>${r.grade}</b></td></tr>`
+     : `<tr><td>${r.subject}${r.split?' <span style="font-size:10px;color:#888">(Theory + Internal)</span>':''}</td><td class="num">${r.obtDisplay}</td><td class="num">${r.max}</td><td class="num">${r.pct}%</td><td class="num"><b>${r.grade}</b></td></tr>`
    ).join('')}</tbody>
    <tfoot><tr><td>TOTAL</td><td class="num">${totalObtained}</td><td class="num">${totalMax}</td><td class="num">${totalMax>0?overallPctTmp+'%':'—'}</td><td class="num">${totalMax>0?gradeFromPercent(overallPctTmp).grade:'—'}</td></tr></tfoot></table>`;
  }
 
  const overallPct = totalMax > 0 ? Math.round((totalObtained/totalMax)*100) : 0;
  const overallGrade = anyPresent ? gradeFromPercent(overallPct) : { grade: '—', remark: 'No marks recorded' };
+ const rankInfo = anyPresent ? getClassRankInfo(s, examName) : null;
+ const showBadge = !!(rankInfo && rankInfo.eligible);
  const att = attendancePercent(s.id);
  const session = currentSession();
  const photo = s.photo || '';
@@ -5375,6 +5432,10 @@ function generateReportCard(student, examName, opts){
   .summary .box:last-child{border-right:0}
   .summary .v{font-size:26px;font-weight:800;color:#7a1e2e}
   .summary .l{font-size:11px;color:#888;text-transform:uppercase;margin-top:2px}
+  .meritbadge{display:flex;align-items:center;justify-content:center;gap:8px;padding:9px 24px;
+   background:linear-gradient(135deg,#fff3d1,#ffe08a);border-top:2px solid #c8860d;border-bottom:1px solid #c8860d;
+   font-size:12.5px;font-weight:800;color:#6b4400;letter-spacing:.02em;text-align:center}
+  .meritbadge .ic{font-size:16px}
   .remark{padding:14px 24px;font-size:13px;border-top:1px solid #eee}
   .remark b{color:#7a1e2e}
   .sign{display:flex;justify-content:space-between;padding:36px 24px 20px;font-size:12px}
@@ -5400,6 +5461,7 @@ function generateReportCard(student, examName, opts){
    .stuphoto{width:86px;height:104px}.stuphoto .ini{font-size:32px}
    th,td{padding:8px 12px;font-size:13px}thead th{font-size:11px}
    .summary .box{padding:14px}.summary .v{font-size:26px}.summary .l{font-size:11px}
+   .meritbadge{padding:9px 22px;font-size:12.5px}
    .remark{padding:14px 22px;font-size:13px}
    .sign{padding:52px 22px 18px;font-size:12px}.sign .s{width:160px}
    .foot{font-size:10px;padding:8px}.gradekey{font-size:9.5px;padding:7px 22px}
@@ -5434,6 +5496,7 @@ function generateReportCard(student, examName, opts){
     <div class="box"><div class="v">${anyPresent?overallGrade.grade:'—'}</div><div class="l">Grade</div></div>
     <div class="box"><div class="v">${att.percent !== null ? att.percent+'%' : 'N/A'}</div><div class="l">Attendance${att.total ? ` (${att.present}/${att.total})` : ''}</div></div>
    </div>
+   ${showBadge ? `<div class="meritbadge"><span class="ic">🏆</span><span>Merit Badge &mdash; Ranked #${rankInfo.rank} in Class (Top ${rankInfo.threshold} of ${rankInfo.strength} students)</span></div>` : ''}
    <div class="remark"><b>Result:</b> ${anyPresent ? (overallPct >= 33 ? 'PASS' : 'NEEDS IMPROVEMENT') : '—'} &nbsp;&bull;&nbsp; <b>Remark:</b> ${anyPresent ? overallGrade.remark + '. ' + (overallPct >= 75 ? 'Keep up the excellent work!' : overallPct >= 50 ? 'Good effort — continue working hard.' : 'More focus and practice recommended.') : 'No marks recorded for this exam.'}</div>
    <div class="gradekey">Grading: A1 (91-100) &bull; A2 (81-90) &bull; B1 (71-80) &bull; B2 (61-70) &bull; C1 (51-60) &bull; C2 (41-50) &bull; D (33-40) &bull; E (below 33) &bull; AB (Absent)</div>
    <div class="sign">
@@ -7767,6 +7830,7 @@ const PRINCIPAL_TAB_INFO = {
  appraisal:{label:'Teacher Appraisal', icon:'clipboard-user', color:'#0d9488', action:'Open Appraisal', desc:'Review teachers on curriculum completion plus your own assessment.'},
  facultygap:{label:'Faculty Gap Analysis', icon:'table-cells', color:'#4f46e5', action:'Open Gap Analysis', desc:'Class x subject matrix of who teaches what — and exactly where you are short of teachers.'},
  homework:{label:'Homework', icon:'book-open', color:'#d97706', action:'Review Homework', desc:'See what every teacher has posted, with attachments. Filter by class or teacher.'},
+ marks:{label:'Enter Marks', icon:'pen-to-square', color:'#9333ea', action:'Enter Marks', desc:'Enter exam marks or grades for any class and subject — useful when a teacher is unavailable.'},
  reportcards:{label:'Report Cards', icon:'file-lines', color:'#7c3aed', action:'Report Cards', desc:'Generate and print term report cards for any class.'},
  resources:{label:'Syllabus & Resources', icon:'book-open-reader', color:'#4f46e5', action:'Open Catalog', desc:'CBSE/NCERT syllabus links and the school\u2019s own resource library.'},
  ptm:{label:'Parent-Teacher Meetings', icon:'people-arrows', color:'#a21caf', action:'Open PTM', desc:'Schedule PTMs; teachers record which parents attended.'},
@@ -7825,6 +7889,7 @@ function renderPrincipalPanel(){
   {id:'appraisal',label:'Teacher Appraisal',icon:'clipboard-user'},
   {id:'facultygap',label:'Faculty Gap Analysis',icon:'table-cells'},
   {id:'homework',label:'Homework',icon:'book-open'},
+  {id:'marks',label:'Enter Marks',icon:'pen-to-square'},
   {id:'reportcards',label:'Report Cards',icon:'file-lines'},
   {id:'resources',label:'Syllabus & Resources',icon:'book-open-reader'},
   {id:'ptm',label:'PTM',icon:'people-arrows'},
@@ -7903,6 +7968,7 @@ function renderPrincipalTabContent(){
  } else if(activePrincipalTab==='students')return renderStudentsTab();
  else if(activePrincipalTab==='facultygap')return renderFacultyGap();
  else if(activePrincipalTab==='homework')return renderHomeworkOversight();
+ else if(activePrincipalTab==='marks')return renderTchMarks();
  else if(activePrincipalTab==='resources')return renderResourceCatalog();
  else if(activePrincipalTab==='activities')return renderActivitiesPage();
  else if(activePrincipalTab==='gallery')return renderGalleryAdminTab();
@@ -7957,6 +8023,15 @@ function _teacherAssignedClasses(){
  const list = (t && Array.isArray(t.assignedClasses)) ? t.assignedClasses : [];
  // Keep only classes that actually exist in ALL_CLASSES, preserve school order
  return ALL_CLASSES.filter(c => list.includes(c));
+}
+// Which classes the CURRENT USER may enter/view exam marks for.
+// Regular teachers: only their assigned classes, as before.
+// Principal / Admin / Owner-level (and combo roles like "admin_teacher"): every class in the
+// school, since they may need to fill in marks for any class (e.g. when a teacher is absent,
+// or to consolidate marks centrally).
+function _marksEligibleClasses(){
+ if (isPrincipalLevel() || isAdminLevel() || isOwnerLevel()) return ALL_CLASSES.slice();
+ return _teacherAssignedClasses();
 }
 // Students belonging to this teacher's assigned classes
 function _teacherScopedStudents(){
@@ -10096,16 +10171,18 @@ function _studentMarksPerformance(studentId){
 }
 
 function renderTchMarks(){
- if (_teacherAssignedClasses().length === 0) return _noClassAssignedNotice();
+ const mkClasses = _marksEligibleClasses();
+ if (mkClasses.length === 0) return _noClassAssignedNotice();
  const myMarks = getExamMarks().filter(m => m.teacherId === currentUser.id || m.teacher === currentUser.name);
  const exams = [...new Set(myMarks.map(m => m.examName))];
  const toggle = `<div class="flex flex-wrap gap-2 mb-4">
    <button class="mkModeBtn px-4 py-2 rounded-lg text-sm font-medium ${_marksMode==='entry'?'bg-purple-600 text-white':'bg-gray-100 hover:bg-gray-200'}" data-mode="entry"><i class="fas fa-pen-to-square mr-1"></i>Enter Marks</button>
    <button class="mkModeBtn px-4 py-2 rounded-lg text-sm font-medium ${_marksMode==='tracker'?'bg-purple-600 text-white':'bg-gray-100 hover:bg-gray-200'}" data-mode="tracker"><i class="fas fa-chart-line mr-1"></i>Performance Tracker</button>
   </div>`;
- if (_marksMode === 'tracker') return `<div>${toggle}${renderMarksTracker(_teacherAssignedClasses())}</div>`;
+ if (_marksMode === 'tracker') return `<div>${toggle}${renderMarksTracker(mkClasses)}</div>`;
  return `<div>${toggle}<div>
   <div class="bg-white border rounded-lg p-4 mb-4">
+   ${(isPrincipalLevel() || isAdminLevel() || isOwnerLevel()) ? `<div class="bg-indigo-50 text-indigo-800 text-xs p-2 rounded mb-3"><i class="fas fa-circle-info mr-1"></i>You can enter marks for <b>any class</b> in the school.</div>` : ''}
    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
     <h3 class="font-semibold"><i class="fas fa-pen-to-square text-purple-600 mr-1"></i>Exam ${_mkEntryMode==='grade'?'Grade':'Marks'} Entry</h3>
     <div class="flex gap-1">
@@ -10118,12 +10195,12 @@ function renderTchMarks(){
      <label class="text-xs font-medium">Class *</label>
      <select id="mkClass">
       <option value="">— Select class —</option>
-      ${_teacherAssignedClasses().map(c => `<option>${c}</option>`).join('')}
+      ${mkClasses.map(c => `<option>${c}</option>`).join('')}
      </select>
     </div>
     <div>
      <label class="text-xs font-medium">Subject *</label>
-     <select id="mkSubject" onchange="document.getElementById('mkSubjectOther').style.display=this.value==='Other'?'block':'none'">${classSubjectOptionsHTML(_teacherAssignedClasses()[0]||'')}</select>
+     <select id="mkSubject" onchange="document.getElementById('mkSubjectOther').style.display=this.value==='Other'?'block':'none'">${classSubjectOptionsHTML(mkClasses[0]||'')}</select>
      <input id="mkSubjectOther" placeholder="Type subject name" style="display:none" class="mt-1 text-sm w-full">
     </div>
     <div>
@@ -10138,7 +10215,19 @@ function renderTchMarks(){
      <label class="text-xs font-medium">${_mkEntryMode==='grade'?'Recording':'Max Marks *'}</label>
      ${_mkEntryMode==='grade'
        ? `<div class="text-sm text-gray-500 py-2">Grades (no max marks)</div><input type="hidden" id="mkMax" value="100">`
-       : `<input type="number" id="mkMax" placeholder="e.g. 100" value="100">`}
+       : `<label class="text-xs flex items-center gap-1.5 cursor-pointer select-none mb-1.5">
+           <input type="checkbox" id="mkSplit" class="w-auto" onchange="
+             document.getElementById('mkMaxSingleWrap').style.display=this.checked?'none':'block';
+             document.getElementById('mkMaxSplitWrap').style.display=this.checked?'flex':'none';
+             window._mkRenderRoster && window._mkRenderRoster();
+           ">
+           <span>Theory + Internal/Practical (e.g. Hindi, English)</span>
+          </label>
+          <div id="mkMaxSingleWrap"><input type="number" id="mkMax" placeholder="e.g. 100" value="100"></div>
+          <div id="mkMaxSplitWrap" class="gap-2" style="display:none">
+           <div class="flex-1"><span class="text-[11px] text-gray-500">Theory Max</span><input type="number" id="mkMaxTheory" placeholder="e.g. 80" value="80"></div>
+           <div class="flex-1"><span class="text-[11px] text-gray-500">Internal/Practical Max</span><input type="number" id="mkMaxInternal" placeholder="e.g. 20" value="20"></div>
+          </div>`}
     </div>
    </div>
    <div id="mkRoster" class="space-y-1 mb-3"></div>
@@ -10997,27 +11086,35 @@ function _attachMarksEvents(){
   const sts = getActiveStudents().filter(s => s.class === cls).sort((a,b) => (a.rollNo||0)-(b.rollNo||0));
   if (sts.length === 0) { roster.innerHTML = '<div class="text-sm text-gray-500 py-3">No students</div>'; saveBtn.disabled = true; return; }
   const isGrade = _mkEntryMode === 'grade';
-  roster.innerHTML = `<div class="bg-purple-50 text-purple-800 text-xs p-2 rounded mb-2">Enter ${isGrade?'a grade':'marks'} below, or tick <b>Absent</b> if the student did not appear for this exam. Leave blank to skip a student.</div>` + sts.map(s => `
+  const split = !isGrade && !!document.getElementById('mkSplit')?.checked;
+  roster.innerHTML = `<div class="bg-purple-50 text-purple-800 text-xs p-2 rounded mb-2">Enter ${isGrade?'a grade':(split?'Theory & Internal/Practical marks':'marks')} below, or tick <b>Absent</b> if the student did not appear for this exam. Leave blank to skip a student${split?' or a component':''}.</div>` + sts.map(s => `
    <div class="flex items-center gap-3 p-2 border rounded hover:bg-gray-50">
     <span class="w-8 text-xs text-gray-500">#${s.rollNo||'-'}</span>
     <span class="flex-1 text-sm font-medium">${s.name}</span>
     ${isGrade
       ? `<select data-sid="${s.id}" class="mkInput" style="width:110px"><option value="">—</option>${Object.keys(GRADE_SCALES).map(g=>`<optgroup label="${g}">${GRADE_SCALES[g].map(x=>`<option value="${x}">${x}</option>`).join('')}</optgroup>`).join('')}</select>`
-      : `<input type="number" data-sid="${s.id}" class="mkInput w-24" placeholder="Marks" min="0">`}
+      : split
+        ? `<div class="flex flex-col items-center"><span class="text-[10px] text-gray-400">Theory</span><input type="number" data-sid="${s.id}" data-comp="Theory" class="mkInput mkInputComp w-20" placeholder="Th" min="0"></div>
+           <div class="flex flex-col items-center"><span class="text-[10px] text-gray-400">Internal</span><input type="number" data-sid="${s.id}" data-comp="Internal" class="mkInput mkInputComp w-20" placeholder="Int" min="0"></div>`
+        : `<input type="number" data-sid="${s.id}" class="mkInput w-24" placeholder="Marks" min="0">`}
     <label class="text-xs flex items-center gap-1 cursor-pointer select-none ml-2 px-2 py-1 rounded border border-rose-200 bg-rose-50 hover:bg-rose-100" title="Student did not appear for this exam">
      <input type="checkbox" data-sid="${s.id}" class="mkAbsent w-auto"> <span class="text-rose-700 font-semibold">Absent</span>
     </label>
    </div>`).join('');
-  // Ticking "Absent" disables and clears the marks/grade input for that student.
+  // Ticking "Absent" disables and clears the marks/grade input(s) for that student (both
+  // Theory and Internal inputs when the subject is split).
   roster.querySelectorAll('.mkAbsent').forEach(chk => chk.addEventListener('change', () => {
    const sid = chk.dataset.sid;
-   const inp = roster.querySelector(`.mkInput[data-sid="${sid}"]`);
-   if (!inp) return;
-   if (chk.checked) { inp.value = ''; inp.disabled = true; inp.classList.add('bg-gray-100','opacity-60'); }
-   else { inp.disabled = false; inp.classList.remove('bg-gray-100','opacity-60'); }
+   const inps = roster.querySelectorAll(`.mkInput[data-sid="${sid}"]`);
+   if (!inps.length) return;
+   inps.forEach(inp => {
+    if (chk.checked) { inp.value = ''; inp.disabled = true; inp.classList.add('bg-gray-100','opacity-60'); }
+    else { inp.disabled = false; inp.classList.remove('bg-gray-100','opacity-60'); }
+   });
   }));
   saveBtn.disabled = false;
  };
+ window._mkRenderRoster = renderRoster;
 
  classSel?.addEventListener('change', renderRoster);
 
@@ -11028,46 +11125,82 @@ function _attachMarksEvents(){
     : examSel;
   let sub = document.getElementById('mkSubject').value;
   if (sub === 'Other') { const o = document.getElementById('mkSubjectOther')?.value.trim(); if (o) sub = o; }
+  const isGrade = _mkEntryMode === 'grade';
+  const split = !isGrade && !!document.getElementById('mkSplit')?.checked;
   const max = parseInt(document.getElementById('mkMax').value) || 100;
+  const maxTheory = parseInt(document.getElementById('mkMaxTheory')?.value) || 80;
+  const maxInternal = parseInt(document.getElementById('mkMaxInternal')?.value) || 20;
   if (!exam) { alert('Enter exam name'); return; }
   const all = getExamMarks();
   let count = 0, absentCount = 0;
-  const isGrade = _mkEntryMode === 'grade';
   const today = new Date().toISOString().slice(0,10);
-  document.querySelectorAll('.mkInput').forEach(i => {
-   const sid = parseInt(i.dataset.sid);
-   const absChk = document.querySelector(`.mkAbsent[data-sid="${sid}"]`);
-   const isAbsent = absChk && absChk.checked;
-   if (isAbsent) {
-    all.push({
-     id: newRowId(all), studentId: sid, examName: exam, subject: sub,
-     absent: true, marks: null, maxMarks: null, grade: null,
-     date: today, teacher: currentUser.name, teacherId: currentUser.id
-    });
-    count++; absentCount++;
-    return;
-   }
-   if (isGrade) {
-    const g = (i.value || '').trim();
-    if (!g) return;
-    all.push({
-     id: newRowId(all), studentId: sid, examName: exam, subject: sub,
-     grade: g, marks: null, maxMarks: null,
-     date: today, teacher: currentUser.name, teacherId: currentUser.id
-    });
-    count++;
-    return;
-   }
-   const v = parseInt(i.value);
-   if (!isNaN(v)) {
-    all.push({
-     id: newRowId(all), studentId: sid, examName: exam, subject: sub,
-     marks: v, maxMarks: max,
-     date: today, teacher: currentUser.name, teacherId: currentUser.id
-    });
-    count++;
-   }
-  });
+  if (split) {
+   // One row per student per component (Theory / Internal), so the report card can show
+   // "60 + 18" and combine them into a single subject total.
+   const sids = new Set();
+   document.querySelectorAll('.mkAbsent').forEach(chk => sids.add(parseInt(chk.dataset.sid)));
+   sids.forEach(sid => {
+    const absChk = document.querySelector(`.mkAbsent[data-sid="${sid}"]`);
+    const isAbsent = absChk && absChk.checked;
+    if (isAbsent) {
+     all.push({ id: newRowId(all), studentId: sid, examName: exam, subject: sub, component: 'Theory',
+      absent: true, marks: null, maxMarks: maxTheory, grade: null, date: today, teacher: currentUser.name, teacherId: currentUser.id });
+     all.push({ id: newRowId(all), studentId: sid, examName: exam, subject: sub, component: 'Internal',
+      absent: true, marks: null, maxMarks: maxInternal, grade: null, date: today, teacher: currentUser.name, teacherId: currentUser.id });
+     count += 2; absentCount++;
+     return;
+    }
+    const thInp = document.querySelector(`.mkInputComp[data-sid="${sid}"][data-comp="Theory"]`);
+    const inInp = document.querySelector(`.mkInputComp[data-sid="${sid}"][data-comp="Internal"]`);
+    const thV = thInp ? parseInt(thInp.value) : NaN;
+    const inV = inInp ? parseInt(inInp.value) : NaN;
+    if (!isNaN(thV)) {
+     all.push({ id: newRowId(all), studentId: sid, examName: exam, subject: sub, component: 'Theory',
+      marks: thV, maxMarks: maxTheory, date: today, teacher: currentUser.name, teacherId: currentUser.id });
+     count++;
+    }
+    if (!isNaN(inV)) {
+     all.push({ id: newRowId(all), studentId: sid, examName: exam, subject: sub, component: 'Internal',
+      marks: inV, maxMarks: maxInternal, date: today, teacher: currentUser.name, teacherId: currentUser.id });
+     count++;
+    }
+   });
+  } else {
+   document.querySelectorAll('.mkInput').forEach(i => {
+    const sid = parseInt(i.dataset.sid);
+    const absChk = document.querySelector(`.mkAbsent[data-sid="${sid}"]`);
+    const isAbsent = absChk && absChk.checked;
+    if (isAbsent) {
+     all.push({
+      id: newRowId(all), studentId: sid, examName: exam, subject: sub,
+      absent: true, marks: null, maxMarks: max, grade: null,
+      date: today, teacher: currentUser.name, teacherId: currentUser.id
+     });
+     count++; absentCount++;
+     return;
+    }
+    if (isGrade) {
+     const g = (i.value || '').trim();
+     if (!g) return;
+     all.push({
+      id: newRowId(all), studentId: sid, examName: exam, subject: sub,
+      grade: g, marks: null, maxMarks: null,
+      date: today, teacher: currentUser.name, teacherId: currentUser.id
+     });
+     count++;
+     return;
+    }
+    const v = parseInt(i.value);
+    if (!isNaN(v)) {
+     all.push({
+      id: newRowId(all), studentId: sid, examName: exam, subject: sub,
+      marks: v, maxMarks: max,
+      date: today, teacher: currentUser.name, teacherId: currentUser.id
+     });
+     count++;
+    }
+   });
+  }
   if (count === 0) { alert(isGrade ? 'No grades entered' : 'No marks entered'); return; }
   saveExamMarks(all);
   showToast(count + ' entries saved' + (absentCount ? ` (${absentCount} absent)` : '') + ' for ' + exam);
@@ -11084,11 +11217,11 @@ function _attachMarksEvents(){
   const groups = {};
   all.forEach(m => {
    const s = students.find(x => x.id === m.studentId);
-   const key = m.examName + '|' + (s?.class || '?') + '|' + m.subject;
+   const key = m.examName + '|' + (s?.class || '?') + '|' + m.subject + '|' + (m.component || '');
    (groups[key] = groups[key] || []).push({ ...m, student: s });
   });
   out.innerHTML = Object.entries(groups).map(([key, marks]) => {
-   const [exam, cls, sub] = key.split('|');
+   const [exam, cls, sub, comp] = key.split('|');
    const present = marks.filter(m => !m.absent && m.marks !== null && m.marks !== undefined && (m.maxMarks||0) > 0);
    const absentCount = marks.filter(m => m.absent).length;
    const max = present.length ? present[0].maxMarks : 100;
@@ -11099,7 +11232,7 @@ function _attachMarksEvents(){
    return `
     <details class="border rounded mb-2">
      <summary class="cursor-pointer px-3 py-2 bg-gray-50 hover:bg-gray-100 flex flex-wrap items-center justify-between gap-2 text-sm">
-      <span class="font-semibold">${exam} · Class ${cls} · ${sub} <span class="text-gray-500">(${marks.length})</span></span>
+      <span class="font-semibold">${exam} · Class ${cls} · ${sub}${comp?` <span class="text-[11px] font-normal text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded">${comp}</span>`:''} <span class="text-gray-500">(${marks.length})</span></span>
       <span class="text-xs">${present.length ? `Avg: <b>${avg.toFixed(1)}/${max}</b> · High: <b>${high}</b> · Low: <b>${low}</b>` : '<span class="text-gray-500">No marks recorded</span>'}${absentCount ? ` · <span class="text-rose-600 font-semibold">Absent: <b>${absentCount}</b></span>` : ''}</span>
      </summary>
      <div class="overflow-x-auto p-2"><table class="text-xs w-full border">
@@ -18320,6 +18453,7 @@ function attachActiveAdminTabEvents(){
  if(activeAdminTab==='students')attachStudentsTabEvents();
  else if(activeAdminTab==='teachers')attachTeachersTabEvents();
  else if(activeAdminTab==='homework')_attachHomeworkOversightEvents();
+ else if(activeAdminTab==='marks')_attachMarksEvents();
  else if(activeAdminTab==='compliance')attachComplianceEvents();
  else if(activeAdminTab==='notices')attachNoticesTabEvents();
  else if(activeAdminTab==='feestructure')attachFeeStructureEvents();
@@ -18414,6 +18548,7 @@ function attachPrincipalEvents(){
 }
 function attachActivePrincipalTabEvents(){
  if(activePrincipalTab==='students')attachStudentsTabEvents();
+ else if(activePrincipalTab==='marks')_attachMarksEvents();
  else if(activePrincipalTab==='facultygap')_attachFacultyGapEvents();
  else if(activePrincipalTab==='homework')_attachHomeworkOversightEvents();
  else if(activePrincipalTab==='resources')attachResourceCatalogEvents();
