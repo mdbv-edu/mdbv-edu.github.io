@@ -10331,9 +10331,13 @@ function renderTchMarks(){
    ${(isPrincipalLevel() || isAdminLevel() || isOwnerLevel()) ? `<div class="bg-indigo-50 text-indigo-800 text-xs p-2 rounded mb-3"><i class="fas fa-circle-info mr-1"></i>You can enter marks for <b>any class</b> in the school.</div>` : ''}
    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
     <h3 class="font-semibold"><i class="fas fa-pen-to-square text-purple-600 mr-1"></i>Exam ${_mkEntryMode==='grade'?'Grade':'Marks'} Entry</h3>
-    <div class="flex gap-1">
+    <div class="flex flex-wrap gap-1 items-center">
      <button class="mkEntryModeBtn px-3 py-1.5 rounded-lg text-xs font-medium ${_mkEntryMode==='marks'?'bg-purple-600 text-white':'bg-gray-100 hover:bg-gray-200 text-gray-700'}" data-mode="marks"><i class="fas fa-hashtag mr-1"></i>Marks</button>
      <button class="mkEntryModeBtn px-3 py-1.5 rounded-lg text-xs font-medium ${_mkEntryMode==='grade'?'bg-purple-600 text-white':'bg-gray-100 hover:bg-gray-200 text-gray-700'}" data-mode="grade"><i class="fas fa-a mr-1"></i>Grade</button>
+     <span class="mx-1 text-gray-300">|</span>
+     <button id="bulkImportMarksBtn" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 hover:bg-emerald-700 text-white" title="Import marks from an Excel register — reads class, subjects, and Theory/Internal splits automatically">
+      <i class="fas fa-file-import mr-1"></i>Bulk Import from Excel
+     </button>
     </div>
    </div>
    <div class="grid md:grid-cols-2 gap-3 mb-3">
@@ -11201,8 +11205,381 @@ function _generateHomeworkBroadcast(hw){
  _logMessageToRecipients(parents, message, 'whatsapp');
 }
 
+/* ============================================================
+   BULK MARKS IMPORT FROM EXCEL
+   Reads a register workbook (multiple "Class" sections in one
+   sheet), auto-detects each subject's style (single mark, Theory+
+   Internal, grade-only), matches students by class + name, and
+   writes rows to the same examMarks table used by single entry.
+   Existing marks for the same exam+subject+student are replaced.
+============================================================ */
+
+// Short-form subject → canonical name
+const _BULK_SUBJ_ALIASES = {
+  'eng':'English','english':'English','hin':'Hindi','hindi':'Hindi',
+  'math':'Mathematics','maths':'Mathematics','mathematics':'Mathematics',
+  'sci':'Science','science':'Science',
+  'evs':'EVS','e v s':'EVS','environmental studies':'EVS',
+  'sst':'Social Science','s st':'Social Science','social science':'Social Science','ss':'Social Science',
+  'sanskrit':'Sanskrit','sansk':'Sanskrit',
+  'comp':'Computer','compu':'Computer','computer':'Computer','computer science':'Computer',
+  'gk':'General Knowledge','g k':'General Knowledge','general knowledge':'General Knowledge',
+  'reas':'Reasoning','reaso':'Reasoning','reasoning':'Reasoning',
+  'draw':'Drawing','drawing':'Drawing',
+  'phy':'Physics','physics':'Physics','chem':'Chemistry','chemistry':'Chemistry',
+  'bio':'Biology','biology':'Biology',
+  'pe':'Physical Education','p e':'Physical Education','phy edu':'Physical Education','physical education':'Physical Education',
+  'fa':'Fine Arts','f a':'Fine Arts','fine arts':'Fine Arts',
+  'ps':'Political Science','p s':'Political Science','political science':'Political Science',
+  'his':'History','history':'History','geo':'Geography','geography':'Geography',
+  'eco':'Economics','economics':'Economics'
+};
+
+function _canonBulkSubject(s){
+  const key = String(s||'').toLowerCase().replace(/[.\-_]/g,' ').replace(/\s+/g,' ').trim();
+  return _BULK_SUBJ_ALIASES[key] || String(s||'').trim();
+}
+
+// Recognise one column header. Returns {skip} or one of:
+//  {kind:'subject',      subject, max}
+//  {kind:'subject-split',subject, maxTheory, maxInternal}
+//  {kind:'component',    subject, component:'Theory'|'Internal'}
+function _parseBulkSubjectHeader(raw){
+  const t = String(raw == null ? '' : raw).trim();
+  if (!t) return { skip: true };
+  if (/^(total(\s*\d+)?|percentage|percent(age)?|rank|grade|remarks?|signature|sig|position|s\.?\s*no\.?)$/i.test(t)) {
+    return { skip: true, computed: true };
+  }
+  // "(NN+NN)" or "(NN + NN)" — split max marks
+  let m = t.match(/^(.+?)\s*\(\s*(\d+)\s*\+\s*(\d+)\s*\)\s*$/);
+  if (m) return { raw:t, kind:'subject-split', subject:_canonBulkSubject(m[1]),
+                  maxTheory:parseInt(m[2],10), maxInternal:parseInt(m[3],10) };
+  // "(NN)" — single max
+  m = t.match(/^(.+?)\s*\(\s*(\d+)\s*\)\s*$/);
+  if (m) return { raw:t, kind:'subject', subject:_canonBulkSubject(m[1]), max:parseInt(m[2],10) };
+  // Component hint: Theory
+  m = t.match(/^(.+?)\s*\(\s*(wri(?:tten)?|th|theory)\s*\)\s*$/i);
+  if (m) return { raw:t, kind:'component', subject:_canonBulkSubject(m[1]), component:'Theory' };
+  // Component hint: Internal
+  m = t.match(/^(.+?)\s*\(\s*(oral|prac(?:tical)?|int(?:ernal)?)\s*\)\s*$/i);
+  if (m) return { raw:t, kind:'component', subject:_canonBulkSubject(m[1]), component:'Internal' };
+  // Plain header
+  return { raw:t, kind:'subject', subject:_canonBulkSubject(t), max:100 };
+}
+
+// Parse one cell value into {skip}|{absent}|{mark}|{grade}|{split:[t,i]}
+function _parseBulkMarksValue(v){
+  const s = String(v == null ? '' : v).trim();
+  if (!s || s === '-' || s === '—' || s === '–') return { skip: true };
+  if (/^(ab|absent)$/i.test(s)) return { absent: true };
+  let m = s.match(/^(\d+)\s*\+\s*(\d+)(?:\s*=\s*\d+)?$/);
+  if (m) return { split: [parseInt(m[1],10), parseInt(m[2],10)] };
+  m = s.match(/^(\d+(?:\.\d+)?)$/);
+  if (m) return { mark: parseFloat(m[1]) };
+  if (/^[A-F](\+|[1-9])?$/i.test(s)) return { grade: s.toUpperCase() };
+  return { grade: s };
+}
+
+// Read every section from every sheet.
+function _parseBulkMarksWorkbook(arrayBuffer){
+  const wb = XLSX.read(arrayBuffer, { type:'array', cellDates:false });
+  const sections = [];
+  wb.SheetNames.forEach(sheetName => {
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header:1, defval:'', blankrows:true, raw:false });
+    let current = null;
+    rows.forEach((row, rowIdx) => {
+      const a = String(row[0]||'').trim();
+      const b = String(row[1]||'').trim();
+      const c = String(row[2]||'').trim();
+      const looksLikeHeader = /^class$/i.test(a) || /^roll\s*no/i.test(b) || /^student\s*name$/i.test(c);
+      if (looksLikeHeader){
+        const cols = [];
+        for (let i = 3; i < (row.length||0); i++) cols.push(_parseBulkSubjectHeader(row[i]));
+        current = { sheetName, headerRowIdx: rowIdx, classNameRaw:'', subjectCols: cols, students: [] };
+        sections.push(current);
+        return;
+      }
+      if (!current) return;
+      if (!a && !b && !c) return;              // skip blank row
+      if (!c) return;                          // no student name
+      if (/^(roll no|student name|name)$/i.test(c)) return;
+      if (a && !current.classNameRaw) current.classNameRaw = a;
+      const vals = [];
+      for (let i = 3; i < 3 + current.subjectCols.length; i++) vals.push(row[i]);
+      current.students.push({ rowIdx, classNameRaw: a || current.classNameRaw, roll:b, name:c, vals });
+    });
+  });
+  return sections;
+}
+
+// "Pre-Nursery" → "Pre Nursery"; "11 Science" → {class:'11', stream:'Science'}
+function _normBulkClassForMatch(raw){
+  const s = String(raw||'').trim();
+  if (!s) return { class:null, stream:null };
+  let m = s.match(/^(\d+)\s+(Science|Humanities|Commerce|Arts|PCM|PCB)$/i);
+  if (m) return { class:m[1], stream:m[2].replace(/\b\w/g, ch=>ch.toUpperCase()) };
+  if (/^pre[\s-]?nursery$/i.test(s)) return { class:'Pre Nursery', stream:null };
+  const norm = s.replace(/\s+/g,' ').trim();
+  const found = ALL_CLASSES.find(c => c.toLowerCase() === norm.toLowerCase());
+  return { class: found || norm, stream: null };
+}
+function _normBulkName(n){
+  return String(n||'').toLowerCase().replace(/[.\-_',]/g,' ').replace(/\s+/g,' ').trim();
+}
+function _matchBulkStudents(sections, students){
+  const index = {};
+  students.forEach(s => {
+    const k = String(s.class||'').trim() + '|' + _normBulkName(s.name);
+    (index[k] = index[k] || []).push(s);
+  });
+  sections.forEach(sec => {
+    const norm = _normBulkClassForMatch(sec.classNameRaw);
+    sec.class = norm.class; sec.stream = norm.stream;
+    sec.students.forEach(stu => {
+      const k = String(norm.class||'') + '|' + _normBulkName(stu.name);
+      const hit = (index[k]||[])[0] || null;
+      stu.matched = hit; stu.matchError = hit ? null : 'not-found';
+      if (!hit) {
+        // Fuzzy: same class, one name starts the other
+        const pool = students.filter(s => s.class === norm.class);
+        const target = _normBulkName(stu.name);
+        const fuzzy = pool.find(s => {
+          const n = _normBulkName(s.name);
+          return n.startsWith(target+' ') || target.startsWith(n+' ');
+        });
+        if (fuzzy){ stu.matched = fuzzy; stu.matchError = 'fuzzy'; }
+      }
+    });
+  });
+}
+
+// Build the mark rows for ONE student in ONE section.
+function _buildBulkMarksRowsForStudent(stu, sec, examName, today, tName, tId){
+  if (!stu.matched) return [];
+  const sid = stu.matched.id;
+  // Group columns by subject name
+  const groups = {};
+  sec.subjectCols.forEach((col, i) => {
+    if (!col || col.skip || !col.subject) return;
+    (groups[col.subject] = groups[col.subject] || []).push({ col, idx:i });
+  });
+  const out = [];
+  Object.keys(groups).forEach(subj => {
+    const parts = [];
+    groups[subj].forEach(({col, idx}) => {
+      const parsed = _parseBulkMarksValue(stu.vals[idx]);
+      if (parsed.skip) return;
+      if (col.kind === 'component'){
+        const maxDef = col.component === 'Theory' ? 80 : 20;
+        if (parsed.absent)      parts.push({ component:col.component, absent:true, max:maxDef });
+        else if (parsed.grade)  parts.push({ component:col.component, grade:parsed.grade, max:maxDef });
+        else if (parsed.mark!=null) parts.push({ component:col.component, mark:parsed.mark, max:maxDef });
+        else if (parsed.split){
+          parts.push({ component:'Theory',   mark:parsed.split[0], max:80 });
+          parts.push({ component:'Internal', mark:parsed.split[1], max:20 });
+        }
+      } else if (col.kind === 'subject-split'){
+        if (parsed.absent){
+          parts.push({ component:'Theory',   absent:true, max:col.maxTheory });
+          parts.push({ component:'Internal', absent:true, max:col.maxInternal });
+        } else if (parsed.split){
+          parts.push({ component:'Theory',   mark:parsed.split[0], max:col.maxTheory });
+          parts.push({ component:'Internal', mark:parsed.split[1], max:col.maxInternal });
+        } else if (parsed.mark != null){
+          parts.push({ component:'Theory', mark:parsed.mark, max:(col.maxTheory+col.maxInternal) });
+        } else if (parsed.grade){
+          parts.push({ component:'Theory', grade:parsed.grade, max:(col.maxTheory+col.maxInternal) });
+        }
+      } else { // plain subject
+        const max = col.max || 100;
+        if (parsed.absent)         parts.push({ absent:true, max });
+        else if (parsed.grade)     parts.push({ grade:parsed.grade, max:null });
+        else if (parsed.mark!=null)parts.push({ mark:parsed.mark, max });
+        else if (parsed.split){
+          parts.push({ component:'Theory',   mark:parsed.split[0], max:col.max||100 });
+          parts.push({ component:'Internal', mark:parsed.split[1], max:20 });
+        }
+      }
+    });
+    if (parts.length === 0) return;
+    const base = { studentId: sid, examName, subject: subj, date: today, teacher: tName, teacherId: tId };
+    const hasComp = parts.some(p => p.component);
+    if (!hasComp){
+      const p = parts[0];
+      out.push({ ...base,
+        marks: p.grade ? null : (p.mark!=null ? p.mark : null),
+        maxMarks: p.grade ? null : p.max,
+        grade: p.grade || null,
+        absent: !!p.absent });
+    } else {
+      parts.forEach(p => out.push({ ...base,
+        component: p.component,
+        marks: p.grade ? null : (p.mark!=null ? p.mark : null),
+        maxMarks: p.grade ? null : p.max,
+        grade: p.grade || null,
+        absent: !!p.absent }));
+    }
+  });
+  return out;
+}
+
+// ---- UI ----
+var _bulkMarksParsed = null;
+
+function _openBulkMarksModal(){
+  const old = document.getElementById('bulkMarksModal'); if (old) old.remove();
+  _bulkMarksParsed = null;
+  const el = document.createElement('div');
+  el.id = 'bulkMarksModal'; el.className = 'modal';
+  el.innerHTML = `<div class="modal-content" style="max-width:900px">
+    <h3 class="text-lg font-bold mb-1"><i class="fas fa-file-import text-purple-600 mr-1"></i>Bulk Import Marks</h3>
+    <p class="text-xs text-gray-500 mb-3">Upload a marks register (.xlsx / .xls). Sections start with a row whose first cell says <b>Class</b>; students follow underneath. Subjects, max marks and Theory/Internal splits are read from the column headers. Existing marks for the same exam + subject + student are replaced — nothing else is touched.</p>
+    <div><input type="file" id="bulkMarksFile" accept=".xlsx,.xls" class="text-sm">
+      <div id="bulkMarksFileStatus" class="text-xs text-gray-500 mt-2"></div></div>
+    <div id="bulkMarksPreview" class="mt-4 hidden"></div>
+    <div class="flex justify-end gap-2 mt-4">
+      <button class="closeModal bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded-lg text-sm">Cancel</button>
+      <button id="bulkMarksImportBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium" disabled><i class="fas fa-upload mr-1"></i>Import</button>
+    </div>
+  </div>`;
+  document.body.appendChild(el);
+  el.querySelectorAll('.closeModal').forEach(b => b.addEventListener('click', () => el.remove()));
+  el.addEventListener('click', e => { if (e.target === el) el.remove(); });
+
+  document.getElementById('bulkMarksFile').addEventListener('change', e => {
+    const f = e.target.files[0]; if (!f) return;
+    const stat = document.getElementById('bulkMarksFileStatus');
+    stat.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Reading file…';
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try { _processBulkMarksFile(ev.target.result); }
+      catch (err) { stat.innerHTML = '<span class="text-rose-600">Error: ' + escapeHTML(err.message) + '</span>'; }
+    };
+    reader.readAsArrayBuffer(f);
+  });
+  document.getElementById('bulkMarksImportBtn').addEventListener('click', _applyBulkMarksImport);
+}
+
+function _processBulkMarksFile(arrayBuffer){
+  const stat = document.getElementById('bulkMarksFileStatus');
+  const sections = _parseBulkMarksWorkbook(arrayBuffer).filter(s => s.students.length > 0);
+  if (sections.length === 0){
+    stat.innerHTML = '<span class="text-rose-600">No sections found. Header rows must start with "Class".</span>';
+    return;
+  }
+  const students = getStudents();
+  _matchBulkStudents(sections, students);
+  _bulkMarksParsed = sections;
+
+  const totalStudents  = sections.reduce((a,s) => a + s.students.length, 0);
+  const matchedCount   = sections.reduce((a,s) => a + s.students.filter(x=>x.matched).length, 0);
+  const unmatchedCount = totalStudents - matchedCount;
+  const subjCols       = sections.reduce((a,s) => a + s.subjectCols.filter(c=>c&&!c.skip).length, 0);
+
+  const preview = document.getElementById('bulkMarksPreview');
+  preview.classList.remove('hidden');
+  preview.innerHTML = `
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+      <div class="bg-purple-50 border border-purple-200 rounded p-2"><div class="text-xs uppercase text-purple-700 font-semibold">Sections</div><div class="text-2xl font-bold">${sections.length}</div></div>
+      <div class="bg-emerald-50 border border-emerald-200 rounded p-2"><div class="text-xs uppercase text-emerald-700 font-semibold">Students Matched</div><div class="text-2xl font-bold">${matchedCount} / ${totalStudents}</div></div>
+      <div class="bg-rose-50 border border-rose-200 rounded p-2"><div class="text-xs uppercase text-rose-700 font-semibold">Not Found</div><div class="text-2xl font-bold">${unmatchedCount}</div></div>
+      <div class="bg-blue-50 border border-blue-200 rounded p-2"><div class="text-xs uppercase text-blue-700 font-semibold">Subject Columns</div><div class="text-2xl font-bold">${subjCols}</div></div>
+    </div>
+    <div class="mb-3">
+      <label class="text-xs font-medium block mb-1">Exam name <span class="text-gray-400">(saved with every mark)</span> *</label>
+      <div class="flex gap-2 items-center">
+        <select id="bulkMarksExamSel" class="text-sm" style="width:auto;min-width:200px">
+          ${EXAM_NAMES.filter(e => e !== 'Other').map(e => `<option ${e==='Final Examination'?'selected':''}>${e}</option>`).join('')}
+          <option value="__custom__">Other (type below)</option>
+        </select>
+        <input id="bulkMarksExamCustom" class="text-sm flex-1" placeholder="Type the exam name" style="display:none">
+      </div>
+    </div>
+    <div class="text-xs font-semibold text-gray-600 mb-1">Sections detected</div>
+    <div class="border rounded max-h-80 overflow-y-auto">
+      ${sections.map(s => {
+        const matched = s.students.filter(x=>x.matched).length;
+        const missing = s.students.filter(x=>!x.matched).map(x=>escapeHTML(x.name));
+        const subjects = s.subjectCols.filter(c=>c&&!c.skip).map(c => {
+          if (c.kind === 'subject-split') return `${escapeHTML(c.subject)}<span class="text-gray-400 text-[10px]"> (${c.maxTheory}+${c.maxInternal})</span>`;
+          if (c.kind === 'component')     return `${escapeHTML(c.subject)}<span class="text-gray-400 text-[10px]"> (${c.component==='Theory'?'Wri':'Oral'})</span>`;
+          return `${escapeHTML(c.subject)}<span class="text-gray-400 text-[10px]"> (${c.max||100})</span>`;
+        }).join(' · ');
+        return `<div class="border-b last:border-0 p-3">
+          <div class="flex justify-between items-center mb-1">
+            <div class="font-semibold">${escapeHTML(s.classNameRaw||'(unknown class)')}
+              ${s.stream?`<span class="text-xs bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded ml-1">${s.stream}</span>`:''}
+              <span class="text-xs font-normal text-gray-500">→ Class "${escapeHTML(String(s.class||''))}"</span></div>
+            <div class="text-xs">${matched} matched${missing.length?` · <span class="text-rose-600">${missing.length} not found</span>`:''}</div>
+          </div>
+          <div class="text-xs text-gray-600">${subjects||'<i>no subjects detected</i>'}</div>
+          ${missing.length?`<div class="text-[11px] text-rose-600 mt-1">Not found: ${missing.join(', ')}</div>`:''}
+        </div>`;
+      }).join('')}
+    </div>`;
+  document.getElementById('bulkMarksExamSel').addEventListener('change', e => {
+    document.getElementById('bulkMarksExamCustom').style.display = e.target.value === '__custom__' ? '' : 'none';
+  });
+  stat.innerHTML = '<span class="text-emerald-600"><i class="fas fa-check mr-1"></i>File parsed — review the preview below</span>';
+  document.getElementById('bulkMarksImportBtn').disabled = false;
+}
+
+function _applyBulkMarksImport(){
+  if (!_bulkMarksParsed) return;
+  const examSel = document.getElementById('bulkMarksExamSel').value;
+  const examName = examSel === '__custom__'
+    ? (document.getElementById('bulkMarksExamCustom').value.trim() || 'Bulk Import')
+    : examSel;
+  const today = new Date().toISOString().slice(0,10);
+  const tName = currentUser?.name || 'Bulk Import';
+  const tId   = currentUser?.id   || 0;
+
+  // Build new rows
+  const newRows = [];
+  _bulkMarksParsed.forEach(sec => {
+    sec.students.forEach(stu => {
+      if (!stu.matched) return;
+      newRows.push(..._buildBulkMarksRowsForStudent(stu, sec, examName, today, tName, tId));
+    });
+  });
+  if (newRows.length === 0){ alert('No marks could be built — check that students matched and values were numeric.'); return; }
+
+  const studentIds = new Set(newRows.map(r => r.studentId));
+  const replaceKeys = new Set(newRows.map(r => r.studentId + '|' + r.subject));
+  const existing = getExamMarks();
+  const willRemove = existing.filter(m =>
+    m.examName === examName && replaceKeys.has(m.studentId + '|' + m.subject)
+  ).length;
+
+  if (!confirm(
+    `Import ${newRows.length} marks for ${studentIds.size} students?\n\n` +
+    `Exam: ${examName}\n` +
+    (willRemove ? `\n${willRemove} existing mark entries for these students in this exam will be replaced.\n` : '') +
+    `\nContinue?`
+  )) return;
+
+  // Remove anything we're replacing
+  const keep = existing.filter(m => !(m.examName === examName && replaceKeys.has(m.studentId + '|' + m.subject)));
+
+  // Assign fresh unique IDs (safe even for thousands of rows)
+  let nextId = Math.max(Date.now(),
+                        keep.reduce((a,r) => Math.max(a, Number(r.id)||0), 0),
+                        _lastIssuedId) + 1;
+  newRows.forEach(r => { r.id = nextId++; });
+  _lastIssuedId = nextId;
+
+  const all = keep.concat(newRows);
+  saveExamMarks(all);
+
+  document.getElementById('bulkMarksModal')?.remove();
+  _bulkMarksParsed = null;
+  showToast(`Imported ${newRows.length} marks for ${studentIds.size} students · Exam: ${examName}`);
+  renderApp();
+}
+
 function _attachMarksEvents(){
  // Keep the Subject list in step with the chosen class (subjects come from the exam datesheet).
+ document.getElementById('bulkImportMarksBtn')?.addEventListener('click', _openBulkMarksModal);
  document.querySelectorAll('.mkEntryModeBtn').forEach(b => b.addEventListener('click', () => {
   _mkEntryMode = b.dataset.mode; renderApp();
  }));
