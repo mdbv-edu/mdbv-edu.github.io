@@ -1,5 +1,7 @@
 <!DOCTYPE html>
 <!-- BUILD: v-1789994705 - Students tab: fee filter (has dues, fully paid, partly paid, nothing paid, under 50%, over Rs.10k, fee not set); filtering moved into one shared getFilteredStudents() so Print and XLSX now output exactly the students on screen in the order shown, with the filters stated on the printout; print/XLSX buttons moved down beside the Showing count; MARKS ENTRY: added "Absent" checkbox so teachers can mark students who did not appear for an exam. Absent entries are excluded from averages and shown as AB everywhere -->
+<!-- BUILD: v-1790340000 - MARKS ENTRY FIX: saving marks used to always ADD a new row instead of replacing the old one, so re-entering/correcting a mark created a silent duplicate — this is what made a plain single mark for English display as "71 + 71 (Theory + Internal)" even though that option was never ticked. Saving now clears any prior row for that student+exam+subject first. MARKS VISIBILITY FIX: the marks entry/summary screen used to only show a teacher their own submissions, so nobody else — not admin, not principal, not another teacher on the same class — could see, correct, or delete what had been entered. It now shows every entry for the classes the user has access to (all classes for admin/principal/owner, assigned classes for a teacher), with an "Entered By" column, so any of them can override or delete it. Added a report-card shortcut button on each marks row. REPORT CARD: removed Scholar Reg No and UDISE/PEN from the student-facing report card entirely. -->
+
 <html lang="en">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -5485,7 +5487,8 @@ function generateReportCard(student, examName, opts){
       <div><span class="lbl">Admission No:</span> <b>${s.admissionNo||'-'}</b></div>
       <div><span class="lbl">Father/Guardian:</span> <b>${s.fatherName||s.motherName||s.parentName||'-'}</b></div>
       <div><span class="lbl">Date of Birth:</span> <b>${s.dob?new Date(s.dob).toLocaleDateString('en-IN'):'-'}</b></div>
-      ${canSeeSRNumber()?`<div><span class="lbl">Scholar Reg No:</span> <b>${s.registrationNo||'-'}</b></div>`:''}${canSeeConfidentialNumbers()?`<div><span class="lbl">UDISE/PEN:</span> <b>${s.pen||'-'}</b></div>`:''}
+      <!-- Scholar Reg No and UDISE/PEN are internal/office identifiers and are intentionally
+           left off the student-facing report card, regardless of who generates it. -->
      </div>
     </div>
     <div class="stuphoto">${photo?`<img src="${photo}">`:`<div class="ini">${initialsTxt}</div>`}</div>
@@ -8033,6 +8036,22 @@ function _marksEligibleClasses(){
  if (isPrincipalLevel() || isAdminLevel() || isOwnerLevel()) return ALL_CLASSES.slice();
  return _teacherAssignedClasses();
 }
+// All exam-mark rows the current user is allowed to see/edit/delete in the marks entry screen —
+// every class for admin/principal/owner, or the teacher's own assigned classes. This is
+// intentionally NOT filtered by who originally entered a row: previously the marks-entry summary
+// only ever showed a row to the teacher who typed it in, so no one else — not even an admin or
+// principal — could see, correct, or delete a mark another teacher had fed in. Scoping by class
+// instead means anyone with legitimate access to that class can review and override any entry in it.
+function _marksVisibleToCurrentUser(){
+ const classes = _marksEligibleClasses();
+ if (classes.length === 0) return [];
+ const studentsById = {};
+ getStudents().forEach(s => { studentsById[s.id] = s; });
+ return getExamMarks().filter(m => {
+  const s = studentsById[m.studentId];
+  return s && classes.includes(s.class);
+ });
+}
 // Students belonging to this teacher's assigned classes
 function _teacherScopedStudents(){
  const classes = _teacherAssignedClasses();
@@ -10173,7 +10192,7 @@ function _studentMarksPerformance(studentId){
 function renderTchMarks(){
  const mkClasses = _marksEligibleClasses();
  if (mkClasses.length === 0) return _noClassAssignedNotice();
- const myMarks = getExamMarks().filter(m => m.teacherId === currentUser.id || m.teacher === currentUser.name);
+ const myMarks = _marksVisibleToCurrentUser();
  const exams = [...new Set(myMarks.map(m => m.examName))];
  const toggle = `<div class="flex flex-wrap gap-2 mb-4">
    <button class="mkModeBtn px-4 py-2 rounded-lg text-sm font-medium ${_marksMode==='entry'?'bg-purple-600 text-white':'bg-gray-100 hover:bg-gray-200'}" data-mode="entry"><i class="fas fa-pen-to-square mr-1"></i>Enter Marks</button>
@@ -11134,6 +11153,20 @@ function _attachMarksEvents(){
   const all = getExamMarks();
   let count = 0, absentCount = 0;
   const today = new Date().toISOString().slice(0,10);
+  // Whenever we're about to record a fresh value for a student in this exam+subject, clear out
+  // ANY earlier row(s) for that same student+exam+subject first — regardless of which teacher
+  // entered them, and regardless of component. Marks entry previously only ever pushed new rows,
+  // so re-entering or correcting a mark (even by the same teacher) created a SECOND row instead of
+  // replacing the first. That silently duplicated marks (e.g. two "English" rows), and because
+  // combineSubjectRows() merges every row it finds for a subject, two plain (non-split) rows were
+  // wrongly displayed as "71 + 71 (Theory + Internal)" even when "Theory + Internal" was never
+  // selected. It also meant nobody — not even an admin/principal — could actually override or
+  // remove what a teacher had fed in; saving again just piled on more rows.
+  const _clearExisting = (sid) => {
+   for (let i = all.length - 1; i >= 0; i--) {
+    if (all[i].studentId === sid && all[i].examName === exam && all[i].subject === sub) all.splice(i, 1);
+   }
+  };
   if (split) {
    // One row per student per component (Theory / Internal), so the report card can show
    // "60 + 18" and combine them into a single subject total.
@@ -11142,6 +11175,13 @@ function _attachMarksEvents(){
    sids.forEach(sid => {
     const absChk = document.querySelector(`.mkAbsent[data-sid="${sid}"]`);
     const isAbsent = absChk && absChk.checked;
+    const thInp = document.querySelector(`.mkInputComp[data-sid="${sid}"][data-comp="Theory"]`);
+    const inInp = document.querySelector(`.mkInputComp[data-sid="${sid}"][data-comp="Internal"]`);
+    const thV = thInp ? parseInt(thInp.value) : NaN;
+    const inV = inInp ? parseInt(inInp.value) : NaN;
+    // Blank row, not marked absent — leave this student's existing record (if any) untouched.
+    if (!isAbsent && isNaN(thV) && isNaN(inV)) return;
+    _clearExisting(sid);
     if (isAbsent) {
      all.push({ id: newRowId(all), studentId: sid, examName: exam, subject: sub, component: 'Theory',
       absent: true, marks: null, maxMarks: maxTheory, grade: null, date: today, teacher: currentUser.name, teacherId: currentUser.id });
@@ -11150,10 +11190,6 @@ function _attachMarksEvents(){
      count += 2; absentCount++;
      return;
     }
-    const thInp = document.querySelector(`.mkInputComp[data-sid="${sid}"][data-comp="Theory"]`);
-    const inInp = document.querySelector(`.mkInputComp[data-sid="${sid}"][data-comp="Internal"]`);
-    const thV = thInp ? parseInt(thInp.value) : NaN;
-    const inV = inInp ? parseInt(inInp.value) : NaN;
     if (!isNaN(thV)) {
      all.push({ id: newRowId(all), studentId: sid, examName: exam, subject: sub, component: 'Theory',
       marks: thV, maxMarks: maxTheory, date: today, teacher: currentUser.name, teacherId: currentUser.id });
@@ -11171,6 +11207,7 @@ function _attachMarksEvents(){
     const absChk = document.querySelector(`.mkAbsent[data-sid="${sid}"]`);
     const isAbsent = absChk && absChk.checked;
     if (isAbsent) {
+     _clearExisting(sid);
      all.push({
       id: newRowId(all), studentId: sid, examName: exam, subject: sub,
       absent: true, marks: null, maxMarks: max, grade: null,
@@ -11181,7 +11218,8 @@ function _attachMarksEvents(){
     }
     if (isGrade) {
      const g = (i.value || '').trim();
-     if (!g) return;
+     if (!g) return; // blank — leave any existing record for this student untouched
+     _clearExisting(sid);
      all.push({
       id: newRowId(all), studentId: sid, examName: exam, subject: sub,
       grade: g, marks: null, maxMarks: null,
@@ -11192,6 +11230,7 @@ function _attachMarksEvents(){
     }
     const v = parseInt(i.value);
     if (!isNaN(v)) {
+     _clearExisting(sid);
      all.push({
       id: newRowId(all), studentId: sid, examName: exam, subject: sub,
       marks: v, maxMarks: max,
@@ -11210,7 +11249,7 @@ function _attachMarksEvents(){
  // Render marks summary
  const renderSummary = () => {
   const filterExam = document.getElementById('mkFilterExam').value;
-  const all = getExamMarks().filter(m => (m.teacherId === currentUser.id || m.teacher === currentUser.name) && (!filterExam || m.examName === filterExam));
+  const all = _marksVisibleToCurrentUser().filter(m => !filterExam || m.examName === filterExam);
   const students = getStudents();
   const out = document.getElementById('mkResults');
   if (all.length === 0) { out.innerHTML = '<div class="text-sm text-gray-500 py-3">No marks match filter</div>'; return; }
@@ -11236,14 +11275,17 @@ function _attachMarksEvents(){
       <span class="text-xs">${present.length ? `Avg: <b>${avg.toFixed(1)}/${max}</b> · High: <b>${high}</b> · Low: <b>${low}</b>` : '<span class="text-gray-500">No marks recorded</span>'}${absentCount ? ` · <span class="text-rose-600 font-semibold">Absent: <b>${absentCount}</b></span>` : ''}</span>
      </summary>
      <div class="overflow-x-auto p-2"><table class="text-xs w-full border">
-      <thead class="bg-gray-100"><tr><th>Roll</th><th>Name</th><th>Marks</th><th>%</th><th>Grade</th><th>Actions</th></tr></thead>
+      <thead class="bg-gray-100"><tr><th>Roll</th><th>Name</th><th>Marks</th><th>%</th><th>Grade</th><th>Entered By</th><th>Actions</th></tr></thead>
       <tbody>${marks.sort((a,b) => (a.student?.rollNo||0)-(b.student?.rollNo||0)).map(m => {
+        const enteredBy = `${escapeHTML(m.teacher||'—')}${m.editedBy && m.editedBy !== m.teacher ? ` <span class="text-gray-400">(edited by ${escapeHTML(m.editedBy)})</span>` : ''}`;
         if (m.absent) {
          return `<tr class="bg-rose-50"><td>${m.student?.rollNo||'-'}</td><td>${m.student?.name||'?'}</td>
           <td colspan="3" class="text-center font-semibold text-rose-700"><i class="fas fa-user-slash mr-1"></i>Absent</td>
+          <td class="text-gray-500">${enteredBy}</td>
           <td class="whitespace-nowrap">
            <button class="mkEditBtn text-blue-600 hover:text-blue-800" data-id="${m.id}" title="Change / record marks"><i class="fas fa-edit"></i></button>
            <button class="mkDelBtn text-red-600 hover:text-red-800 ml-2" title="Delete"><i class="fas fa-trash"></i></button>
+           <button class="mkRcBtn text-indigo-600 hover:text-indigo-800 ml-2" data-sid="${m.studentId}" title="View this student's report card"><i class="fas fa-file-lines"></i></button>
           </td></tr>`;
         }
         const isG = (m.marks === null || m.marks === undefined) && m.grade;
@@ -11252,8 +11294,10 @@ function _attachMarksEvents(){
         return `<tr><td>${m.student?.rollNo||'-'}</td><td>${m.student?.name||'?'}</td>
          <td>${isG?'<span class="text-gray-400">grade only</span>':m.marks+'/'+max}</td>
          <td>${isG?'—':pct.toFixed(1)+'%'}</td><td class="font-semibold">${grade}</td>
+         <td class="text-gray-500">${enteredBy}</td>
          <td class="whitespace-nowrap"><button class="mkEditBtn text-blue-600 hover:text-blue-800" data-id="${m.id}" title="Edit marks"><i class="fas fa-edit"></i></button>
-         <button class="mkDelBtn text-red-600 hover:text-red-800 ml-2" data-id="${m.id}" title="Delete marks"><i class="fas fa-trash"></i></button></td></tr>`;
+         <button class="mkDelBtn text-red-600 hover:text-red-800 ml-2" data-id="${m.id}" title="Delete marks"><i class="fas fa-trash"></i></button>
+         <button class="mkRcBtn text-indigo-600 hover:text-indigo-800 ml-2" data-sid="${m.studentId}" title="View this student's report card"><i class="fas fa-file-lines"></i></button></td></tr>`;
        }).join('')}</tbody>
      </table></div>
     </details>`;
@@ -11304,6 +11348,12 @@ function _attachMarksEvents(){
    showToast('Marks entry deleted');
    renderSummary();
   }));
+  // Jump straight from a marks row to that student's report card, so marks review and the
+  // report card live in the same screen instead of two disconnected tabs.
+  document.querySelectorAll('.mkRcBtn').forEach(b => b.addEventListener('click', () => {
+   const s = getStudents().find(x => x.id === parseInt(b.dataset.sid));
+   if (s) generateReportCard(s, null);
+  }));
  };
  document.getElementById('mkFilterExam')?.addEventListener('change', renderSummary);
  renderSummary();
@@ -11311,15 +11361,15 @@ function _attachMarksEvents(){
  // Export marks
  document.getElementById('mkExportBtn')?.addEventListener('click', () => {
   const filterExam = document.getElementById('mkFilterExam').value;
-  const all = getExamMarks().filter(m => (m.teacherId === currentUser.id || m.teacher === currentUser.name) && (!filterExam || m.examName === filterExam));
+  const all = _marksVisibleToCurrentUser().filter(m => !filterExam || m.examName === filterExam);
   const students = getStudents();
-  let h = '<table border="1"><tr><th>Exam</th><th>Class</th><th>Subject</th><th>Roll</th><th>Name</th><th>Marks</th><th>Max</th><th>%</th><th>Date</th></tr>';
+  let h = '<table border="1"><tr><th>Exam</th><th>Class</th><th>Subject</th><th>Roll</th><th>Name</th><th>Marks</th><th>Max</th><th>%</th><th>Date</th><th>Entered By</th></tr>';
   all.forEach(m => {
    const s = students.find(x => x.id === m.studentId);
    const pct = m.absent ? 'Absent' : ((m.marks / m.maxMarks) * 100).toFixed(1);
    const marksCell = m.absent ? 'AB' : m.marks;
    const maxCell = m.absent ? '-' : m.maxMarks;
-   h += `<tr><td>${m.examName}</td><td>${s?.class||''}</td><td>${m.subject}</td><td>${s?.rollNo||''}</td><td>${s?.name||''}</td><td>${marksCell}</td><td>${maxCell}</td><td>${pct}</td><td>${m.date}</td></tr>`;
+   h += `<tr><td>${m.examName}</td><td>${s?.class||''}</td><td>${m.subject}</td><td>${s?.rollNo||''}</td><td>${s?.name||''}</td><td>${marksCell}</td><td>${maxCell}</td><td>${pct}</td><td>${m.date}</td><td>${m.teacher||''}</td></tr>`;
   });
   h += '</table>';
   downloadExcel(h, SCHOOL_INFO.shortName + '_Marks_' + (filterExam||'all') + '_' + new Date().toISOString().slice(0,10));
