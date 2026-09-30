@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1790757354 - FIX SR import doing nothing after choosing a file: the preview dialog markup had been placed on the attendance screen while the button sits on the Students screen, so the dialog was never found; it is now built on demand wherever it is opened from, and any read or preview failure is reported instead of failing silently -->
+<!-- BUILD: v-1790759086 - advance accounts: money handed to someone to spend for the school, with the itemised detail of where it went - category breakdown, biggest items, searchable item list, print and XLSX; imported from an account sheet, subtotal lines excluded, kept out of the expense ledger so the lump sum is not counted twice -->
 <!-- BUILD: v-1790340000 - MARKS ENTRY FIX: saving marks used to always ADD a new row instead of replacing the old one, so re-entering/correcting a mark created a silent duplicate — this is what made a plain single mark for English display as "71 + 71 (Theory + Internal)" even though that option was never ticked. Saving now clears any prior row for that student+exam+subject first. MARKS VISIBILITY FIX: the marks entry/summary screen used to only show a teacher their own submissions, so nobody else — not admin, not principal, not another teacher on the same class — could see, correct, or delete what had been entered. It now shows every entry for the classes the user has access to (all classes for admin/principal/owner, assigned classes for a teacher), with an "Entered By" column, so any of them can override or delete it. Added a report-card shortcut button on each marks row. REPORT CARD: removed Scholar Reg No and UDISE/PEN from the student-facing report card entirely. -->
 <!-- BUILD: v-1790432000 - MARKS SUMMARY REDESIGNED: now a class-wise, exam-wise table (not a subject-per-row accordion). Class picker at the top lets you toggle between classes in one place. Exam dropdown: select a single exam to see/edit/delete one exam at a time, or "Combined" to view all exams' marks added together as an overall percentage per subject. Student rows × subject columns. For Class 11 and 12, Branch column shows PCM/PCB/Humanities. "Overall" column sums all subjects for a holistic picture. Actions: Edit (edit all of that exam's marks for one student in a modal), Delete (remove that exam's marks for one student), Report Card. Edit modal handles split Theory+Internal and single-mark subjects, with AB (absent) checkbox per subject. Report card can show a single exam or the full consolidated card. Stream/Branch field added to student form (shows only for 11/12). -->
 
@@ -2030,6 +2030,7 @@ function initDB(){
  // Attendance: keyed by studentId, defaults to empty per-student map
  if (DB.getScalar('finModels') === null) DB.setAll('finModels', []);
  if (DB.getScalar('workingDays') === null) DB.setAll('workingDays', []);
+ if (DB.getScalar('advanceLedger') === null) DB.setAll('advanceLedger', []);
  if (DB.getScalar('syllabusTopics') === null) DB.setObject('syllabusTopics', {});
   if (DB.getScalar('ptmAttendance') === null) DB.setObject('ptmAttendance', {});
   if (DB.getScalar('attendanceRecords') === null) {
@@ -4245,6 +4246,17 @@ function renderOwnerDashboard(){
   </div>`;
  }
 
+ if (ownerView === 'advances') {
+  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+    <div><button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
+     <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-crown text-amber-500 mr-2"></i>Advance Accounts</h1></div>
+    <button id="logoutBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
+   </div>
+   ${renderAdvanceAccounts()}
+  </div>`;
+ }
+
  if (ownerView === 'facultygap') {
   return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
@@ -4518,7 +4530,7 @@ var PRINCIPAL_CATEGORIES = [
 var ACC_CATEGORIES = [
  {key:'overview', label:'Overview', icon:'gauge-high',           tabs:['overview','feedashboard']},
  {key:'fees',     label:'Fees',     icon:'hand-holding-dollar',  tabs:['receipts','reminders','students']},
- {key:'payments', label:'Payments', icon:'money-bill-transfer',  tabs:['payments','salary','vehicles']},
+ {key:'payments', label:'Payments', icon:'money-bill-transfer',  tabs:['payments','salary','vehicles','advances']},
  {key:'records',  label:'Records',  icon:'book',                 tabs:['ledger','audit','recyclebin']}
 ];
 function _twoLevelTabBar(categories, allTabs, activeTab, catClass, tabClass, activeCls){
@@ -4557,6 +4569,7 @@ function renderAdminPanel(){
   {id:'disclosureDocs',label:'Disclosure PDFs',icon:'file-pdf'},
   {id:'inventory',label:'Inventory',icon:'boxes-stacked'},
   {id:'vehicles',label:'Vehicles',icon:'bus'},
+  {id:'advances',label:'Advance Accounts',icon:'hand-holding-dollar'},
   {id:'maintenance',label:'Maintenance',icon:'screwdriver-wrench'},
   {id:'bank',label:'Bank',icon:'building-columns'},
   {id:'calendar',label:'Calendar',icon:'calendar-days'},
@@ -9238,6 +9251,524 @@ function exportStudentRegisterExcel(cls, ym){
  const [yy,mm]=ym.split('-').map(Number);
  const title=`Attendance Register — ${cls} · ${new Date(yy,mm-1,1).toLocaleDateString('en-IN',{month:'long',year:'numeric'})}`;
  downloadExcel(_xlsSheet(title, head, rows), 'MDBV_Attendance_'+String(cls).replace(/\s+/g,'_')+'_'+ym, 'Register');
+}
+
+// ============== ADVANCE ACCOUNTS (money given to a person, and where it went) ==============
+// Money handed to someone to spend on the school's behalf is an ADVANCE, not an expense — the
+// expense is what they actually bought. Keeping these here means the detail can be examined
+// without double counting the lump sum already recorded in the ledger.
+// One fingerprint used both when checking and when storing, so a repeat import is recognised.
+// Money-given lines ignore the remark, which is sometimes edited between versions of a sheet.
+function _advKey(person, kind, date, amount, desc){
+ const d = kind === 'given' ? '' : String(desc||'').toLowerCase().slice(0,50);
+ return `${person}|${kind}|${date||''}|${Math.round(Number(amount)||0)}|${d}`;
+}
+function getAdvanceLedger(){ const v = get('advanceLedger'); return Array.isArray(v) ? v : []; }
+function saveAdvanceLedger(d){ DB.setAll('advanceLedger', d); }
+function canSeeAdvances(){
+ if (!currentUser) return false;
+ const rs = userRoles(currentUser.role);
+ return rs.some(r => OWNER_LEVEL_ROLES.includes(r)) || rs.includes('admin') || rs.includes('principal') || rs.includes('accountant');
+}
+const ADV_CAT_RULES = [
+ [/brick|cement|sand|mason|mistri|shutter|steel|rod|tin sheet|khokhar|gullu|dabbu|banang|construct|plaster|grinder|welder|weld/i,'Construction'],
+ [/labour|labor|attendance|coolie|earthwork|grass|material shifting|garbage|trolly/i,'Labour'],
+ [/electric|lineman|battery|fan|gen ?set|generator|akash|wire|bulb|radiator|belt/i,'Electrical & Generator'],
+ [/plumb|sanitary|ro plant|ro labour|water cooler|hosepipe|tank|zakir/i,'Water & Sanitary'],
+ [/petrol|diesel|puncture|riksha|rickshaw|pickup|fare|transport|supro|magic|eeco|sml|seat|bolt|washing|tyre/i,'Vehicle & Travel'],
+ [/samose|milk|snack|fruit|cold drink|besan|food|tea/i,'Refreshments'],
+ [/function|celebration|flag|teacher.s day|carom|shooting|library|donation/i,'Events & Activities'],
+ [/register|ink|stapler|board|first aid|torch|cycle|broom|spray|clock|cell|tailor|seat cover/i,'Supplies & Small Items'],
+ [/blood test|path lab|doctor|medical|vikash vani/i,'Medical']
+];
+function _advCategory(t){
+ const s = String(t||'');
+ for (const [re,c] of ADV_CAT_RULES) if (re.test(s)) return c;
+ return 'Other';
+}
+// ---- import from a "<Name> Account" style sheet ----
+var _advImportData = null;
+function _handleAdvanceImportUpload(arrayBuffer){
+ try { _advImportRun(arrayBuffer); }
+ catch(err){ alert('Could not read the file: ' + (err && err.message ? err.message : err)); }
+}
+function _advImportRun(arrayBuffer){
+ const wb = XLSX.read(arrayBuffer, { type:'array', cellDates:true });
+ const found = [];
+ wb.SheetNames.forEach(sheetName => {
+  const grid = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header:1, defval:'', raw:false, cellDates:true });
+  const flat = grid.map(r => (r||[]).map(c => String(c==null?'':c)).join(' ').toUpperCase());
+  const hasGiven = flat.some(l => /MONEY GIVEN/.test(l));
+  const hasExp   = flat.some(l => /EXPENSE/.test(l));
+  if (!hasGiven || !hasExp) return;
+  const person = String(sheetName).replace(/account/i,'').trim() || sheetName;
+  // find the header row that carries the column positions
+  let hdrRow = grid.findIndex(r => (r||[]).some(c => /^s\.?no$/i.test(String(c||'').trim())));
+  if (hdrRow < 0) return;
+  const hdr = (grid[hdrRow]||[]).map(c => String(c||'').trim());
+  const expDate = 1, expDesc = 2, expAmt = 3;                 // left block
+  let gIdx = hdr.findIndex((c,i) => i>3 && /^s\.?no$/i.test(c));
+  const spends=[], given=[];
+  grid.slice(hdrRow+1).forEach(r => {
+   const c=(r||[]).map(x => (x instanceof Date ? x : String(x==null?'':x).trim()));
+   // left: expense items — skip Subtotal and TOTAL lines or the money is counted twice
+   const d=String(c[expDesc]||'');
+   const amt=Number(String(c[expAmt]==null?'':c[expAmt]).replace(/[,\s₹]/g,''));
+   if (d && amt && !/subtotal|^total/i.test(d)) {
+    spends.push({ date:_excelDateToISO(c[expDate]), description:d, amount:amt, category:_advCategory(d) });
+   }
+   // right: money given
+   if (gIdx > -1) {
+    const gd=_excelDateToISO(c[gIdx+1]);
+    const ga=Number(String(c[gIdx+2]==null?'':c[gIdx+2]).replace(/[,\s₹]/g,''));
+    const lbl=String(c[gIdx+1]||'');
+    if (ga && !/total|balance/i.test(lbl) && gd) given.push({ date:gd, amount:ga, remarks:String(c[gIdx+3]||'') });
+   }
+  });
+  if (spends.length || given.length) found.push({ person, sheetName, spends, given });
+ });
+ if (!found.length) { alert('No account sheet found. The sheet needs an "EXPENSES" column and a "MONEY GIVEN" column.'); return; }
+ const existing = getAdvanceLedger();
+ const seen = new Set(existing.map(e => _advKey(e.person, e.kind, e.date, e.amount, e.description)));
+ found.forEach(f => {
+  f.dupSpends = f.spends.filter(s => seen.has(_advKey(f.person,'spent',s.date,s.amount,s.description))).length;
+  f.dupGiven  = f.given.filter(g => seen.has(_advKey(f.person,'given',g.date,g.amount,''))).length;
+ });
+ _advImportData = found;
+ try { _showAdvanceImportPreview(found); }
+ catch(err){ alert('Could not show the preview: ' + (err && err.message ? err.message : err)); }
+}
+function _ensureAdvImportModal(){
+ let m=document.getElementById('advImportModal');
+ if (m) return m;
+ m=document.createElement('div'); m.id='advImportModal'; m.className='modal';
+ m.innerHTML=`<div class="modal-content" style="max-width:900px">
+   <h3 class="text-lg font-bold mb-2"><i class="fas fa-hand-holding-dollar text-amber-600 mr-1"></i>Advance Account — Preview</h3>
+   <p class="text-sm text-gray-600 mb-3">Money given is recorded as an <b>advance</b>, and the itemised spending explains where it went. Neither is added to the expense ledger, so nothing is counted twice.</p>
+   <div id="advImportSummary" class="mb-3"></div>
+   <div id="advImportTable" class="overflow-auto max-h-96 border rounded"></div>
+   <div class="flex justify-end gap-2 mt-4">
+    <button class="closeModal bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded-lg text-sm font-medium">Cancel</button>
+    <button id="advImportConfirmBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-check mr-1"></i>Import</button>
+   </div></div>`;
+ document.body.appendChild(m); return m;
+}
+function _showAdvanceImportPreview(found){
+ _ensureAdvImportModal();
+ const inr=v=>'Rs.'+Math.round(v||0).toLocaleString('en-IN');
+ document.getElementById('advImportSummary').innerHTML = found.map(f=>{
+  const g=f.given.reduce((a,x)=>a+x.amount,0), s=f.spends.reduce((a,x)=>a+x.amount,0);
+  const bal=g-s;
+  return `<div class="bg-white border rounded-lg p-3 mb-2">
+    <div class="font-bold text-gray-800 mb-1">${escapeHTML(f.person)}</div>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+     <div class="bg-blue-50 border border-blue-200 rounded p-2"><div class="text-xs text-blue-700 uppercase font-semibold">Money given</div><div class="text-lg font-bold">${inr(g)}</div><div class="text-[11px] text-blue-800">${f.given.length} payment(s)</div></div>
+     <div class="bg-rose-50 border border-rose-200 rounded p-2"><div class="text-xs text-rose-700 uppercase font-semibold">Spent</div><div class="text-lg font-bold">${inr(s)}</div><div class="text-[11px] text-rose-800">${f.spends.length} item(s)</div></div>
+     <div class="bg-${bal<0?'amber':'emerald'}-50 border border-${bal<0?'amber':'emerald'}-200 rounded p-2"><div class="text-xs uppercase font-semibold">${bal<0?'Due to him':'Unspent'}</div><div class="text-lg font-bold">${inr(Math.abs(bal))}</div></div>
+     <div class="bg-gray-50 border rounded p-2"><div class="text-xs text-gray-600 uppercase font-semibold">Already recorded</div><div class="text-lg font-bold">${(f.dupSpends||0)+(f.dupGiven||0)}</div><div class="text-[11px] text-gray-500">will be skipped</div></div>
+    </div></div>`;
+ }).join('');
+ const rows=[];
+ found.forEach(f=>{
+  f.given.forEach(g=>rows.push({p:f.person,k:'Money given',d:g.date,desc:g.remarks||'Cash handed over',a:g.amount,c:''}));
+  f.spends.forEach(s=>rows.push({p:f.person,k:'Spent',d:s.date,desc:s.description,a:s.amount,c:s.category}));
+ });
+ document.getElementById('advImportTable').innerHTML=`<table class="text-xs w-full">
+  <thead class="bg-gray-100 sticky top-0"><tr><th class="text-left p-2">Person</th><th class="text-left p-2">Type</th><th class="text-left p-2">Date</th><th class="text-left p-2">Detail</th><th class="text-right p-2">Amount</th><th class="text-left p-2">Category</th></tr></thead>
+  <tbody>${rows.map(r=>`<tr class="border-t ${r.k==='Money given'?'bg-blue-50':''}"><td class="p-2">${escapeHTML(r.p)}</td><td class="p-2">${r.k}</td><td class="p-2 whitespace-nowrap">${escapeHTML(r.d||'—')}</td><td class="p-2">${escapeHTML(r.desc)}</td><td class="p-2 text-right">${inr(r.a)}</td><td class="p-2 text-gray-500">${escapeHTML(r.c)}</td></tr>`).join('')}</tbody></table>`;
+ const b=document.getElementById('advImportConfirmBtn'); const nb=b.cloneNode(true); b.parentNode.replaceChild(nb,b);
+ nb.addEventListener('click', _applyAdvanceImport);
+ document.getElementById('advImportModal').classList.remove('hidden');
+}
+function _applyAdvanceImport(){
+ const found=_advImportData; if(!found) return;
+ const all=getAdvanceLedger();
+ const seen=new Set(all.map(e=>_advKey(e.person,e.kind,e.date,e.amount,e.description)));
+ let n=0;
+ found.forEach(f=>{
+  f.given.forEach(g=>{
+   const k=_advKey(f.person,'given',g.date,g.amount,'');
+   if(seen.has(k)) return; seen.add(k);
+   all.push({id:newRowId(all),person:f.person,kind:'given',date:g.date,description:g.remarks||'',amount:g.amount,category:'',source:f.sheetName}); n++;
+  });
+  f.spends.forEach(s=>{
+   const k=_advKey(f.person,'spent',s.date,s.amount,s.description);
+   if(seen.has(k)) return; seen.add(k);
+   all.push({id:newRowId(all),person:f.person,kind:'spent',date:s.date,description:s.description,amount:s.amount,category:s.category,source:f.sheetName}); n++;
+  });
+ });
+ if(!n){ alert('Everything in this file is already recorded.'); return; }
+ if(!confirm(`Record ${n} line(s) in the advance account?`)) return;
+ try{ saveAdvanceLedger(all); }catch(e){ alert('Could not save: '+e.message); return; }
+ _advImportData=null;
+ document.getElementById('advImportModal').classList.add('hidden');
+ showToast(`${n} lines recorded`);
+ renderApp();
+}
+
+var _advPerson = '';
+var _advSearch = '';
+function renderAdvanceAccounts(){
+ if (!canSeeAdvances()) return '<div class="p-6 text-center text-gray-500">Not available for your role.</div>';
+ const led = getAdvanceLedger();
+ const people = [...new Set(led.map(e => e.person))].sort();
+ if (!people.length) return `<div class="space-y-3">
+   ${_advToolbar(people)}
+   <div class="bg-white border rounded-xl p-8 text-center text-gray-500">
+    <i class="fas fa-hand-holding-dollar text-3xl text-gray-300 mb-2"></i>
+    <div>No advance accounts yet.</div>
+    <div class="text-xs mt-1">Use <b>Import Account Sheet</b> to load one, or record money given below.</div>
+   </div></div>`;
+ if (!_advPerson || !people.includes(_advPerson)) _advPerson = people[0];
+ const mine = led.filter(e => e.person === _advPerson);
+ const given = mine.filter(e => e.kind === 'given');
+ const spent = mine.filter(e => e.kind === 'spent');
+ const G = given.reduce((a,e)=>a+(+e.amount||0),0);
+ const S = spent.reduce((a,e)=>a+(+e.amount||0),0);
+ const bal = G - S;
+ const inr = v => 'Rs.'+Math.round(v||0).toLocaleString('en-IN');
+ const card=(l,v,sub,c)=>`<div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500 uppercase tracking-wide">${l}</div>
+   <div class="text-2xl font-bold mt-0.5" style="color:${c}">${v}</div>${sub?`<div class="text-xs text-gray-500 mt-0.5">${sub}</div>`:''}</div>`;
+ // ---- where the money went ----
+ const byCat = {};
+ spent.forEach(e => { const c=e.category||'Other'; byCat[c]=(byCat[c]||0)+(+e.amount||0); });
+ const cats = Object.entries(byCat).sort((a,b)=>b[1]-a[1]);
+ const maxCat = cats.length ? cats[0][1] : 1;
+ const palette = ['#7a1e2e','#b45309','#1f8f4e','#2563eb','#7c3aed','#0891b2','#c8860d','#be123c','#334155','#65a30d'];
+ const catBars = cats.map(([c,v],i)=>`<div class="py-1.5 border-b last:border-0">
+    <div class="flex items-center justify-between text-sm mb-1">
+     <span class="font-medium">${escapeHTML(c)}</span>
+     <span class="text-gray-700"><b>${inr(v)}</b> <span class="text-xs text-gray-400">${Math.round(v/S*100)}%</span></span></div>
+    <div class="bg-gray-100 rounded-full h-2 overflow-hidden"><div style="width:${Math.max(2,Math.round(v/maxCat*100))}%;background:${palette[i%palette.length]}" class="h-2"></div></div>
+    <div class="text-[11px] text-gray-400 mt-0.5">${spent.filter(e=>(e.category||'Other')===c).length} item(s)</div>
+   </div>`).join('');
+ // ---- biggest single items ----
+ const top = spent.slice().sort((a,b)=>b.amount-a.amount).slice(0,8);
+ // ---- itemised ----
+ const q=(_advSearch||'').toLowerCase();
+ const shown = spent.filter(e => !q || String(e.description||'').toLowerCase().includes(q) || String(e.category||'').toLowerCase().includes(q))
+   .sort((a,b)=>String(a.date||'').localeCompare(String(b.date||'')) || b.amount-a.amount);
+ const shownSum = shown.reduce((a,e)=>a+(+e.amount||0),0);
+ return `<div class="space-y-3">
+  ${_advToolbar(people)}
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+   ${card('Money given', inr(G), given.length+' payment(s)', '#2563eb')}
+   ${card('Spent', inr(S), spent.length+' items', '#b3261e')}
+   ${card(bal<0?'Due to '+escapeHTML(_advPerson):'Still in hand', inr(Math.abs(bal)), bal<0?'he spent more than he was given':'not yet spent', bal<0?'#b45309':'#1f8f4e')}
+   ${card('Largest item', top.length?inr(top[0].amount):'—', top.length?escapeHTML(String(top[0].description).slice(0,28)):'', '#7a1e2e')}
+  </div>
+  <div class="grid lg:grid-cols-2 gap-3">
+   <div class="bg-white rounded-xl border p-4">
+    <div class="font-bold text-gray-800 mb-2"><i class="fas fa-chart-pie text-rose-600 mr-1.5"></i>Where the money went</div>
+    ${cats.length?catBars:'<div class="text-sm text-gray-500">Nothing recorded yet.</div>'}
+   </div>
+   <div class="space-y-3">
+    <div class="bg-white rounded-xl border p-4">
+     <div class="font-bold text-gray-800 mb-2"><i class="fas fa-arrow-down-wide-short text-amber-600 mr-1.5"></i>Biggest items</div>
+     ${top.map(e=>`<div class="flex justify-between text-sm py-1 border-b last:border-0">
+       <span>${escapeHTML(e.description)}<span class="text-[11px] text-gray-400 ml-1">${escapeHTML(e.category||'')}</span></span>
+       <b class="whitespace-nowrap ml-2">${inr(e.amount)}</b></div>`).join('') || '<div class="text-sm text-gray-500">—</div>'}
+    </div>
+    <div class="bg-white rounded-xl border p-4">
+     <div class="font-bold text-gray-800 mb-2"><i class="fas fa-hand-holding-dollar text-blue-600 mr-1.5"></i>Money given</div>
+     ${given.sort((a,b)=>String(a.date).localeCompare(String(b.date))).map(e=>`<div class="flex justify-between text-sm py-1 border-b last:border-0">
+       <span>${escapeHTML(e.date||'—')}${e.description?` <span class="text-[11px] text-gray-400">${escapeHTML(e.description)}</span>`:''}</span>
+       <b>${inr(e.amount)}</b></div>`).join('') || '<div class="text-sm text-gray-500">—</div>'}
+     <div class="flex justify-between text-sm pt-2 mt-1 border-t font-bold"><span>Total</span><span>${inr(G)}</span></div>
+    </div>
+   </div>
+  </div>
+  <div class="bg-white rounded-xl border overflow-hidden">
+   <div class="flex flex-wrap items-center justify-between gap-2 px-4 pt-4 pb-2">
+    <div class="font-bold text-gray-800"><i class="fas fa-list text-gray-600 mr-1.5"></i>Every item (${shown.length}${shown.length!==spent.length?' of '+spent.length:''}) — ${inr(shownSum)}</div>
+    <div class="flex gap-2">
+     <input id="advSearch" value="${escapeHTML(_advSearch)}" placeholder="Search an item or category" class="border rounded-lg px-2 py-1 text-sm" style="width:220px">
+     <button id="advPrintBtn" class="bg-slate-700 hover:bg-slate-800 text-white px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-print mr-1"></i>Print</button>
+     <button id="advXlsBtn" class="bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-file-excel mr-1"></i>XLSX</button>
+    </div>
+   </div>
+   <div class="overflow-x-auto"><table class="w-full text-sm">
+    <thead class="bg-stone-100 text-gray-700"><tr><th class="px-3 py-2 text-left">#</th><th class="px-3 py-2 text-left">Date</th><th class="px-3 py-2 text-left">Item</th><th class="px-3 py-2 text-left">Category</th><th class="px-3 py-2 text-right">Amount</th></tr></thead>
+    <tbody>${shown.map((e,i)=>`<tr class="border-b hover:bg-gray-50">
+      <td class="px-3 py-1.5 text-gray-400">${i+1}</td>
+      <td class="px-3 py-1.5 whitespace-nowrap">${escapeHTML(e.date||'—')}</td>
+      <td class="px-3 py-1.5">${escapeHTML(e.description)}</td>
+      <td class="px-3 py-1.5 text-gray-600">${escapeHTML(e.category||'Other')}</td>
+      <td class="px-3 py-1.5 text-right font-medium">${inr(e.amount)}</td></tr>`).join('')}</tbody>
+    <tfoot><tr class="bg-stone-50 font-bold"><td colspan="4" class="px-3 py-2">Total</td><td class="px-3 py-2 text-right">${inr(shownSum)}</td></tr></tfoot>
+   </table></div>
+  </div>
+  <p class="text-xs text-gray-400">These figures sit outside the expense ledger. The lump sum handed over is already recorded there as an expense, so counting the items again would double it.</p>
+ </div>`;
+}
+function _advToolbar(people){
+ return `<div class="flex flex-wrap justify-between items-center gap-2">
+   <div><h2 class="text-lg font-bold"><i class="fas fa-hand-holding-dollar text-amber-600 mr-1"></i>Advance Accounts</h2>
+    <p class="text-xs text-gray-600">Money handed to someone to spend for the school, and exactly where it went.</p></div>
+   <div class="flex gap-2 items-center flex-wrap">
+    ${people.length>1?`<select id="advPersonSel" class="border rounded-lg px-2 py-1.5 text-sm" style="width:auto">${people.map(p=>`<option ${p===_advPerson?'selected':''}>${escapeHTML(p)}</option>`).join('')}</select>`:''}
+    <button id="advImportBtn" class="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-file-arrow-up mr-1"></i>Import Account Sheet</button>
+    <input type="file" id="advImportFile" class="hidden" accept=".xlsx,.xls">
+   </div></div>`;
+}
+function _attachAdvanceEvents(){
+ document.getElementById('advPersonSel')?.addEventListener('change', e => { _advPerson = e.target.value; renderApp(); });
+ const b=document.getElementById('advImportBtn'), f=document.getElementById('advImportFile');
+ b?.addEventListener('click', () => { if (typeof XLSX==='undefined'){alert('Excel library not loaded.');return;} f.value=''; f.click(); });
+ f?.addEventListener('change', e => {
+  const file=e.target.files[0]; if(!file) return;
+  const rd=new FileReader(); rd.onload=ev=>_handleAdvanceImportUpload(ev.target.result); rd.readAsArrayBuffer(file);
+ });
+ const si=document.getElementById('advSearch');
+ si?.addEventListener('input', e => { _advSearch=e.target.value; renderApp();
+  const n=document.getElementById('advSearch'); if(n){n.focus(); n.setSelectionRange(n.value.length,n.value.length);} });
+ document.getElementById('advPrintBtn')?.addEventListener('click', () => printAdvanceAccount(_advPerson));
+ document.getElementById('advXlsBtn')?.addEventListener('click', () => exportAdvanceAccount(_advPerson));
+}
+function _advRows(person){
+ const led=getAdvanceLedger().filter(e=>e.person===person);
+ return { given: led.filter(e=>e.kind==='given'), spent: led.filter(e=>e.kind==='spent').sort((a,b)=>String(a.date||'').localeCompare(String(b.date||''))) };
+}
+function printAdvanceAccount(person){
+ const {given,spent}=_advRows(person);
+ const G=given.reduce((a,e)=>a+(+e.amount||0),0), S=spent.reduce((a,e)=>a+(+e.amount||0),0);
+ const inr=v=>'Rs.'+Math.round(v||0).toLocaleString('en-IN');
+ const byCat={}; spent.forEach(e=>{const c=e.category||'Other'; byCat[c]=(byCat[c]||0)+(+e.amount||0);});
+ const today=new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
+ const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Advance Account — ${escapeHTML(person)}</title><style>
+  @page{size:A4;margin:10mm}*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;box-sizing:border-box}
+  body{font-family:Arial;margin:0;font-size:11px;color:#111}
+  .head{text-align:center;border-bottom:2px solid #7a1e2e;padding-bottom:5px;margin-bottom:8px}
+  .sch{font-size:16px;font-weight:bold;color:#7a1e2e}.ttl{font-size:13px;font-weight:bold;margin-top:3px}
+  table{width:100%;border-collapse:collapse;margin-top:6px}th,td{border:1px solid #aaa;padding:3px 5px;font-size:10px}
+  th{background:#eee}td.r{text-align:right}tfoot td{background:#f6f6f6;font-weight:bold}
+  .cards{display:flex;gap:8px;margin:8px 0}.c{flex:1;border:1px solid #bbb;padding:6px;text-align:center}
+  .c .l{font-size:9px;color:#666;text-transform:uppercase}.c .v{font-size:15px;font-weight:bold}
+  h3{font-size:11.5px;margin:10px 0 3px;color:#7a1e2e}
+  .sign{margin-top:24px;display:flex;justify-content:space-between;font-size:10px}
+  .noprint{text-align:center;margin:8px 0}button{padding:7px 16px;border:none;border-radius:5px;background:#7a1e2e;color:#fff;cursor:pointer}
+  @media print{.noprint{display:none}}</style></head><body>
+  <div class="noprint"><button onclick="window.print()">Print / Save as PDF</button></div>
+  <div class="head"><div class="sch">${escapeHTML((SCHOOL_INFO.name||'').toUpperCase())}</div>
+   <div class="ttl">Advance Account — ${escapeHTML(person)}</div><div style="font-size:9px">Printed ${today}</div></div>
+  <div class="cards">
+   <div class="c"><div class="l">Money given</div><div class="v">${inr(G)}</div><div style="font-size:9px">${given.length} payment(s)</div></div>
+   <div class="c"><div class="l">Spent</div><div class="v">${inr(S)}</div><div style="font-size:9px">${spent.length} items</div></div>
+   <div class="c"><div class="l">${G-S<0?'Due to him':'Still in hand'}</div><div class="v">${inr(Math.abs(G-S))}</div></div>
+  </div>
+  <h3>Money given</h3>
+  <table><thead><tr><th>#</th><th>Date</th><th>Note</th><th class="r">Amount</th></tr></thead>
+   <tbody>${given.map((e,i)=>`<tr><td>${i+1}</td><td>${escapeHTML(e.date||'')}</td><td>${escapeHTML(e.description||'')}</td><td class="r">${inr(e.amount)}</td></tr>`).join('')}</tbody>
+   <tfoot><tr><td colspan="3">Total given</td><td class="r">${inr(G)}</td></tr></tfoot></table>
+  <h3>Where it went</h3>
+  <table><thead><tr><th>Category</th><th class="r">Amount</th><th class="r">Share</th></tr></thead>
+   <tbody>${Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([c,v])=>`<tr><td>${escapeHTML(c)}</td><td class="r">${inr(v)}</td><td class="r">${Math.round(v/S*100)}%</td></tr>`).join('')}</tbody></table>
+  <h3>Every item</h3>
+  <table><thead><tr><th>#</th><th>Date</th><th>Item</th><th>Category</th><th class="r">Amount</th></tr></thead>
+   <tbody>${spent.map((e,i)=>`<tr><td>${i+1}</td><td>${escapeHTML(e.date||'')}</td><td>${escapeHTML(e.description)}</td><td>${escapeHTML(e.category||'')}</td><td class="r">${inr(e.amount)}</td></tr>`).join('')}</tbody>
+   <tfoot><tr><td colspan="4">Total spent</td><td class="r">${inr(S)}</td></tr></tfoot></table>
+  <div class="sign"><div>${escapeHTML(person)} ____________</div><div>Accountant ____________</div><div>Principal ____________</div></div>
+ </body></html>`;
+ const w=window.open('','_blank'); if(!w){alert('Please allow pop-ups to print.');return;} w.document.write(html); w.document.close();
+}
+function exportAdvanceAccount(person){
+ const {given,spent}=_advRows(person);
+ const head=['Type','Date','Item / Note','Category','Amount'];
+ const rows=given.map(e=>['Money given',e.date||'',e.description||'','',Math.round(e.amount)])
+   .concat(spent.map(e=>['Spent',e.date||'',e.description,e.category||'',Math.round(e.amount)]));
+ const G=given.reduce((a,e)=>a+(+e.amount||0),0), S=spent.reduce((a,e)=>a+(+e.amount||0),0);
+ rows.push([]); rows.push(['','','Total given','',Math.round(G)]);
+ rows.push(['','','Total spent','',Math.round(S)]);
+ rows.push(['','',(G-S<0?'Due to '+person:'Still in hand'),'',Math.round(Math.abs(G-S))]);
+ downloadExcel(_xlsSheet('Advance Account — '+person, head, rows), 'MDBV_Advance_'+String(person).replace(/\W+/g,'_')+'_'+_stamp(), 'Advance');
+}
+
+// ============== EXPENSE BULK IMPORT ==============
+// Reads a monthly expense workbook: one sheet per month, split into ONLINE PAYMENTS and
+// CASH PAYMENTS sections, each with S.No / Date / Particulars / Amount / Remarks.
+var _expImportData = null;
+const _EXP_CAT_RULES = [
+ [/diesel|petrol|fuel|motors|tyre|servic|winger|eeco|magic|bolero|vehicle|rto|permit|insurance/i, 'Transport (Fuel/Service)'],
+ [/stationer|register|book|copy|paper|print|banner|board/i, 'Supplies & Stationery'],
+ [/bsnl|jio|airtel|phone|internet|wifi|fiber|broadband|recharge/i, 'Internet/Phone'],
+ [/electric|bijli|power|water|tank|solar/i, 'Utilities (Electric/Water)'],
+ [/cement|brick|sand|mason|labour|mistri|plumb|carpent|paint|repair|construct|vishawakarma|vishwakarma|banang|tiles|steel|rod/i, 'Repairs & Maintenance'],
+ [/cctv|camera|guard|security/i, 'Security'],
+ [/clean|sweep|jhadu|phenyl|harpic/i, 'Cleaning'],
+ [/uniform|dress|shoe|tie|belt/i, 'Uniform Purchase'],
+ [/function|event|program|sports|annual|celebrat|decor/i, 'Event Expenses'],
+ [/rent|kiraya/i, 'Rent'],
+ [/tax|gst|fee|challan|govt|government/i, 'Tax/Government Fee'],
+ [/salary|wages|tankhwa/i, 'Salary']
+];
+function _guessExpenseCategory(text){
+ const t = String(text||'');
+ for (const [re, cat] of _EXP_CAT_RULES) if (re.test(t)) return cat;
+ return 'Other';
+}
+function _excelDateToISO(v){
+ if (v == null || v === '') return '';
+ if (v instanceof Date) return v.toISOString().slice(0,10);
+ const s = String(v).trim();
+ let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);           if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+ m = s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})$/);  if (m) return `${m[3]}-${String(m[2]).padStart(2,'0')}-${String(m[1]).padStart(2,'0')}`;
+ const n = Number(s);                                    // Excel serial
+ if (!isNaN(n) && n > 20000 && n < 60000) {
+  const d = new Date(Date.UTC(1899,11,30) + n*86400000);
+  return d.toISOString().slice(0,10);
+ }
+ const d2 = new Date(s);
+ return isNaN(d2.getTime()) ? '' : d2.toISOString().slice(0,10);
+}
+function _monthStartFromSheet(name){
+ const m = String(name).match(/(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s*(\d{4})/i);
+ if (!m) return '';
+ const mm = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'].indexOf(m[1].toLowerCase())+1;
+ return `${m[2]}-${String(mm).padStart(2,'0')}-01`;
+}
+function _handleExpenseImportUpload(arrayBuffer){
+ try { _expImportRun(arrayBuffer); }
+ catch(err){ alert('Could not read the expense file: ' + (err && err.message ? err.message : err)); }
+}
+function _expImportRun(arrayBuffer){
+ const wb = XLSX.read(arrayBuffer, { type:'array', cellDates:true });
+ const rowsOut = [], skipped = [];
+ const existing = get('expenses') || [];
+ // Match on a fingerprint stored at import time, plus date+amount+vendor for entries typed
+ // in by hand. Keying on the description alone failed once remarks were appended to it.
+ const seen = new Set();
+ existing.forEach(e => {
+  if (e.importKey) seen.add(e.importKey);
+  seen.add(`${e.date}|${Math.round(Number(e.amount)||0)}|${String(e.vendor||e.description||'').trim().toLowerCase().slice(0,60)}`);
+ });
+ wb.SheetNames.forEach(sheetName => {
+  const monthStart = _monthStartFromSheet(sheetName);
+  if (!monthStart) return;                        // only month sheets (skips Summary, Rajeev Account)
+  const grid = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header:1, defval:'', raw:false, cellDates:true });
+  let mode = null;
+  grid.forEach((row, i) => {
+   const cells = (row||[]).map(c => (c instanceof Date ? c : String(c==null?'':c).trim()));
+   const joined = cells.map(c => String(c).toUpperCase()).join(' ');
+   if (/ONLINE/.test(joined) && /PAYMENT/.test(joined)) { mode = 'Online (UPI/NEFT/IMPS)'; return; }
+   if (/CASH/.test(joined) && /PAYMENT/.test(joined))   { mode = 'Cash'; return; }
+   if (/^S\.?NO/i.test(String(cells[0]||''))) return;
+   if (/TOTAL/.test(joined)) return;
+   const sno = Number(String(cells[0]||'').replace(/[^\d.]/g,''));
+   if (!sno) return;
+   const desc = String(cells[2]||'').trim();
+   const amt = Number(String(cells[3]==null?'':cells[3]).replace(/[,\s₹]/g,''));
+   if (!desc || !amt || isNaN(amt)) { if (desc) skipped.push({sheetName, sno, desc, why:'no amount'}); return; }
+   let date = _excelDateToISO(cells[1]);
+   const dateMissing = !date;
+   if (dateMissing) date = monthStart;             // fall back to the 1st of that month, and flag it
+   const remarks = String(cells[4]||'').trim();
+   const key = `${date}|${Math.round(amt)}|${desc.toLowerCase().slice(0,60)}`;
+   rowsOut.push({ sheetName, sno, date, dateMissing, description: desc, amount: amt,
+                  mode: mode || 'Cash', remarks,
+                  category: _guessExpenseCategory(desc + ' ' + remarks),
+                  duplicate: seen.has(key), key });
+  });
+ });
+ // duplicates within the file itself
+ const within = {};
+ rowsOut.forEach(r => { within[r.key] = (within[r.key]||0)+1; });
+ rowsOut.forEach(r => { if (within[r.key] > 1) r.dupInFile = true; });
+ _expImportData = { rows: rowsOut, skipped };
+ try { _showExpenseImportPreview(_expImportData); }
+ catch(err){ alert('Could not show the preview: ' + (err && err.message ? err.message : err)); }
+}
+function _ensureExpenseImportModal(){
+ let m = document.getElementById('expImportModal');
+ if (m) return m;
+ m = document.createElement('div');
+ m.id = 'expImportModal'; m.className = 'modal';
+ m.innerHTML = `<div class="modal-content" style="max-width:1080px">
+   <h3 class="text-lg font-bold mb-2"><i class="fas fa-file-invoice-dollar text-rose-600 mr-1"></i>Import Expenses — Preview</h3>
+   <p class="text-sm text-gray-600 mb-3">Nothing is saved until you confirm. A category is suggested from the description; you can change any of them afterwards on the Ledger.</p>
+   <div id="expImportSummary" class="mb-3"></div>
+   <div id="expImportOptions" class="mb-3 bg-white border rounded-lg p-3"></div>
+   <div id="expImportTable" class="overflow-auto max-h-96 border rounded"></div>
+   <div class="flex justify-end gap-2 mt-4">
+    <button class="closeModal bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded-lg text-sm font-medium">Cancel</button>
+    <button id="expImportConfirmBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-check mr-1"></i>Import Expenses</button>
+   </div>
+  </div>`;
+ document.body.appendChild(m);
+ return m;
+}
+function _showExpenseImportPreview(d){
+ _ensureExpenseImportModal();
+ const rows = d.rows;
+ const dupes = rows.filter(r => r.duplicate).length;
+ const nodate = rows.filter(r => r.dateMissing).length;
+ const total = rows.reduce((a,r)=>a+r.amount,0);
+ const byMonth = {};
+ rows.forEach(r => { const k=r.sheetName; byMonth[k]=byMonth[k]||{n:0,sum:0}; byMonth[k].n++; byMonth[k].sum+=r.amount; });
+ const byCat = {};
+ rows.forEach(r => { byCat[r.category]=(byCat[r.category]||0)+r.amount; });
+ const inr = v => 'Rs.'+Math.round(v).toLocaleString('en-IN');
+ document.getElementById('expImportSummary').innerHTML = `
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm mb-2">
+   <div class="bg-gray-50 border rounded p-2"><div class="text-xs uppercase font-semibold text-gray-600">Entries</div><div class="text-2xl font-bold">${rows.length}</div></div>
+   <div class="bg-emerald-50 border border-emerald-200 rounded p-2"><div class="text-xs uppercase font-semibold text-emerald-700">Total value</div><div class="text-xl font-bold text-emerald-900">${inr(total)}</div></div>
+   <div class="bg-amber-50 border border-amber-200 rounded p-2"><div class="text-xs uppercase font-semibold text-amber-700">No date in file</div><div class="text-2xl font-bold text-amber-900">${nodate}</div><div class="text-[11px] text-amber-800">set to the 1st of the month</div></div>
+   <div class="bg-rose-50 border border-rose-200 rounded p-2"><div class="text-xs uppercase font-semibold text-rose-700">Already recorded</div><div class="text-2xl font-bold text-rose-900">${dupes}</div><div class="text-[11px] text-rose-800">skipped unless you tick below</div></div>
+  </div>
+  <div class="text-xs text-gray-600">${Object.entries(byMonth).map(([k,v])=>`<b>${escapeHTML(k)}</b>: ${v.n} entries, ${inr(v.sum)}`).join(' &nbsp;·&nbsp; ')}</div>
+  <div class="text-xs text-gray-500 mt-1">Suggested categories: ${Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`${escapeHTML(k)} ${inr(v)}`).join(' · ')}</div>`;
+ document.getElementById('expImportOptions').innerHTML = `
+  <label class="flex items-start gap-2 text-sm"><input type="checkbox" id="expImportDupes" class="mt-1 w-auto" ${dupes?'':'disabled'}>
+   <span><b>Also import the ${dupes} entr${dupes===1?'y':'ies'} that look already recorded.</b>
+   <span class="text-gray-500">Matched on the same date, amount and description. Leave unticked to avoid double counting.</span></span></label>`;
+ document.getElementById('expImportTable').innerHTML = `<table class="text-xs w-full">
+   <thead class="bg-gray-100 sticky top-0"><tr>
+    <th class="text-left p-2">Month</th><th class="text-left p-2">Date</th><th class="text-left p-2">Description</th>
+    <th class="text-right p-2">Amount</th><th class="text-left p-2">Mode</th><th class="text-left p-2">Category</th><th class="text-left p-2">Note</th>
+   </tr></thead><tbody>${rows.map(r=>`<tr class="border-t ${r.duplicate?'bg-rose-50':(r.dateMissing?'bg-amber-50':'')}">
+    <td class="p-2">${escapeHTML(r.sheetName)}</td>
+    <td class="p-2 whitespace-nowrap">${escapeHTML(r.date)}${r.dateMissing?' <span class="text-amber-700">(assumed)</span>':''}</td>
+    <td class="p-2 font-medium">${escapeHTML(r.description)}</td>
+    <td class="p-2 text-right">${inr(r.amount)}</td>
+    <td class="p-2">${r.mode==='Cash'?'Cash':'Online'}</td>
+    <td class="p-2">${escapeHTML(r.category)}</td>
+    <td class="p-2 text-gray-500">${escapeHTML(r.remarks||'')}${r.duplicate?' <b class="text-rose-700">already recorded</b>':''}${r.dupInFile?' <b class="text-rose-700">twice in file</b>':''}</td>
+   </tr>`).join('')}</tbody></table>
+   ${d.skipped.length?`<div class="p-2 text-xs text-gray-500">${d.skipped.length} line(s) skipped for having no amount.</div>`:''}`;
+ const btn=document.getElementById('expImportConfirmBtn');
+ const nb=btn.cloneNode(true); btn.parentNode.replaceChild(nb,btn);
+ nb.addEventListener('click', _applyExpenseImport);
+ document.getElementById('expImportModal').classList.remove('hidden');
+}
+function _applyExpenseImport(){
+ const d=_expImportData; if(!d) return;
+ const withDupes = document.getElementById('expImportDupes')?.checked;
+ const todo = d.rows.filter(r => withDupes || !r.duplicate);
+ if (!todo.length) { alert('Nothing to import with the option chosen.'); return; }
+ const total = todo.reduce((a,r)=>a+r.amount,0);
+ if (!confirm(`Import ${todo.length} expense entr${todo.length===1?'y':'ies'} totalling Rs.${Math.round(total).toLocaleString('en-IN')}?\n\n`
+  + `They will appear in the Ledger and in the financial summary.\nTake a backup first if you have not.`)) return;
+ const all = get('expenses') || [];
+ todo.forEach(r => {
+  all.push({
+   id: newRowId(all),
+   date: r.date,
+   category: r.category,
+   vendor: r.description.slice(0,60),
+   description: r.description + (r.remarks ? ' — ' + r.remarks : ''),
+   amount: r.amount,
+   mode: r.mode,
+   importedFrom: r.sheetName,
+   importKey: r.key,
+   dateAssumed: r.dateMissing || undefined,
+   createdBy: currentUser?.name || '',
+   createdAt: new Date().toISOString()
+  });
+ });
+ try { DB.setAll('expenses', all); } catch(e){ alert('Could not save: '+e.message); return; }
+ _expImportData=null;
+ document.getElementById('expImportModal').classList.add('hidden');
+ showToast(`${todo.length} expenses imported (Rs.${Math.round(total).toLocaleString('en-IN')})`);
+ renderApp();
 }
 
 // ============== SR NUMBER BULK IMPORT ==============
@@ -13978,6 +14509,7 @@ function _ownerSectionCards(section){
  const users = getUsers(); const defPw = users.filter(u=>u.defaultPw||u.password==='CHANGE_ME').length;
  const cards = {
   finance: [
+   {btn:'ownerOpenAdvancesBtn', title:'Advance Accounts', icon:'hand-holding-dollar', color:'#b45309', action:'Open Advance Accounts', desc:'Money handed to someone to spend for the school, and exactly where it went.'},
    {btn:'ownerOpenLedgerBtn', title:'Ledger', icon:'book', color:'#334155', action:'Open Ledger', desc:'Every rupee in and out — searchable, sortable by head, filterable by date.'},
    {btn:'ownerOpenFeeDashBtn', title:'Fee Dashboard', icon:'chart-column', color:'#059669', action:'Open Fee Dashboard', desc:'Class-wise fees expected, collected and outstanding with collection rates.'},
    {btn:'ownerOpenFinModelBtn', title:'Financial Model', icon:'chart-line', color:'#4f46e5', action:'Open Financial Model', desc:'Project revenue, cost & surplus. Adjust fees/salaries, see break-even.'},
@@ -15408,6 +15940,7 @@ function renderAccountantTabContent(){
   case 'students': return renderStudentsTab();
   case 'receipts': return renderAccReceipts();
   case 'payments': return renderAccPayments();
+  case 'advances': return renderAdvanceAccounts();
   case 'salary': return renderAccSalary();
   case 'vehicles': return renderAccVehicleExpenses();
   case 'reminders': return renderFeeRemindersTab();
@@ -16544,7 +17077,13 @@ function renderAccPayments(){
  return `<div>
   <!-- Record expense form -->
   <div class="bg-white border rounded-lg p-4 mb-4">
-   <h3 class="font-semibold mb-3"><i class="fas fa-money-bill-transfer text-rose-600 mr-1"></i>Record Payment / Expense</h3>
+   <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+    <h3 class="font-semibold"><i class="fas fa-money-bill-transfer text-rose-600 mr-1"></i>Record Payment / Expense</h3>
+    <div class="flex gap-2 items-center">
+     <button id="bulkImportExpenseBtn" class="bg-rose-700 hover:bg-rose-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Import a month-wise expense workbook"><i class="fas fa-file-arrow-up mr-1"></i>Import Expenses</button>
+     <input type="file" id="bulkImportExpenseFile" class="hidden" accept=".xlsx,.xls">
+    </div>
+   </div>
    <div class="grid md:grid-cols-2 gap-3 mb-3">
     <div>
      <label class="text-xs font-medium">Category *</label>
@@ -17968,7 +18507,7 @@ function attachAccountantEvents(){
  else if (activeAccountantTab === 'payments') _attachPaymentEvents();
  else if (activeAccountantTab === 'salary') _attachSalaryEvents();
  else if (activeAccountantTab === 'vehicles') _attachVehicleExpenseEvents();
- else if (activeAccountantTab === 'reminders') attachFeeRemindersEvents();
+ else if (activeAccountantTab === 'advances') _attachAdvanceEvents(); else if (activeAccountantTab === 'reminders') attachFeeRemindersEvents();
  else if (activeAccountantTab === 'ledger') _attachLedgerEvents();
  else if (activeAccountantTab === 'audit') _attachAuditEvents();
  else if (activeAccountantTab === 'recyclebin') _attachRecycleBinEvents();
@@ -18627,6 +19166,17 @@ function _attachPaymentEvents(){
  updateExpModeUI();
 
  // Show staff-name + for-month fields ONLY when the Salary category is chosen.
+ const expImpBtn = document.getElementById('bulkImportExpenseBtn');
+ const expImpFile = document.getElementById('bulkImportExpenseFile');
+ expImpBtn?.addEventListener('click', () => {
+  if (typeof XLSX === 'undefined') { alert('Excel library not loaded. Reload the page and try again.'); return; }
+  expImpFile.value=''; expImpFile.click();
+ });
+ expImpFile?.addEventListener('change', e => {
+  const f=e.target.files[0]; if(!f) return;
+  if (f.size > 15*1024*1024) { alert('File too large (max 15 MB)'); return; }
+  const rd=new FileReader(); rd.onload=ev=>_handleExpenseImportUpload(ev.target.result); rd.readAsArrayBuffer(f);
+ });
  const catSel = document.getElementById('expCategory');
  const salStaffRow = document.getElementById('expSalaryStaffRow');
  const salMonthRow = document.getElementById('expSalaryMonthRow');
@@ -19196,6 +19746,8 @@ function attachOwnerEvents(){
   renderApp();
  });
  if (ownerView === 'feedashboard') _attachFeeDashboardEvents();
+ document.getElementById('ownerOpenAdvancesBtn')?.addEventListener('click', () => { ownerView='advances'; renderApp(); });
+ if (ownerView === 'advances') _attachAdvanceEvents();
  document.getElementById('ownerOpenGapBtn')?.addEventListener('click', () => { ownerView='facultygap'; renderApp(); });
  if (ownerView === 'facultygap') _attachFacultyGapEvents();
  document.getElementById('ownerOpenFinModelBtn')?.addEventListener('click', () => {
