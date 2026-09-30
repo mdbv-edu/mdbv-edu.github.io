@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1790367043 - data-loss fix: the app only pulled at page load, so a tab left open pushed its stale copy and DELETED rows other staff had added; a push now only removes rows this browser has seen, and the app quietly re-pulls every 90s (never while typing) with a visible Refresh button; bulk marks import limited to office/Principal; Theory+Practical is now a clear labelled toggle; teacher dashboard gains performance and attendance trackers; a short how-to pop-up on login, once a day -->
+<!-- BUILD: v-1790756714 - Scholar Register numbers: bulk import from a spreadsheet matched on admission number, with a preview showing what will be set, what would change, SR clashes and pupils not on the roll; SR visibility tightened to Principal, office and owner only (the accountant no longer sees it) -->
 <!-- BUILD: v-1790340000 - MARKS ENTRY FIX: saving marks used to always ADD a new row instead of replacing the old one, so re-entering/correcting a mark created a silent duplicate — this is what made a plain single mark for English display as "71 + 71 (Theory + Internal)" even though that option was never ticked. Saving now clears any prior row for that student+exam+subject first. MARKS VISIBILITY FIX: the marks entry/summary screen used to only show a teacher their own submissions, so nobody else — not admin, not principal, not another teacher on the same class — could see, correct, or delete what had been entered. It now shows every entry for the classes the user has access to (all classes for admin/principal/owner, assigned classes for a teacher), with an "Entered By" column, so any of them can override or delete it. Added a report-card shortcut button on each marks row. REPORT CARD: removed Scholar Reg No and UDISE/PEN from the student-facing report card entirely. -->
 <!-- BUILD: v-1790432000 - MARKS SUMMARY REDESIGNED: now a class-wise, exam-wise table (not a subject-per-row accordion). Class picker at the top lets you toggle between classes in one place. Exam dropdown: select a single exam to see/edit/delete one exam at a time, or "Combined" to view all exams' marks added together as an overall percentage per subject. Student rows × subject columns. For Class 11 and 12, Branch column shows PCM/PCB/Humanities. "Overall" column sums all subjects for a holistic picture. Actions: Edit (edit all of that exam's marks for one student in a modal), Delete (remove that exam's marks for one student), Report Card. Edit modal handles split Theory+Internal and single-mark subjects, with AB (absent) checkbox per subject. Report card can show a single exam or the full consolidated card. Stream/Branch field added to student form (shows only for 11/12). -->
 
@@ -715,9 +715,13 @@ function canSeeSalary(){
  // Explicit list — note isAccountantLevel() also covers admin, which must NOT see salaries.
  return rs.some(r => OWNER_LEVEL_ROLES.includes(r)) || rs.includes('principal') || rs.includes('accountant');
 }
+// Scholar Register number — Principal, office (admin) and owner-level only.
+// Deliberately NOT the accountant: isAdminLevel()/isAccountantLevel() overlap, so the roles
+// are listed explicitly here.
 function canSeeSRNumber(){
  if (!currentUser) return false;
- return isOwnerLevel() || isAdminLevel() || isAccountantLevel() || isPrincipalLevel();
+ const rs = userRoles(currentUser.role);
+ return rs.some(r => OWNER_LEVEL_ROLES.includes(r)) || rs.includes('admin') || rs.includes('principal');
 }
 // Masks a confidential value for display to non-privileged users (shows nothing revealing).
 function maskConfidential(val){
@@ -4766,6 +4770,8 @@ function renderStudentsTab(){
     <button id="addStudentBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-plus mr-1"></i>Add Student</button>
     <button id="downloadStudentTemplateBtn" class="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Download Excel template for bulk entry"><i class="fas fa-file-arrow-down mr-1"></i>Template</button>
     <button id="bulkImportStudentsBtn" class="bg-cyan-600 hover:bg-cyan-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Upload filled template to bulk-add students"><i class="fas fa-file-arrow-up mr-1"></i>Bulk Import</button>
+    ${canImportSRNumbers()?`<button id="bulkImportSRBtn" class="bg-rose-700 hover:bg-rose-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Import Scholar Register numbers from a spreadsheet"><i class="fas fa-hashtag mr-1"></i>Import SR Numbers</button>
+    <input type="file" id="bulkImportSRFile" class="hidden" accept=".xlsx,.xls">`:''}
     <input type="file" id="bulkImportStudentsFile" class="hidden" accept=".xlsx,.xls,.csv">
     <button id="exportStudentsBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-file-excel mr-1"></i>Export</button>
     <button id="promoteStudentsBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-arrow-up mr-1"></i>Promote</button>
@@ -8424,6 +8430,17 @@ function renderAdminAttendance(){
     <input type="file" id="bulkImportAttendanceFile" class="hidden" accept=".xlsx,.xls">
    </div>
   </div>
+  <div id="srImportModal" class="hidden modal"><div class="modal-content" style="max-width:1000px">
+   <h3 class="text-lg font-bold mb-2"><i class="fas fa-hashtag text-rose-700 mr-1"></i>Scholar Register Numbers — Preview</h3>
+   <p class="text-sm text-gray-600 mb-3">Matched on <b>Admission No</b>. Nothing is saved until you confirm.</p>
+   <div id="srImportSummary" class="mb-3"></div>
+   <div id="srImportOptions" class="mb-3 bg-white border rounded-lg p-3"></div>
+   <div id="srImportTable" class="overflow-auto max-h-96 border rounded"></div>
+   <div class="flex justify-end gap-2 mt-4">
+    <button class="closeModal bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded-lg text-sm font-medium">Cancel</button>
+    <button id="srImportConfirmBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-check mr-1"></i>Set SR Numbers</button>
+   </div>
+  </div></div>
   <div id="attendanceImportModal" class="hidden modal"><div class="modal-content" style="max-width:1100px">
    <h3 class="text-lg font-bold mb-2"><i class="fas fa-file-arrow-up text-cyan-600 mr-1"></i>Attendance Import Preview</h3>
    <p class="text-sm text-gray-600 mb-3">Nothing is written until you confirm. Rows without a Student ID are always skipped — they are never guessed.</p>
@@ -9232,6 +9249,125 @@ function exportStudentRegisterExcel(cls, ym){
  const [yy,mm]=ym.split('-').map(Number);
  const title=`Attendance Register — ${cls} · ${new Date(yy,mm-1,1).toLocaleDateString('en-IN',{month:'long',year:'numeric'})}`;
  downloadExcel(_xlsSheet(title, head, rows), 'MDBV_Attendance_'+String(cls).replace(/\s+/g,'_')+'_'+ym, 'Register');
+}
+
+// ============== SR NUMBER BULK IMPORT ==============
+// Matches on Admission No (unique and stable); falls back to name within a class only when the
+// admission number is missing. Nothing is written until the preview is confirmed.
+function canImportSRNumbers(){ return canSeeSRNumber(); }
+var _srImportData = null;
+function _normAdm(v){ return String(v==null?'':v).trim().toUpperCase(); }
+function _handleSRImportUpload(arrayBuffer){
+ let wb;
+ try { wb = XLSX.read(arrayBuffer, { type:'array' }); }
+ catch(e){ alert('Could not read the file: ' + e.message); return; }
+ // Prefer a sheet that actually holds SR numbers
+ let rowsRaw = null;
+ for (const nm of wb.SheetNames) {
+  const r = XLSX.utils.sheet_to_json(wb.Sheets[nm], { header:1, defval:'', raw:false });
+  const hdrIdx = r.findIndex(x => (x||[]).some(c => /^sr\s*no/i.test(String(c||'').trim())));
+  if (hdrIdx > -1) { rowsRaw = r.slice(hdrIdx); break; }
+ }
+ if (!rowsRaw) { alert('No sheet in this file has an "SR No." column.'); return; }
+ const hdr = (rowsRaw[0]||[]).map(h => String(h||'').trim());
+ const col = re => hdr.findIndex(h => re.test(h));
+ const cAdm = col(/^admission\s*no/i), cSR = col(/^sr\s*no/i), cName = col(/^student\s*name/i),
+       cClass = col(/^class$/i), cStatus = col(/^status$/i),
+       cOld = col(/^old\s*sr/i), cSecond = col(/^2nd\s*sr/i), cNote = col(/^note$/i);
+ if (cSR < 0) { alert('No "SR No." column found.'); return; }
+ const students = getStudents();
+ const byAdm = {}; students.forEach(s => { const a=_normAdm(s.admissionNo); if(a) byAdm[a]=s; });
+ const ok=[], noSR=[], notFound=[], changed=[], dupInFile=[], seenSR={};
+ rowsRaw.slice(1).forEach((r,i) => {
+  const rowNum = i+2;
+  const adm = cAdm>-1 ? _normAdm(r[cAdm]) : '';
+  const sr  = String(r[cSR]==null?'':r[cSR]).trim();
+  const nm  = cName>-1 ? String(r[cName]||'').trim() : '';
+  const cls = cClass>-1 ? String(r[cClass]||'').trim() : '';
+  const st  = cStatus>-1 ? String(r[cStatus]||'').trim() : '';
+  if (!adm && !nm) return;
+  let stu = adm ? byAdm[adm] : null;
+  if (!stu && nm) {
+   const cands = students.filter(x => String(x.name||'').trim().toLowerCase() === nm.toLowerCase()
+     && (!cls || String(x.class||'').trim().toLowerCase() === cls.toLowerCase()));
+   if (cands.length === 1) stu = cands[0];
+  }
+  if (!stu) { notFound.push({rowNum, adm, nm, cls}); return; }
+  if (!sr) { noSR.push({rowNum, name: stu.name, cls: stu.class, status: st}); return; }
+  if (seenSR[sr]) dupInFile.push({rowNum, sr, name: stu.name, other: seenSR[sr]});
+  seenSR[sr] = stu.name;
+  const rec = { id: stu.id, name: stu.name, cls: stu.class, sr,
+                old: cOld>-1 ? String(r[cOld]||'').trim() : '',
+                second: cSecond>-1 ? String(r[cSecond]||'').trim() : '',
+                note: cNote>-1 ? String(r[cNote]||'').trim() : '',
+                status: st, existing: String(stu.registrationNo||'').trim() };
+  if (rec.existing && rec.existing !== sr) changed.push(rec);
+  ok.push(rec);
+ });
+ // an SR already held by a DIFFERENT pupil
+ const clash = [];
+ ok.forEach(r => {
+  const other = students.find(s => s.id !== r.id && String(s.registrationNo||'').trim() === r.sr);
+  if (other) clash.push({ ...r, otherName: other.name, otherCls: other.class });
+ });
+ _srImportData = { ok, noSR, notFound, changed, dupInFile, clash, total: rowsRaw.length-1 };
+ _showSRImportPreview(_srImportData);
+}
+function _showSRImportPreview(d){
+ const fresh = d.ok.filter(r => !r.existing).length;
+ document.getElementById('srImportSummary').innerHTML = `
+  <div class="grid grid-cols-2 md:grid-cols-5 gap-2 text-sm">
+   <div class="bg-gray-50 border rounded p-2"><div class="text-xs uppercase font-semibold text-gray-600">Rows read</div><div class="text-2xl font-bold">${d.total}</div></div>
+   <div class="bg-emerald-50 border border-emerald-200 rounded p-2"><div class="text-xs uppercase font-semibold text-emerald-700">Will be set</div><div class="text-2xl font-bold text-emerald-900">${fresh}</div></div>
+   <div class="bg-amber-50 border border-amber-200 rounded p-2"><div class="text-xs uppercase font-semibold text-amber-700">Already had one</div><div class="text-2xl font-bold text-amber-900">${d.ok.length-fresh}</div><div class="text-[11px] text-amber-800">${d.changed.length} would change</div></div>
+   <div class="bg-gray-50 border rounded p-2"><div class="text-xs uppercase font-semibold text-gray-600">No SR in file</div><div class="text-2xl font-bold">${d.noSR.length}</div><div class="text-[11px] text-gray-500">left as they are</div></div>
+   <div class="bg-rose-50 border border-rose-200 rounded p-2"><div class="text-xs uppercase font-semibold text-rose-700">Not on the roll</div><div class="text-2xl font-bold text-rose-900">${d.notFound.length}</div><div class="text-[11px] text-rose-800">${d.dupInFile.length+d.clash.length} SR clash(es)</div></div>
+  </div>`;
+ const CAP=200;
+ const rows=[]
+  .concat(d.clash.slice(0,CAP).map(r=>({c:'bg-rose-50',t:'SR already used',n:r.name,cl:r.cls,sr:r.sr,note:`held by ${escapeHTML(r.otherName)} (Class ${escapeHTML(String(r.otherCls))})`})))
+  .concat(d.dupInFile.slice(0,CAP).map(r=>({c:'bg-rose-50',t:'Twice in file',n:r.name,cl:'',sr:r.sr,note:`also given to ${escapeHTML(r.other)}`})))
+  .concat(d.changed.slice(0,CAP).map(r=>({c:'bg-amber-50',t:'Changes',n:r.name,cl:r.cls,sr:r.sr,note:`was <b>${escapeHTML(r.existing)}</b> &rarr; <b>${escapeHTML(r.sr)}</b>`})))
+  .concat(d.notFound.slice(0,CAP).map(r=>({c:'bg-rose-50',t:'Not on roll',n:r.nm||'(no name)',cl:r.cls,sr:'—',note:'admission no '+(r.adm||'blank')+' not found'})))
+  .concat(d.noSR.slice(0,CAP).map(r=>({c:'',t:'No SR yet',n:r.name,cl:r.cls,sr:'—',note:escapeHTML(r.status||'blank in the file')})));
+ document.getElementById('srImportTable').innerHTML = rows.length ? `<table class="text-xs w-full">
+   <thead class="bg-gray-100 sticky top-0"><tr><th class="text-left p-2">Issue</th><th class="text-left p-2">Student</th><th class="text-left p-2">Class</th><th class="text-left p-2">SR</th><th class="text-left p-2">Detail</th></tr></thead>
+   <tbody>${rows.map(r=>`<tr class="border-t ${r.c}"><td class="p-2">${r.t}</td><td class="p-2 font-medium">${escapeHTML(r.n)}</td><td class="p-2">${escapeHTML(String(r.cl||''))}</td><td class="p-2">${escapeHTML(String(r.sr))}</td><td class="p-2">${r.note}</td></tr>`).join('')}</tbody></table>`
+  : '<div class="p-4 text-sm text-emerald-700">Every row matched a pupil and no SR number clashes.</div>';
+ document.getElementById('srImportOptions').innerHTML = `
+  <label class="flex items-start gap-2 text-sm"><input type="checkbox" id="srOverwrite" class="mt-1 w-auto" ${d.changed.length?'':'disabled'}>
+   <span><b>Also change the ${d.changed.length} pupil(s) who already have a different SR number.</b>
+   <span class="text-gray-500">Leave unticked to set only the ${fresh} blank ones.</span></span></label>`;
+ const btn=document.getElementById('srImportConfirmBtn');
+ const nb=btn.cloneNode(true); btn.parentNode.replaceChild(nb,btn);
+ nb.addEventListener('click', _applySRImport);
+ document.getElementById('srImportModal').classList.remove('hidden');
+}
+function _applySRImport(){
+ const d=_srImportData; if(!d) return;
+ const over = document.getElementById('srOverwrite')?.checked;
+ const todo = d.ok.filter(r => !r.existing || (over && r.existing !== r.sr));
+ if (!todo.length) { alert('Nothing to write with the option chosen.'); return; }
+ if (d.clash.length && !confirm(`${d.clash.length} SR number(s) are already held by a different pupil.\n\nImport anyway? Two pupils would then share an SR number.`)) return;
+ if (!confirm(`Set the Scholar Register number for ${todo.length} pupil(s)?\n\n`
+   + `• ${todo.filter(r=>!r.existing).length} currently blank\n`
+   + (over?`• ${todo.filter(r=>r.existing).length} replacing an existing number\n`:'')
+   + `• ${d.noSR.length} left untouched (no SR in the file)\n\nTake a backup first if you have not.`)) return;
+ const studs = getStudents();
+ const byId = {}; studs.forEach(s => byId[s.id]=s);
+ let n=0;
+ todo.forEach(r => {
+  const s=byId[r.id]; if(!s) return;
+  s.registrationNo = r.sr;
+  if (r.old) s.srOld = r.old;
+  if (r.second) s.srSecond = r.second;
+  n++;
+ });
+ try { saveStudents(studs); } catch(e){ alert('Could not save: '+e.message); return; }
+ _srImportData=null;
+ document.getElementById('srImportModal').classList.add('hidden');
+ showToast(`SR number set for ${n} student${n===1?'':'s'}`);
+ renderApp();
 }
 
 // ============== ATTENDANCE / CALENDAR / WORKING-DAYS IMPORT ==============
@@ -19525,6 +19661,18 @@ function attachStudentsTabEvents(){
   studentFilter.category = 'feeDue'; studentFilter.sort = 'dueDesc'; refresh();
  });
  document.querySelectorAll('.tcPrintBtn').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();openTCPrintModal(b.dataset.id);}));
+ const srBtn = document.getElementById('bulkImportSRBtn');
+ const srFile = document.getElementById('bulkImportSRFile');
+ srBtn?.addEventListener('click', () => {
+  if (!canImportSRNumbers()) { alert('SR numbers are managed by the Principal, the office and the owner.'); return; }
+  if (typeof XLSX === 'undefined') { alert('Excel library not loaded. Reload the page and try again.'); return; }
+  srFile.value=''; srFile.click();
+ });
+ srFile?.addEventListener('change', e => {
+  const f=e.target.files[0]; if(!f) return;
+  if (f.size > 15*1024*1024) { alert('File too large (max 15 MB)'); return; }
+  const rd=new FileReader(); rd.onload=ev=>_handleSRImportUpload(ev.target.result); rd.readAsArrayBuffer(f);
+ });
  document.querySelectorAll('.kycPrintBtn').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();printStudentKYC(b.dataset.id);}));
  // Bulk KYC honours the class filter currently applied on screen
  document.getElementById('printStudentKycBtn')?.addEventListener('click',()=>{
