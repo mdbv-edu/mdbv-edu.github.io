@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1790776102 - expenses now record whether they were paid from school funds or the owner personal money, set on the form and on import; new Owner Contribution view totals what the owner has put in, by month and by category, with a tool to reclassify expenses already recorded, plus print and XLSX -->
+<!-- BUILD: v-1790777313 - receipts now carry three separate numbers (system auto-generated, printed receipt-book number, accountant slip number) with a one-time migration moving book numbers out of the system field; the zip import attaches a scan to every receipt including those already recorded, and keeps cancelled ones on file marked cancelled; Owner Contribution gains a month-by-month list with a tick box on each payment -->
 <!-- BUILD: v-1790340000 - MARKS ENTRY FIX: saving marks used to always ADD a new row instead of replacing the old one, so re-entering/correcting a mark created a silent duplicate — this is what made a plain single mark for English display as "71 + 71 (Theory + Internal)" even though that option was never ticked. Saving now clears any prior row for that student+exam+subject first. MARKS VISIBILITY FIX: the marks entry/summary screen used to only show a teacher their own submissions, so nobody else — not admin, not principal, not another teacher on the same class — could see, correct, or delete what had been entered. It now shows every entry for the classes the user has access to (all classes for admin/principal/owner, assigned classes for a teacher), with an "Entered By" column, so any of them can override or delete it. Added a report-card shortcut button on each marks row. REPORT CARD: removed Scholar Reg No and UDISE/PEN from the student-facing report card entirely. -->
 <!-- BUILD: v-1790432000 - MARKS SUMMARY REDESIGNED: now a class-wise, exam-wise table (not a subject-per-row accordion). Class picker at the top lets you toggle between classes in one place. Exam dropdown: select a single exam to see/edit/delete one exam at a time, or "Combined" to view all exams' marks added together as an overall percentage per subject. Student rows × subject columns. For Class 11 and 12, Branch column shows PCM/PCB/Humanities. "Overall" column sums all subjects for a holistic picture. Actions: Edit (edit all of that exam's marks for one student in a modal), Delete (remove that exam's marks for one student), Report Card. Edit modal handles split Theory+Internal and single-mark subjects, with AB (absent) checkbox per subject. Report card can show a single exam or the full consolidated card. Stream/Branch field added to student form (shows only for 11/12). -->
 
@@ -2031,6 +2031,7 @@ function initDB(){
  if (DB.getScalar('finModels') === null) DB.setAll('finModels', []);
  if (DB.getScalar('workingDays') === null) DB.setAll('workingDays', []);
  if (DB.getScalar('advanceLedger') === null) DB.setAll('advanceLedger', []);
+ try { migrateReceiptNumbers(); } catch(e){}
  if (DB.getScalar('syllabusTopics') === null) DB.setObject('syllabusTopics', {});
   if (DB.getScalar('ptmAttendance') === null) DB.setObject('ptmAttendance', {});
   if (DB.getScalar('attendanceRecords') === null) {
@@ -2614,6 +2615,7 @@ const DB = {
    this._lastSyncAt = new Date();
    this._notifySyncUI('idle');
    this.startAutoRefresh();
+   try { migrateReceiptNumbers(); } catch(e){}   // now that the real data is here
    return { ok: true };
   } catch (e) {
    // On error, leave sync OFF so we never push local placeholders over cloud data.
@@ -2634,6 +2636,41 @@ function getStudents(){ return DB.getAll('students'); }
 // Current strength: everyone EXCEPT archived (TC-issued) students. Use this for every count,
 // roster and dashboard figure — archived students are only shown in the Archive view.
 function getActiveStudents(){ return DB.getAll('students').filter(s => !s.archived); }
+// Three separate numbers on a receipt:
+//   receiptNo      — the system's own number, generated here and never edited
+//   bookReceiptNo  — the printed number on the paper receipt book (the 4-digit one)
+//   slipNo         — the number the accountant writes on their slip
+function newSystemReceiptNo(existing){
+ const used = new Set((existing||[]).map(t => String(t.receiptNo||'')));
+ let n = 0;
+ do { n = 'RCP' + String(Date.now()).slice(-6) + String(Math.floor(Math.random()*90)+10); } while (used.has(n));
+ return n;
+}
+function isSystemReceiptNo(v){ return /^(RCP|OPEN|BNK)/i.test(String(v||'').trim()); }
+// Older records kept the paper book number in receiptNo. Move it to its own field once and
+// give those receipts a proper system number, so the two can never be confused again.
+function migrateReceiptNumbers(){
+ try {
+  if (DB.getScalar('receiptNoSplitDone') === 'yes') return 0;
+  const tx = getFeeTransactions();
+  // Startup runs before the cloud data arrives. If there is nothing here yet, do not mark the
+  // job done — otherwise the real receipts would never be migrated once they load.
+  if (!tx.length) return 0;
+  let moved = 0;
+  tx.forEach(t => {
+   const rn = String(t.receiptNo||'').trim();
+   if (rn && !isSystemReceiptNo(rn) && /^\d{2,8}$/.test(rn)) {
+    if (!t.bookReceiptNo) t.bookReceiptNo = rn;
+    t.receiptNo = newSystemReceiptNo(tx);
+    moved++;
+   }
+   if (!t.receiptNo) t.receiptNo = newSystemReceiptNo(tx);
+  });
+  if (moved) saveFeeTransactions(tx);
+  DB.setScalar('receiptNoSplitDone','yes');
+  return moved;
+ } catch(e){ return 0; }
+}
 function getFeeTransactions(){ return DB.getAll('feeTransactions'); }
 // Compact HOMEWORK-ONLY summary from the diary — just subject + homework, latest day.
 // For parents who want a quick "what's the homework" glance.
@@ -9309,16 +9346,24 @@ async function _rcptImportRun(file){
  const byId = {}; students.forEach(s => byId[String(s.id)] = s);
  const byAdm = {}; students.forEach(s => { const a=String(s.admissionNo||'').trim().toUpperCase(); if(a) byAdm[a]=s; });
  const existing = getFeeTransactions();
- const haveRcpt = new Set(existing.map(t => String(t.receiptNo||'').trim()).filter(Boolean));
+ // Both numbers count as "already here": the system's own, and the printed book number.
+ const haveRcpt = new Set();
+ existing.forEach(t => {
+  const a=String(t.receiptNo||'').trim(); if(a) haveRcpt.add(a);
+  const b=String(t.bookReceiptNo||'').trim(); if(b) haveRcpt.add(b);
+ });
  // The same payment is often already recorded here under an auto-generated number such as
  // RCP391104, so matching on the receipt number alone is not enough. Also match the pupil,
  // the amount and the date; a match on pupil+amount at a different date is flagged, not assumed.
  const haveExact = new Set();
- const haveAmt = {};
+ const haveAmt = {}, exactTxn = {}, byRcptNo = {};
  existing.forEach(t => {
+  const rn = String(t.receiptNo||'').trim(); if (rn) byRcptNo[rn] = t;
+  const bn = String(t.bookReceiptNo||'').trim(); if (bn) byRcptNo[bn] = t;
   if (!t.studentId || t.status === 'cancelled') return;
   const a = Math.round(Number(t.amount)||0);
-  haveExact.add(`${t.studentId}|${a}|${String(t.date||'').trim()}`);
+  const k = `${t.studentId}|${a}|${String(t.date||'').trim()}`;
+  haveExact.add(k); if (!exactTxn[k]) exactTxn[k] = t;
   (haveAmt[`${t.studentId}|${a}`] = haveAmt[`${t.studentId}|${a}`] || []).push(t);
  });
  const out = [];
@@ -9332,15 +9377,18 @@ async function _rcptImportRun(file){
   const imgName = (r['Image File']||'').trim();
   const img = images[imgName.toLowerCase()] || null;
   let decision = 'import', why = '';
-  if (/do not upload|cancelled/.test(action)) { decision='skip'; why='marked cancelled in the file'; }
-  else if (/^hold/.test(action))              { decision='skip'; why='marked hold — student not found'; }
-  else if (/^skip/.test(action))              { decision='skip'; why='already in the portal (per the file)'; }
-  if (decision==='import' && rcpt && haveRcpt.has(rcpt)) { decision='skip'; why='receipt no. already recorded here'; }
+  // Cancelled receipts are still recorded, marked cancelled, so the scan is on file and the
+  // money is excluded from every total. A "hold" receipt comes in without a pupil attached.
+  let cancelled = false;
+  if (/do not upload|cancelled/.test(action)) { cancelled = true; why='cancelled — kept for the record only'; }
+  else if (/^hold/.test(action))              { why='no matching pupil — kept as a general receipt'; }
+  else if (/^skip/.test(action))              { decision='attach'; why='already in the portal — the scan and book number will be added to it'; }
+  if (decision==='import' && rcpt && haveRcpt.has(rcpt)) { decision='attach'; why='already recorded — the scan and book number will be added to it'; }
   let maybeDup = null;
   if (decision==='import' && stu && amount){
    const a=Math.round(amount);
    if (haveExact.has(`${stu.id}|${a}|${(r['Date']||'').trim()}`)) {
-    decision='skip'; why='already recorded here (same pupil, amount and date)';
+    decision='attach'; why='already recorded — the scan and book number will be added to it';
    } else {
     const near=(haveAmt[`${stu.id}|${a}`]||[]);
     if (near.length){
@@ -9350,12 +9398,23 @@ async function _rcptImportRun(file){
    }
   }
   if (decision==='import' && !amount)          { decision='skip'; why='no amount'; }
+  // Which existing receipt should the scan go on?
+  let attachTo = (rcpt && byRcptNo[rcpt] && byRcptNo[rcpt].id) || null;
+  if (!attachTo && stu && amount) {
+   const t = exactTxn[`${stu.id}|${Math.round(amount)}|${(r['Date']||'').trim()}`];
+   if (t) attachTo = t.id;
+  }
+  if (!attachTo && stu && amount) {
+   const near = (haveAmt[`${stu.id}|${Math.round(amount)}`]||[])[0];
+   if (near) attachTo = near.id;
+  }
+  if (decision==='attach' && !attachTo) { decision='skip'; why='already in the portal, but no matching receipt here to attach the scan to'; }
   out.push({
    rowNum: i+2, receiptNo: rcpt, name: r['Name on Receipt']||'', portalName: stu ? stu.name : (r['Student Name (Portal)']||''),
    studentId: stu ? stu.id : null, cls: stu ? stu.class : (r['Class (Portal)']||''),
    date: (r['Date']||'').trim(), amount, feeType: r['Fee Type']||'', fy: (r['Financial Year']||'').trim(),
    notes: r['Notes']||'', check: (r['Check']||'').trim(), action: r['Action']||'',
-   imgName, hasImage: !!img, _img: img, decision, why, maybeDup,
+   imgName, hasImage: !!img, _img: img, decision, why, maybeDup, attachTo, cancelled,
    unlinked: decision==='import' && !stu
   });
  });
@@ -9385,6 +9444,7 @@ function _ensureRcptModal(){
 function _showReceiptImportPreview(d){
  _ensureRcptModal();
  const imp=d.rows.filter(r=>r.decision==='import');
+ const attach=d.rows.filter(r=>r.decision==='attach');
  const maybe=d.rows.filter(r=>r.decision==='maybe');
  const skip=d.rows.filter(r=>r.decision==='skip');
  const unlinked=imp.filter(r=>r.unlinked);
@@ -9394,10 +9454,11 @@ function _showReceiptImportPreview(d){
  const inr=v=>'Rs.'+Math.round(v||0).toLocaleString('en-IN');
  const byFy={}; imp.forEach(r=>{byFy[r.fy]=(byFy[r.fy]||0)+r.amount;});
  document.getElementById('rcptImportSummary').innerHTML=`
-  <div class="grid grid-cols-2 md:grid-cols-5 gap-2 text-sm">
+  <div class="grid grid-cols-2 md:grid-cols-6 gap-2 text-sm">
    <div class="bg-gray-50 border rounded p-2"><div class="text-xs uppercase font-semibold text-gray-600">In the file</div><div class="text-2xl font-bold">${d.rows.length}</div><div class="text-[11px] text-gray-500">${d.imageCount} images</div></div>
    <div class="bg-emerald-50 border border-emerald-200 rounded p-2"><div class="text-xs uppercase font-semibold text-emerald-700">Will import</div><div class="text-2xl font-bold text-emerald-900">${imp.length}</div><div class="text-[11px] text-emerald-800">${inr(total)}</div></div>
-   <div class="bg-gray-100 border rounded p-2"><div class="text-xs uppercase font-semibold text-gray-600">Skipped</div><div class="text-2xl font-bold">${skip.length}</div><div class="text-[11px] text-gray-500">already here or cancelled</div></div>
+   <div class="bg-blue-50 border border-blue-200 rounded p-2"><div class="text-xs uppercase font-semibold text-blue-700">Scan attached</div><div class="text-2xl font-bold text-blue-900">${attach.length}</div><div class="text-[11px] text-blue-800">already recorded — image &amp; book no. added</div></div>
+   <div class="bg-gray-100 border rounded p-2"><div class="text-xs uppercase font-semibold text-gray-600">Skipped</div><div class="text-2xl font-bold">${skip.length}</div><div class="text-[11px] text-gray-500">cancelled or on hold</div></div>
    <div class="bg-amber-50 border border-amber-200 rounded p-2"><div class="text-xs uppercase font-semibold text-amber-700">No pupil linked</div><div class="text-2xl font-bold text-amber-900">${unlinked.length}</div><div class="text-[11px] text-amber-800">kept as general receipts</div></div>
    <div class="bg-rose-50 border border-rose-200 rounded p-2"><div class="text-xs uppercase font-semibold text-rose-700">Possible duplicates</div><div class="text-2xl font-bold text-rose-900">${maybe.length}</div><div class="text-[11px] text-rose-800">${flagged.length} you flagged · ${noimg.length} no image</div></div>
   </div>
@@ -9437,9 +9498,11 @@ async function _applyReceiptImport(){
  const touchBal=document.getElementById('rcptTouchBalance')?.checked;
  const alsoMaybe=document.getElementById('rcptIncludeMaybe')?.checked;
  const todo=d.rows.filter(r=>r.decision==='import' || (alsoMaybe && r.decision==='maybe'));
- if(!todo.length){ alert('Nothing to import.'); return; }
+ const toAttach=withImages ? d.rows.filter(r=>r.decision==='attach' && r.attachTo) : [];
+ if(!todo.length && !toAttach.length){ alert('Nothing to import.'); return; }
  const total=todo.reduce((a,r)=>a+r.amount,0);
  if(!confirm(`Import ${todo.length} receipts totalling Rs.${Math.round(total).toLocaleString('en-IN')}?\n\n`
+   +(toAttach.length?`The scan and book number will also be added to ${toAttach.length} receipt(s) already recorded.\n`:'')
    +(withImages?`The ${d.imageCount} images will be uploaded — keep this tab open.\n`:'Images will not be uploaded.\n')
    +(touchBal?'Pupil balances WILL be reduced.\n':'Pupil balances will not be changed.\n')
    +'\nTake a backup first if you have not.')) return;
@@ -9467,8 +9530,9 @@ async function _applyReceiptImport(){
    date: r.date,
    academicYear: r.fy || undefined,
    feeHead: r.feeType || 'School Fee',
-   receiptNo: r.receiptNo,
-   status: 'active',
+   receiptNo: newSystemReceiptNo(txns),
+   bookReceiptNo: r.receiptNo || undefined,
+   status: r.cancelled ? 'cancelled' : 'paid',
    notes: [r.feeType, r.notes].filter(Boolean).join(' — ') || undefined,
    receiptImageUrl: imageUrl || undefined,
    receiptImagePath: imagePath || undefined,
@@ -9485,18 +9549,90 @@ async function _applyReceiptImport(){
   if (st) st.textContent = `${done} of ${todo.length} — receipt ${r.receiptNo} (${r.portalName||r.name})`;
   if (done % 5 === 0) await new Promise(res=>setTimeout(res,0));
  }
+ // Now add the scan and the book number to receipts that are already recorded, so every
+ // receipt in the file ends up with its image — not just the new ones.
+ const byTid = {}; txns.forEach(t => byTid[t.id] = t);
+ let attached = 0;
+ for (const r of toAttach){
+  const t = byTid[r.attachTo];
+  if (!t) continue;
+  if (!t.receiptImageUrl && r._img){
+   try {
+    const blob = await r._img.async('blob');
+    const fl = new File([blob], r.imgName || ('receipt_'+r.receiptNo+'.jpg'), { type:'image/jpeg' });
+    const up = await DB.uploadFile(fl, 'receipts');
+    t.receiptImageUrl = up.url; t.receiptImagePath = up.path; imgOk++;
+   } catch(e){ imgFail++; }
+  }
+  if (!t.bookReceiptNo && r.receiptNo) t.bookReceiptNo = r.receiptNo;
+  attached++; done++;
+  if (bar) bar.style.width = Math.round(done/(todo.length+toAttach.length)*100)+'%';
+  if (st) st.textContent = `attaching ${attached} of ${toAttach.length} — receipt ${r.receiptNo}`;
+  if (attached % 5 === 0) await new Promise(res=>setTimeout(res,0));
+ }
  try {
   saveFeeTransactions(txns);
   if (touchBal) saveStudents(studs);
  } catch(e){ alert('Could not save: '+e.message); return; }
  _rcptImportData=null;
  document.getElementById('rcptImportModal')?.classList.add('hidden');
- showToast(`${done} receipts imported${withImages?` · ${imgOk} images attached${imgFail?`, ${imgFail} failed`:''}`:''}`);
+ showToast(`${todo.length} receipts added, ${attached} updated${withImages?` · ${imgOk} scans attached${imgFail?`, ${imgFail} failed`:''}`:''}`);
  renderApp();
 }
 
 // ============== OWNER CONTRIBUTION (money the owner put into the school) ==============
 var _ocFrom = '', _ocTo = '';
+var _ocOpenMonth = '';
+// Month-by-month list of every payment, with a tick box on each so individual items can be
+// moved between "your money" and "school funds" without touching the rest.
+function _ocMonthPicker(all){
+ const inr=v=>'Rs.'+Math.round(v||0).toLocaleString('en-IN');
+ const months={};
+ all.forEach(e=>{ const m=String(e.date||'').slice(0,7); if(!m) return;
+  months[m]=months[m]||{n:0,total:0,owner:0,school:0};
+  const a=Number(e.amount)||0; months[m].n++; months[m].total+=a;
+  if (expenseFunding(e)===OWNER_FUNDED) months[m].owner+=a; else months[m].school+=a; });
+ const keys=Object.keys(months).sort().reverse();
+ if(!keys.length) return '';
+ if(!_ocOpenMonth || !months[_ocOpenMonth]) _ocOpenMonth=keys[0];
+ const mName=m=>{const [y,mm]=m.split('-'); return new Date(+y,+mm-1,1).toLocaleDateString('en-IN',{month:'long',year:'numeric'});};
+ const rows=all.filter(e=>String(e.date||'').slice(0,7)===_ocOpenMonth)
+   .sort((a,b)=>String(a.date||'').localeCompare(String(b.date||'')) || (Number(b.amount)||0)-(Number(a.amount)||0));
+ return `<div class="bg-white rounded-xl border p-4">
+  <div class="font-bold text-gray-800 mb-2"><i class="fas fa-calendar-check text-rose-600 mr-1.5"></i>Payments month by month — tick the ones you paid for</div>
+  <div class="flex flex-wrap gap-1.5 mb-3">
+   ${keys.map(m=>`<button class="ocMonthBtn px-3 py-1.5 rounded-lg text-xs font-medium border ${m===_ocOpenMonth?'text-white':'bg-white text-gray-700'}"
+     style="${m===_ocOpenMonth?'background:#7a1e2e;border-color:#7a1e2e':''}" data-m="${m}">
+     ${mName(m)}<span class="block text-[10px] ${m===_ocOpenMonth?'text-rose-100':'text-gray-400'}">${inr(months[m].total)}${months[m].owner?` · ${Math.round(months[m].owner/months[m].total*100)}% yours`:''}</span></button>`).join('')}
+  </div>
+  <div class="flex flex-wrap gap-2 items-center mb-2 text-xs">
+   <button id="ocSelAll" class="bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded">Select all</button>
+   <button id="ocSelNone" class="bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded">Clear</button>
+   <button id="ocSelOwner" class="bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded">Select the ones already mine</button>
+   <span id="ocSelCount" class="text-gray-500 ml-1"></span>
+   <span class="ml-auto flex gap-2">
+    <button id="ocApplyOwner" class="bg-rose-700 hover:bg-rose-800 text-white px-3 py-1.5 rounded-lg font-medium">Mark ticked as my money</button>
+    <button id="ocApplySchool" class="bg-gray-200 hover:bg-gray-300 px-3 py-1.5 rounded-lg font-medium">Mark ticked as school funds</button>
+   </span>
+  </div>
+  <div class="overflow-x-auto border rounded" style="max-height:380px;overflow-y:auto">
+   <table class="w-full text-sm"><thead class="bg-stone-100 sticky top-0"><tr>
+     <th class="px-2 py-2 w-8"></th><th class="px-2 py-2 text-left">Date</th><th class="px-2 py-2 text-left">Paid to / for</th>
+     <th class="px-2 py-2 text-left">Category</th><th class="px-2 py-2 text-right">Amount</th><th class="px-2 py-2 text-left">Paid from</th></tr></thead>
+    <tbody>${rows.map(e=>{const mine=expenseFunding(e)===OWNER_FUNDED; return `<tr class="border-b ${mine?'bg-rose-50':''}">
+      <td class="px-2 py-1.5"><input type="checkbox" class="ocPick w-auto" data-id="${e.id}" ${mine?'checked':''}></td>
+      <td class="px-2 py-1.5 whitespace-nowrap">${escapeHTML(e.date||'')}</td>
+      <td class="px-2 py-1.5">${escapeHTML(e.vendor||e.description||'')}</td>
+      <td class="px-2 py-1.5 text-gray-600">${escapeHTML(e.category||'')}</td>
+      <td class="px-2 py-1.5 text-right font-medium">${inr(e.amount)}</td>
+      <td class="px-2 py-1.5 text-xs ${mine?'text-rose-700 font-semibold':'text-gray-500'}">${mine?'You':'School'}</td></tr>`;}).join('')}</tbody>
+    <tfoot><tr class="bg-stone-50 font-bold"><td colspan="4" class="px-2 py-2">${mName(_ocOpenMonth)} — ${rows.length} payment(s)</td>
+     <td class="px-2 py-2 text-right">${inr(months[_ocOpenMonth].total)}</td>
+     <td class="px-2 py-2 text-xs">yours ${inr(months[_ocOpenMonth].owner)}</td></tr></tfoot>
+   </table></div>
+ </div>`;
+}
+
 function _ocFY(dt){
  if (!dt || dt.length < 7) return '';
  const y=+dt.slice(0,4), m=+dt.slice(5,7);
@@ -9551,8 +9687,9 @@ function renderOwnerContribution(){
      </div>`).join('') : '<div class="text-sm text-gray-500">—</div>'}
    </div>
   </div>
+  ${_ocMonthPicker(all)}
   <div class="bg-white rounded-xl border p-4">
-   <div class="font-bold text-gray-800 mb-1"><i class="fas fa-wand-magic-sparkles text-amber-600 mr-1.5"></i>Mark existing expenses as your own money</div>
+   <div class="font-bold text-gray-800 mb-1"><i class="fas fa-wand-magic-sparkles text-amber-600 mr-1.5"></i>Mark a whole period at once</div>
    <p class="text-xs text-gray-600 mb-2">Use this for spending already recorded that you actually funded yourself — for example the July to September sheets.</p>
    <div class="flex flex-wrap gap-2 items-end">
     <label class="text-xs text-gray-600">From<input type="date" id="ocFrom" value="${_ocFrom}" class="border rounded-lg px-2 py-1 text-sm ml-1" style="width:auto"></label>
@@ -9616,6 +9753,32 @@ function _attachOwnerContributionEvents(){
   showToast(`${m.length} expenses marked as ${label}`);
   renderApp();
  };
+ document.querySelectorAll('.ocMonthBtn').forEach(b=>b.addEventListener('click',()=>{ _ocOpenMonth=b.dataset.m; renderApp(); }));
+ const picks=()=>Array.from(document.querySelectorAll('.ocPick'));
+ const countSel=()=>{ const sel=picks().filter(c=>c.checked);
+  const all=(get('expenses')||[]); const ids=new Set(sel.map(c=>c.dataset.id));
+  const t=all.filter(e=>ids.has(String(e.id))).reduce((a,e)=>a+(Number(e.amount)||0),0);
+  const n=document.getElementById('ocSelCount');
+  if(n) n.innerHTML=`<b>${sel.length}</b> ticked — Rs.${Math.round(t).toLocaleString('en-IN')}`; };
+ picks().forEach(c=>c.addEventListener('change',countSel));
+ countSel();
+ document.getElementById('ocSelAll')?.addEventListener('click',()=>{picks().forEach(c=>c.checked=true);countSel();});
+ document.getElementById('ocSelNone')?.addEventListener('click',()=>{picks().forEach(c=>c.checked=false);countSel();});
+ document.getElementById('ocSelOwner')?.addEventListener('click',()=>{ const all=(get('expenses')||[]);
+  const own=new Set(all.filter(e=>expenseFunding(e)===OWNER_FUNDED).map(e=>String(e.id)));
+  picks().forEach(c=>c.checked=own.has(c.dataset.id)); countSel(); });
+ const applyPicked=(val,label)=>{
+  const sel=picks().filter(c=>c.checked).map(c=>String(c.dataset.id));
+  if(!sel.length){ alert('Tick at least one payment first.'); return; }
+  const all=(get('expenses')||[]); const ids=new Set(sel);
+  const t=all.filter(e=>ids.has(String(e.id))).reduce((a,e)=>a+(Number(e.amount)||0),0);
+  if(!confirm(`Mark ${sel.length} payment(s) totalling Rs.${Math.round(t).toLocaleString('en-IN')} as "${label}"?`)) return;
+  all.forEach(e=>{ if(ids.has(String(e.id))) e.fundedBy=val; });
+  try{ DB.setAll('expenses', all); }catch(err){ alert('Could not save: '+err.message); return; }
+  showToast(`${sel.length} payment(s) marked as ${label}`); renderApp();
+ };
+ document.getElementById('ocApplyOwner')?.addEventListener('click',()=>applyPicked(OWNER_FUNDED,'your own money'));
+ document.getElementById('ocApplySchool')?.addEventListener('click',()=>applyPicked('School funds','school funds'));
  document.getElementById('ocMarkOwnerBtn')?.addEventListener('click', ()=>setAll(OWNER_FUNDED,'your own money'));
  document.getElementById('ocMarkSchoolBtn')?.addEventListener('click', ()=>setAll('School funds','school funds'));
  document.getElementById('ocPrintBtn')?.addEventListener('click', printOwnerContribution);
@@ -14173,10 +14336,11 @@ function renderStuFees(s){
    <h3 class="font-semibold mb-3"><i class="fas fa-receipt text-indigo-600 mr-1"></i>Payment History</h3>
    ${txns.length === 0 ? '<div class="text-sm text-gray-500 py-3 text-center">No payments yet</div>' : `
     <div class="overflow-x-auto"><table class="text-sm w-full border">
-     <thead class="bg-gray-100"><tr><th class="text-left p-2">Date</th><th class="text-left p-2">Receipt No</th><th class="text-left p-2">Towards</th><th class="text-left p-2">Mode</th><th class="text-right p-2">Amount</th><th class="p-2">Action</th></tr></thead>
+     <thead class="bg-gray-100"><tr><th class="text-left p-2">Date</th><th class="text-left p-2">Receipt No</th><th class="text-left p-2">Book No</th><th class="text-left p-2">Towards</th><th class="text-left p-2">Mode</th><th class="text-right p-2">Amount</th><th class="p-2">Action</th></tr></thead>
      <tbody>${txns.map(t => `<tr class="border-t hover:bg-emerald-50">
        <td class="p-2 text-xs">${fmtDate(t.date)}</td>
        <td class="p-2 font-mono text-xs">${t.receiptNo || '-'}</td>
+       <td class="p-2 font-mono text-xs">${t.bookReceiptNo || '-'}</td>
        <td class="p-2">${t.headLabel || t.feeHead || 'Tuition'}</td>
        <td class="p-2 text-xs">${t.mode || '-'}</td>
        <td class="p-2 text-right font-semibold text-emerald-700">${fmtINR(t.amount)}</td>
@@ -16872,8 +17036,12 @@ function renderAccReceipts(){
      <input id="rcptTxnRef" placeholder="e.g. UPI ref / NEFT UTR / txn ID">
     </div>
     <div>
-     <label class="text-xs font-medium">Slip / Receipt No <span class="text-gray-400">(from receipt book)</span></label>
-     <input id="rcptSlipNo" placeholder="e.g. 2049">
+     <label class="text-xs font-medium">Receipt book no. <span class="text-gray-400">(the printed number)</span></label>
+     <input id="rcptBookNo" placeholder="e.g. 2049" inputmode="numeric">
+    </div>
+    <div>
+     <label class="text-xs font-medium">Accountant's slip no. <span class="text-gray-400">(optional)</span></label>
+     <input id="rcptSlipNo" placeholder="your own slip number">
     </div>
     <div class="md:col-span-2">
      <label class="text-xs font-medium">Notes (optional)</label>
@@ -18050,6 +18218,8 @@ function _generateReceiptHTML(txn){
 
     <div class="receipt-meta">
      <div><span class="lbl">Receipt No:</span> <span class="val mono">${txn.receiptNo || '-'}</span></div>
+     ${txn.bookReceiptNo ? `<div><span class="lbl">Receipt Book No:</span> <span class="val mono">${escapeHTML(String(txn.bookReceiptNo))}</span></div>` : ''}
+     ${txn.slipNo ? `<div><span class="lbl">Slip No:</span> <span class="val mono">${escapeHTML(String(txn.slipNo))}</span></div>` : ''}
      <div><span class="lbl">Date:</span> <span class="val">${dateStr}</span></div>
     </div>
     ${txn.academicYear ? `<div class="receipt-meta"><div><span class="lbl">Academic Year:</span> <span class="val">${txn.academicYear} (Apr–Mar)</span></div></div>` : ''}
@@ -18638,7 +18808,8 @@ function _openTxnEditModal(txnId, txnKind){
    <div><label class="text-xs font-medium">Vendor</label><input id="txeVendor" value="${(t.vendor||'').replace(/"/g,'&quot;')}"></div>
    <div class="md:col-span-2"><label class="text-xs font-medium">Description</label><input id="txeDesc" value="${(t.description||'').replace(/"/g,'&quot;')}"></div>
    `}
-   ${txnKind === 'receipt' ? `<div><label class="text-xs font-medium">Receipt No.</label><input id="txeReceiptNo" value="${(t.receiptNo||'').replace(/"/g,'&quot;')}"></div>
+   ${txnKind === 'receipt' ? `<div><label class="text-xs font-medium">System Receipt No.</label><input id="txeReceiptNo" value="${(t.receiptNo||'').replace(/"/g,'&quot;')}" readonly class="bg-gray-100 text-gray-500" title="Generated by the portal — cannot be edited"></div>
+   <div><label class="text-xs font-medium">Receipt book no.</label><input id="txeBookNo" value="${(t.bookReceiptNo||'').replace(/"/g,'&quot;')}" placeholder="printed number"></div>
    <div><label class="text-xs font-medium">Slip No. (optional)</label><input id="txeSlipNo" value="${(t.slipNo||'').replace(/"/g,'&quot;')}"></div>` : ''}
    <div><label class="text-xs font-medium">Amount (Rs.)${_txnEditAmountLocked()?' <span class="text-gray-400">(locked — request a fix to change)</span>':''}</label><input type="number" id="txeAmount" value="${t.amount||0}" ${_txnEditAmountLocked()?'readonly class="bg-gray-100 text-gray-500"':''}></div>
    <div><label class="text-xs font-medium">Mode</label><select id="txeMode">${PAYMENT_MODES.map(m=>`<option ${t.mode===m?'selected':''}>${m}</option>`).join('')}</select></div>
@@ -18680,7 +18851,8 @@ function _openTxnEditModal(txnId, txnKind){
     payerName: newSid === 0 ? document.getElementById('txePayerName').value.trim() : undefined,
     feeHead: document.getElementById('txeHead').value,
     academicYear: document.getElementById('txeYear')?.value || t.academicYear,
-    receiptNo: (document.getElementById('txeReceiptNo')?.value.trim()) || t.receiptNo,
+    receiptNo: t.receiptNo,                                        // never edited
+    bookReceiptNo: (document.getElementById('txeBookNo')?.value.trim()) || t.bookReceiptNo,
     slipNo: (document.getElementById('txeSlipNo')?.value.trim()) || undefined,
     txnRef: newTxnRef || undefined,
     notes: newNotes || undefined,
@@ -19393,7 +19565,8 @@ function _attachReceiptEvents(){
    heads: heads,                  // full multi-head breakdown
    headLabel: headLabel,          // readable "A Rs.x + B Rs.y"
    // Use the slip/receipt-book number if entered, otherwise auto-generate.
-   receiptNo: slipNo || ('RCP' + Date.now().toString().slice(-6)),
+   receiptNo: newSystemReceiptNo(getFeeTransactions()),          // always the system's own
+   bookReceiptNo: (document.getElementById('rcptBookNo')?.value || '').trim() || undefined,
    slipNo: slipNo || undefined,          // the number written on the paper receipt book
    slipPhoto: slipPhoto || undefined,    // photo of the paper receipt slip
    status: 'paid',
