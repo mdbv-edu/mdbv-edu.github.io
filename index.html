@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1790756714 - Scholar Register numbers: bulk import from a spreadsheet matched on admission number, with a preview showing what will be set, what would change, SR clashes and pupils not on the roll; SR visibility tightened to Principal, office and owner only (the accountant no longer sees it) -->
+<!-- BUILD: v-1790757354 - FIX SR import doing nothing after choosing a file: the preview dialog markup had been placed on the attendance screen while the button sits on the Students screen, so the dialog was never found; it is now built on demand wherever it is opened from, and any read or preview failure is reported instead of failing silently -->
 <!-- BUILD: v-1790340000 - MARKS ENTRY FIX: saving marks used to always ADD a new row instead of replacing the old one, so re-entering/correcting a mark created a silent duplicate — this is what made a plain single mark for English display as "71 + 71 (Theory + Internal)" even though that option was never ticked. Saving now clears any prior row for that student+exam+subject first. MARKS VISIBILITY FIX: the marks entry/summary screen used to only show a teacher their own submissions, so nobody else — not admin, not principal, not another teacher on the same class — could see, correct, or delete what had been entered. It now shows every entry for the classes the user has access to (all classes for admin/principal/owner, assigned classes for a teacher), with an "Entered By" column, so any of them can override or delete it. Added a report-card shortcut button on each marks row. REPORT CARD: removed Scholar Reg No and UDISE/PEN from the student-facing report card entirely. -->
 <!-- BUILD: v-1790432000 - MARKS SUMMARY REDESIGNED: now a class-wise, exam-wise table (not a subject-per-row accordion). Class picker at the top lets you toggle between classes in one place. Exam dropdown: select a single exam to see/edit/delete one exam at a time, or "Combined" to view all exams' marks added together as an overall percentage per subject. Student rows × subject columns. For Class 11 and 12, Branch column shows PCM/PCB/Humanities. "Overall" column sums all subjects for a holistic picture. Actions: Edit (edit all of that exam's marks for one student in a modal), Delete (remove that exam's marks for one student), Report Card. Edit modal handles split Theory+Internal and single-mark subjects, with AB (absent) checkbox per subject. Report card can show a single exam or the full consolidated card. Stream/Branch field added to student form (shows only for 11/12). -->
 
@@ -8430,17 +8430,6 @@ function renderAdminAttendance(){
     <input type="file" id="bulkImportAttendanceFile" class="hidden" accept=".xlsx,.xls">
    </div>
   </div>
-  <div id="srImportModal" class="hidden modal"><div class="modal-content" style="max-width:1000px">
-   <h3 class="text-lg font-bold mb-2"><i class="fas fa-hashtag text-rose-700 mr-1"></i>Scholar Register Numbers — Preview</h3>
-   <p class="text-sm text-gray-600 mb-3">Matched on <b>Admission No</b>. Nothing is saved until you confirm.</p>
-   <div id="srImportSummary" class="mb-3"></div>
-   <div id="srImportOptions" class="mb-3 bg-white border rounded-lg p-3"></div>
-   <div id="srImportTable" class="overflow-auto max-h-96 border rounded"></div>
-   <div class="flex justify-end gap-2 mt-4">
-    <button class="closeModal bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded-lg text-sm font-medium">Cancel</button>
-    <button id="srImportConfirmBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-check mr-1"></i>Set SR Numbers</button>
-   </div>
-  </div></div>
   <div id="attendanceImportModal" class="hidden modal"><div class="modal-content" style="max-width:1100px">
    <h3 class="text-lg font-bold mb-2"><i class="fas fa-file-arrow-up text-cyan-600 mr-1"></i>Attendance Import Preview</h3>
    <p class="text-sm text-gray-600 mb-3">Nothing is written until you confirm. Rows without a Student ID are always skipped — they are never guessed.</p>
@@ -9258,6 +9247,10 @@ function canImportSRNumbers(){ return canSeeSRNumber(); }
 var _srImportData = null;
 function _normAdm(v){ return String(v==null?'':v).trim().toUpperCase(); }
 function _handleSRImportUpload(arrayBuffer){
+ try { _srImportRun(arrayBuffer); }
+ catch(err){ alert('Could not read the SR file: ' + (err && err.message ? err.message : err)); }
+}
+function _srImportRun(arrayBuffer){
  let wb;
  try { wb = XLSX.read(arrayBuffer, { type:'array' }); }
  catch(e){ alert('Could not read the file: ' + e.message); return; }
@@ -9311,9 +9304,32 @@ function _handleSRImportUpload(arrayBuffer){
   if (other) clash.push({ ...r, otherName: other.name, otherCls: other.class });
  });
  _srImportData = { ok, noSR, notFound, changed, dupInFile, clash, total: rowsRaw.length-1 };
- _showSRImportPreview(_srImportData);
+ try { _showSRImportPreview(_srImportData); }
+ catch(err){ alert('Could not show the preview: ' + (err && err.message ? err.message : err)); }
+}
+// Build the dialog in the page body when it is needed. It used to be part of one screen's
+// markup, so opening it from another screen silently did nothing.
+function _ensureSRImportModal(){
+ let m = document.getElementById('srImportModal');
+ if (m) return m;
+ m = document.createElement('div');
+ m.id = 'srImportModal'; m.className = 'modal';
+ m.innerHTML = `<div class="modal-content" style="max-width:1000px">
+   <h3 class="text-lg font-bold mb-2"><i class="fas fa-hashtag text-rose-700 mr-1"></i>Scholar Register Numbers — Preview</h3>
+   <p class="text-sm text-gray-600 mb-3">Matched on <b>Admission No</b>. Nothing is saved until you confirm.</p>
+   <div id="srImportSummary" class="mb-3"></div>
+   <div id="srImportOptions" class="mb-3 bg-white border rounded-lg p-3"></div>
+   <div id="srImportTable" class="overflow-auto max-h-96 border rounded"></div>
+   <div class="flex justify-end gap-2 mt-4">
+    <button class="closeModal bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded-lg text-sm font-medium">Cancel</button>
+    <button id="srImportConfirmBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-check mr-1"></i>Set SR Numbers</button>
+   </div>
+  </div>`;
+ document.body.appendChild(m);
+ return m;
 }
 function _showSRImportPreview(d){
+ _ensureSRImportModal();
  const fresh = d.ok.filter(r => !r.existing).length;
  document.getElementById('srImportSummary').innerHTML = `
   <div class="grid grid-cols-2 md:grid-cols-5 gap-2 text-sm">
