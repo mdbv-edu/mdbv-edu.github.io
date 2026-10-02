@@ -3840,7 +3840,7 @@ function _renderTchQualDocs(){
   const isPdf = (d.type || '').includes('pdf');
   return `<span class="inline-flex items-center gap-1 bg-gray-100 border rounded px-2 py-1 text-xs">
    <i class="fas fa-${isPdf ? 'file-pdf text-rose-600' : 'file-image text-blue-600'}"></i>
-   <a href="${d.data}" download="${escapeHTML(d.name)}" class="hover:underline max-w-[140px] truncate" title="${escapeHTML(d.name)}">${escapeHTML(d.name)}</a>
+   <a href="${d.data}" target="_blank" rel="noopener" class="docLink hover:underline max-w-[140px] truncate" title="${escapeHTML(d.name)}">${escapeHTML(d.name)}</a>
    <button type="button" class="tchQualDocDel text-rose-500 hover:text-rose-700 ml-1" data-idx="${i}"><i class="fas fa-times"></i></button>
   </span>`;
  }).join('');
@@ -3861,7 +3861,7 @@ function _renderStuDocs(){
   return `<span class="inline-flex items-center gap-1 bg-gray-100 border rounded px-2 py-1 text-xs">
    <i class="fas fa-${isPdf ? 'file-pdf text-rose-600' : 'file-image text-blue-600'}"></i>
    <span class="font-medium">${escapeHTML(d.docType || 'Document')}:</span>
-   <a href="${d.data}" download="${escapeHTML(d.name)}" class="hover:underline max-w-[120px] truncate" title="${escapeHTML(d.name)}">${escapeHTML(d.name)}</a>
+   <a href="${d.data}" target="_blank" rel="noopener" class="docLink hover:underline max-w-[120px] truncate" title="${escapeHTML(d.name)}">${escapeHTML(d.name)}</a>
    <button type="button" class="stuDocDel text-rose-500 hover:text-rose-700 ml-1" data-idx="${i}"><i class="fas fa-times"></i></button>
   </span>`;
  }).join('');
@@ -4114,7 +4114,8 @@ function _patchNorm(field, v){
  return s;
 }
 async function applyStudentPatch(patch, progressCb){
- if (!patch || !patch._mdbvStudentPatch || !Array.isArray(patch.students)) throw new Error('This is not an MDBV student update file.');
+ if (!patch || !patch._mdbvStudentPatch) throw new Error('This is not an MDBV update file.');
+ if (!Array.isArray(patch.students)) patch.students = [];
  if (DB.mode === 'cloud' && (!DB._startupDone || !DB._syncEnabled)) throw new Error('NOT_SYNCED');
  const say = m => { if (progressCb) progressCb(m); };
  const report = { applied: [], skipped: [], notFound: [], docsCloud: 0, docsInline: 0, docsSkipped: 0 };
@@ -4173,6 +4174,66 @@ async function applyStudentPatch(patch, progressCb){
   }
  }
  saveStudents(all);                       // normal save path → queues cloud sync
+
+ // 3) Staff: field changes on existing staff, and new staff records.
+ if (Array.isArray(patch.newTeachers) || Array.isArray(patch.teachers)) {
+  say('Updating staff records…');
+  const ts = getTeachers();
+  (patch.newTeachers || []).forEach(nt => {
+   const exists = ts.find(t => (t.name||'').trim().toLowerCase() === (nt.name||'').trim().toLowerCase());
+   if (exists) { report.skipped.push(`Staff "${nt.name}" already exists — not added again`); return; }
+   ts.push(Object.assign({ id: Date.now() + Math.floor(Math.random()*100000), photo:'', qualificationDocs:[], assignedClasses:[], teaching:[] }, nt));
+   report.applied.push(`New staff record: ${nt.name}`);
+  });
+  (patch.teachers || []).forEach(p => {
+   const t = ts.find(x => String(x.id) === String(p.id));
+   if (!t) { report.notFound.push(p.label || p.id); return; }
+   (p.changes || []).forEach(c => {
+    const now = _patchNorm(c.field, t[c.field]);
+    if (now === _patchNorm(c.field, c.to)) return;
+    if (now !== _patchNorm(c.field, c.from)) { report.skipped.push(`${t.name}: ${c.field} is now "${t[c.field]||''}" (expected "${c.from||''}") — left unchanged`); return; }
+    t[c.field] = c.to; report.applied.push(`${t.name}: ${c.field} → ${c.to}`);
+   });
+  });
+  saveTeachers(ts);
+ }
+
+ // 4) Salary payments (e.g. from signed cheque salary sheets) → Ledger expense + linked salary record.
+ //    Each entry carries an importKey, so importing the same file twice never doubles a payment.
+ if (Array.isArray(patch.salaryPayments) && patch.salaryPayments.length) {
+  say('Recording salary payments…');
+  const exps = get('expenses');
+  const pays = getSalaryPayments();
+  const staffList = (typeof _allStaffForSalary === 'function') ? _allStaffForSalary() : [];
+  let added = 0, dup = 0, base = Date.now();
+  patch.salaryPayments.forEach((sp, k) => {
+   if (exps.some(e => e.importKey === sp.importKey && !e._deleted)) { dup++; return; }
+   const staff = staffList.find(x => x.name.toLowerCase() === (sp.teacherName||'').toLowerCase());
+   const expId = base + k*3, salId = base + k*3 + 1;
+   exps.push({
+    id: expId, date: sp.date, category: 'Salary', vendor: sp.teacherName,
+    fundedBy: 'School funds',
+    description: 'Salary — ' + sp.teacherName + (sp.forMonth ? ' (' + sp.forMonth + (sp.academicYear ? ' ' + sp.academicYear : '') + ')' : '') + (sp.note ? ' · ' + sp.note : ''),
+    amount: Number(sp.amount) || 0, mode: sp.mode || 'Cheque', chequeNo: sp.chequeNo || undefined,
+    bankName: sp.payeeBank || undefined,
+    salaryStaffName: sp.teacherName, salaryMonth: sp.forMonth || undefined, academicYear: sp.academicYear || undefined,
+    importKey: sp.importKey, importedFrom: sp.source || 'Salary sheet', dateAssumed: sp.dateAssumed || undefined,
+    createdAt: new Date().toISOString(), createdBy: (currentUser && currentUser.name) || 'Import',
+    salaryPaymentId: salId
+   });
+   pays.push({
+    id: salId, teacherId: (staff && staff.teacherId) || sp.teacherId || undefined, teacherName: sp.teacherName,
+    staffRole: staff ? staff.role : 'Staff', amount: Number(sp.amount) || 0, date: sp.date,
+    forMonth: sp.forMonth || '', academicYear: sp.academicYear || '', mode: sp.mode || 'Cheque',
+    chequeNo: sp.chequeNo || '', note: (sp.note || '') + (sp.payeeAccount ? ' · paid to A/C ' + sp.payeeAccount : ''),
+    paidBy: (currentUser && currentUser.name) || '', expenseId: expId
+   });
+   added++;
+  });
+  set('expenses', exps);
+  saveSalaryPayments(pays);
+  report.applied.push(`${added} salary payment(s) recorded in Expenses/Salary` + (dup ? ` (${dup} already recorded earlier — skipped)` : ''));
+ }
  if (DB.mode === 'cloud') {
   say('Uploading to cloud…');
   await DB.flushNow();
@@ -4180,6 +4241,23 @@ async function applyStudentPatch(patch, progressCb){
  }
  return report;
 }
+// Documents (KYC, qualification, curriculum) open in a NEW tab so the portal stays open behind them.
+// Cloud-stored files are normal links; older inline (data:) files are converted to a blob URL first,
+// because browsers refuse to open data: URLs in a new tab.
+document.addEventListener('click', e => {
+ const a = e.target.closest && e.target.closest('a.docLink');
+ if (!a) return;
+ const href = a.getAttribute('href') || '';
+ if (!href.startsWith('data:')) return;          // normal URL: target=_blank handles it
+ e.preventDefault();
+ try {
+  const blob = _dataURLtoBlob(href);
+  const url = URL.createObjectURL(blob);
+  const w = window.open(url, '_blank');
+  if (!w) { const t = document.createElement('a'); t.href = url; t.download = a.textContent.trim() || 'document'; t.click(); }
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+ } catch (_) { window.open(href, '_blank'); }
+});
 function exportUdisCSV(){
  const st=getStudents().filter(x=>!x.archived),tc=getActiveTeachers(),inf=getSchoolInfra();
  let rows=[['UDISE Code','UP-0987-12345','School','Murti Devi Balika Vidyapeeth']];
@@ -4649,10 +4727,10 @@ function renderOwnerDashboard(){
     <button id="backupDownloadBtn" class="bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-download mr-1"></i>Backup Everything (Download)</button>
     ${isFullOwner() ? `<button id="backupRestoreBtn" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-upload mr-1"></i>Restore from Backup</button>
     <input type="file" id="backupRestoreFile" class="hidden" accept="application/json,.json">
-    <button id="studentPatchBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-file-import mr-1"></i>Import Student Updates</button>
+    <button id="studentPatchBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-file-import mr-1"></i>Import Updates</button>
     <input type="file" id="studentPatchFile" class="hidden" accept="application/json,.json">` : ''}
    </div>
-   ${isFullOwner() ? '<div class="mt-2 text-xs text-indigo-800"><i class="fas fa-circle-info mr-1"></i><b>Import Student Updates</b> adds prepared corrections and documents (e.g. Aadhaar scans) on top of today\'s data — nothing else is replaced.</div>' : ''}
+   ${isFullOwner() ? '<div class="mt-2 text-xs text-indigo-800"><i class="fas fa-circle-info mr-1"></i><b>Import Updates</b> adds prepared corrections, documents, staff details or salary records on top of today\'s data — nothing else is replaced.</div>' : ''}
    ${isFullOwner() ? '<div class="mt-2 text-xs text-amber-800"><i class="fas fa-triangle-exclamation mr-1"></i>Restore <b>overwrites</b> current data with the backup file\'s contents. Take a fresh backup first, then restore.</div>' : ''}
    <div id="backupStatus" class="mt-2 text-xs text-teal-800"></div>
   </div>
@@ -6252,7 +6330,7 @@ function renderStudentProfile(id){
    ${canSeeSRNumber()?`<div><div class="text-xs text-gray-500">Scholar Reg No <i class="fas fa-id-badge text-amber-500" title="Used for TC"></i></div><div class="font-medium font-mono">${s.registrationNo||'-'}</div></div>`:''}${canSeeConfidentialNumbers()?`<div><div class="text-xs text-gray-500">UDISE/PEN <i class="fas fa-lock text-amber-500" title="Confidential"></i></div><div class="font-medium font-mono">${s.pen||'-'}</div></div>`:''}
    <div><div class="text-xs text-gray-500">BPL / CWSN</div><div class="font-medium">${s.bpl?'BPL':''} ${s.cwsn?'CWSN':''} ${!s.bpl&&!s.cwsn?'-':''}</div></div>
    <div><div class="text-xs text-gray-500">Admission Date</div><div class="font-medium">${fmtDate(s.admissionDate)}</div></div>
-   <div class="col-span-2"><div class="text-xs text-gray-500">Parent</div><div class="font-medium">${s.fatherName||s.motherName||s.parentName||'-'} - ${s.parentPhone||'-'}</div></div>
+   <div><div class="text-xs text-gray-500">Father's Name</div><div class="font-medium">${escapeHTML(s.fatherName||'-')}</div></div><div><div class="text-xs text-gray-500">Mother's Name</div><div class="font-medium">${escapeHTML(s.parentName||s.motherName||'-')}</div></div><div><div class="text-xs text-gray-500">Phone</div><div class="font-medium">${escapeHTML(s.parentPhone||'-')}${s.alternatePhone?' / '+escapeHTML(s.alternatePhone):''}</div></div>
    <div class="col-span-3"><div class="text-xs text-gray-500">Address</div><div class="font-medium">${s.address||'-'}</div></div>
   </div>
   ${s.archived ? `<div class="mt-3 bg-amber-50 border border-amber-300 rounded-lg p-3 text-sm">
@@ -6271,7 +6349,7 @@ function renderStudentProfile(id){
      <div class="flex flex-wrap gap-2">
       ${docs.map(d => {
         const isPdf = (d.type||'').includes('pdf');
-        return `<a href="${d.data}" download="${escapeHTML(d.name)}" class="inline-flex items-center gap-1 bg-gray-100 border rounded px-2 py-1 text-xs hover:bg-gray-200">
+        return `<a href="${d.data}" target="_blank" rel="noopener" class="docLink inline-flex items-center gap-1 bg-gray-100 border rounded px-2 py-1 text-xs hover:bg-gray-200">
          <i class="fas fa-${isPdf?'file-pdf text-rose-600':'file-image text-blue-600'}"></i>
          <span class="font-medium">${escapeHTML(d.docType||'Document')}</span>
         </a>`;
@@ -6558,7 +6636,9 @@ function renderTeachersTab(){
     <div><label class="text-xs">Date of Birth</label><input type="date" id="tchDob"></div>
     <div><label class="text-xs">Blood Group</label><select id="tchBlood"><option value="">—</option><option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>AB+</option><option>AB-</option><option>O+</option><option>O-</option></select></div>
     <div class="col-span-2"><label class="text-xs">Address</label><input id="tchAddress"></div>
-    <div><label class="text-xs">Bank A/C (last 4)</label><input id="tchBank"></div>
+    <div${canSeeSalary()?'':' style="display:none"'}><label class="text-xs">Bank Name</label><input id="tchBankName" placeholder="e.g. SBI"></div>
+    <div${canSeeSalary()?'':' style="display:none"'}><label class="text-xs">Bank Account No.</label><input id="tchBank" placeholder="Full account number"></div>
+    <div${canSeeSalary()?'':' style="display:none"'}><label class="text-xs">IFSC Code</label><input id="tchIfsc" placeholder="e.g. SBIN0002319" style="text-transform:uppercase"></div>
    </div>
    <div class="mt-3 border-t pt-3" id="tchClassesSection">
     <label class="text-xs font-semibold block mb-1"><i class="fas fa-chalkboard mr-1 text-purple-600"></i>Subjects &amp; Classes</label>
@@ -12239,7 +12319,7 @@ function renderTchCurriculum(){
       <button id="tchCurrDocUploadBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded text-sm font-medium"><i class="fas fa-upload mr-1"></i>Upload</button>
      </div>
      ${docs.length ? `<div class="mt-3 space-y-1">${docs.map(d => `<div class="flex items-center justify-between bg-white border rounded px-2 py-1.5 text-sm">
-       <a href="${d.data}" download="${escapeHTML(d.name||'curriculum')}" class="text-indigo-700 hover:underline flex-1 truncate"><i class="fas fa-${(d.name||'').toLowerCase().endsWith('.pdf')?'file-pdf':'file-image'} mr-1"></i>${escapeHTML(d.title||d.name||'File')}</a>
+       <a href="${d.data}" target="_blank" rel="noopener" class="docLink text-indigo-700 hover:underline flex-1 truncate"><i class="fas fa-${(d.name||'').toLowerCase().endsWith('.pdf')?'file-pdf':'file-image'} mr-1"></i>${escapeHTML(d.title||d.name||'File')}</a>
        <span class="text-xs text-gray-400 mx-2">${d.uploadedAt?fmtDate(d.uploadedAt):''}</span>
        <button class="tchCurrDocDelBtn text-rose-500 hover:text-rose-700" data-id="${d.id}"><i class="fas fa-trash"></i></button>
       </div>`).join('')}</div>` : '<div class="text-xs text-gray-500 mt-2">No curriculum files uploaded yet for this class.</div>'}
@@ -16122,7 +16202,7 @@ function _staffKYCCard(t){
    : '';
  const salaryBlock = canSeeSalary()
    ? `<div class="sect">Salary</div>${_kvRows([['Monthly Salary', t.salary?inr(t.salary):''],
-       ['Salary Start Month', t.salaryStartMonth],['Bank Account', t.bankAccount],
+       ['Salary Start Month', t.salaryStartMonth],['Bank', t.bankName],['Bank Account', t.bankAccount],['IFSC', t.ifsc],
        ['Payments Made', h.paymentCount],['Total Paid to Date', inr(h.totalPaid)],
        ['First Payment', h.firstPaid?fmtDate(h.firstPaid):''],['Last Payment', h.lastPaid?fmtDate(h.lastPaid):'']])}`
    : '';
@@ -20789,7 +20869,8 @@ function attachOwnerEvents(){
    if (!obj || !obj._mdbvStudentPatch) { alert('This is not an MDBV student update file.\n\n(For a full backup file, use "Restore from Backup".)'); return; }
    const nStu = (obj.students || []).length;
    const nDoc = (obj.students || []).reduce((a, p) => a + ((p.addDocuments || []).length), 0);
-   if (!confirm(`Import student updates?\n\n${obj.title || ''}\n${nStu} students · ${nDoc} documents\n\nOnly the listed fields and documents are added. If a field was edited on the site after this file was prepared, it is left unchanged and reported.\n\nPlease keep this page open until it finishes.`)) return;
+   const nSal = (obj.salaryPayments||[]).length, nTch = (obj.teachers||[]).length + (obj.newTeachers||[]).length;
+   if (!confirm(`Import updates?\n\n${obj.title || ''}\n${nStu} students · ${nDoc} documents · ${nTch} staff · ${nSal} salary payments\n\nOnly the listed fields and documents are added. If a field was edited on the site after this file was prepared, it is left unchanged and reported.\n\nPlease keep this page open until it finishes.`)) return;
    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Importing…'; }
    try {
     const r = await applyStudentPatch(obj, m => { if (status) status.textContent = m; });
@@ -20810,7 +20891,7 @@ function attachOwnerEvents(){
     if (status) status.innerHTML = '<span class="text-rose-700">' + escapeHTML(msg.split('\n')[0]) + '</span>';
     alert(msg);
    } finally {
-    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-file-import mr-1"></i>Import Student Updates'; }
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-file-import mr-1"></i>Import Updates'; }
    }
   };
   reader.readAsText(f);
@@ -21747,7 +21828,7 @@ function attachTeachersTabEvents(){
  // Helper to open modal in either Add or Edit mode
  const openTeacherModal = (existingId) => {
   // Clear all fields
-  ['tchId','tchName','tchSubject','tchQual','tchEmpId','tchTrain','tchSalary','tchPhone','tchBank','tchEmail','tchDob','tchAddress','tchPhoto']
+  ['tchId','tchName','tchSubject','tchQual','tchEmpId','tchTrain','tchSalary','tchPhone','tchBank','tchBankName','tchIfsc','tchEmail','tchDob','tchAddress','tchPhoto']
    .forEach(f => { const el = document.getElementById(f); if (el) el.value = ''; });
   document.getElementById('tchBlood').value = '';
   { const st = document.getElementById('tchStaffType'); if (st) st.value = 'Teaching'; }
@@ -21770,6 +21851,8 @@ function attachTeachersTabEvents(){
     { const el = document.getElementById('tchSalaryStart'); if (el) el.value = t.salaryStartMonth || ''; }
     document.getElementById('tchPhone').value = t.phone || '';
     document.getElementById('tchBank').value = t.bankAccount || '';
+    if (document.getElementById('tchBankName')) document.getElementById('tchBankName').value = t.bankName || '';
+    if (document.getElementById('tchIfsc')) document.getElementById('tchIfsc').value = t.ifsc || '';
     document.getElementById('tchEmail').value = t.email || '';
     document.getElementById('tchDob').value = t.dob || '';
     document.getElementById('tchAddress').value = t.address || '';
@@ -21845,6 +21928,8 @@ function attachTeachersTabEvents(){
    trainingDate: document.getElementById('tchTrain').value,
    phone: document.getElementById('tchPhone').value.trim(),
    bankAccount: document.getElementById('tchBank').value.trim(),
+   bankName: (document.getElementById('tchBankName')?.value || '').trim(),
+   ifsc: (document.getElementById('tchIfsc')?.value || '').trim().toUpperCase(),
    email: document.getElementById('tchEmail').value.trim(),
    dob: document.getElementById('tchDob').value,
    address: document.getElementById('tchAddress').value.trim(),
