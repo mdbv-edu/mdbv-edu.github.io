@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: v-1790779686 - scan viewing also added to the parent portal fee list, so families can open their own receipt slip -->
+<!-- BUILD: v-1790944436 - FIX student profile Fees tab: the scan button referenced the wrong row variable, which threw and broke the whole tab; clicking now works through one delegated listener so buttons inside modals and tab panes respond, and the profile table gained the Book No column with the column count corrected -->
 <!-- BUILD: v-1790340000 - MARKS ENTRY FIX: saving marks used to always ADD a new row instead of replacing the old one, so re-entering/correcting a mark created a silent duplicate — this is what made a plain single mark for English display as "71 + 71 (Theory + Internal)" even though that option was never ticked. Saving now clears any prior row for that student+exam+subject first. MARKS VISIBILITY FIX: the marks entry/summary screen used to only show a teacher their own submissions, so nobody else — not admin, not principal, not another teacher on the same class — could see, correct, or delete what had been entered. It now shows every entry for the classes the user has access to (all classes for admin/principal/owner, assigned classes for a teacher), with an "Entered By" column, so any of them can override or delete it. Added a report-card shortcut button on each marks row. REPORT CARD: removed Scholar Reg No and UDISE/PEN from the student-facing report card entirely. -->
 <!-- BUILD: v-1790432000 - MARKS SUMMARY REDESIGNED: now a class-wise, exam-wise table (not a subject-per-row accordion). Class picker at the top lets you toggle between classes in one place. Exam dropdown: select a single exam to see/edit/delete one exam at a time, or "Combined" to view all exams' marks added together as an overall percentage per subject. Student rows × subject columns. For Class 11 and 12, Branch column shows PCM/PCB/Humanities. "Overall" column sums all subjects for a holistic picture. Actions: Edit (edit all of that exam's marks for one student in a modal), Delete (remove that exam's marks for one student), Report Card. Edit modal handles split Theory+Internal and single-mark subjects, with AB (absent) checkbox per subject. Report card can show a single exam or the full consolidated card. Stream/Branch field added to student form (shows only for 11/12). -->
 
@@ -2032,6 +2032,7 @@ function initDB(){
  if (DB.getScalar('workingDays') === null) DB.setAll('workingDays', []);
  if (DB.getScalar('advanceLedger') === null) DB.setAll('advanceLedger', []);
  try { migrateReceiptNumbers(); } catch(e){}
+ try { _attachScanViewers(); } catch(e){}
  if (DB.getScalar('syllabusTopics') === null) DB.setObject('syllabusTopics', {});
   if (DB.getScalar('ptmAttendance') === null) DB.setObject('ptmAttendance', {});
   if (DB.getScalar('attendanceRecords') === null) {
@@ -2683,9 +2684,18 @@ function receiptScanBtn(t){
  }
  return `<span class="text-gray-300 text-xs px-2" title="No scan attached"><i class="fas fa-image"></i></span>`;
 }
+// One listener on the page, set up once. Receipt rows appear inside modals and tab panes that
+// are drawn long after the main render, so attaching per render missed them.
+var _scanDelegationReady = false;
 function _attachScanViewers(){
- document.querySelectorAll('.viewScanBtn').forEach(b =>
-  b.addEventListener('click', () => openReceiptScan(b.dataset.id)));
+ if (_scanDelegationReady) return;
+ _scanDelegationReady = true;
+ document.addEventListener('click', e => {
+  const b = e.target && e.target.closest ? e.target.closest('.viewScanBtn') : null;
+  if (!b) return;
+  e.preventDefault();
+  openReceiptScan(b.dataset.id);
+ });
 }
 function newSystemReceiptNo(existing){
  const used = new Set((existing||[]).map(t => String(t.receiptNo||'')));
@@ -6229,8 +6239,8 @@ function renderStudentProfile(id){
    </div>`:''}
 
    <div class="text-sm font-semibold mb-1"><i class="fas fa-receipt text-emerald-600 mr-1"></i>Payment Receipts</div>
-   <table class="border text-sm w-full"><thead class="bg-gray-50"><tr><th class="p-2">Scan</th><th class="text-left p-2">Receipt</th><th class="text-left p-2">Date</th><th class="text-left p-2">Fee Head</th><th class="text-left p-2">Mode</th><th class="text-right p-2">Amount</th></tr></thead>
-   <tbody>${fees.map(f=>`<tr class="border-t"><td class="p-2 text-center">${receiptScanBtn(t)}</td><td class="p-2 text-xs">${f.receiptNo||'-'}</td><td class="p-2 text-xs">${fmtDate(f.date)}</td><td class="p-2 text-xs">${escapeHTML(f.feeHead||'Tuition Fee')}</td><td class="p-2 text-xs">${escapeHTML(f.mode||'-')}</td><td class="p-2 text-right font-medium">Rs.${(Number(f.amount)||0).toLocaleString('en-IN')}</td></tr>`).join('')||'<tr><td colspan="5" class="text-center text-gray-500 py-4">No payments recorded yet</td></tr>'}</tbody></table>
+   <table class="border text-sm w-full"><thead class="bg-gray-50"><tr><th class="p-2">Scan</th><th class="text-left p-2">Receipt</th><th class="text-left p-2">Book No</th><th class="text-left p-2">Date</th><th class="text-left p-2">Fee Head</th><th class="text-left p-2">Mode</th><th class="text-right p-2">Amount</th></tr></thead>
+   <tbody>${fees.map(f=>`<tr class="border-t"><td class="p-2 text-center">${receiptScanBtn(f)}</td><td class="p-2 text-xs font-mono">${f.receiptNo||'-'}</td><td class="p-2 text-xs font-mono">${f.bookReceiptNo||'-'}</td><td class="p-2 text-xs">${fmtDate(f.date)}</td><td class="p-2 text-xs">${escapeHTML(f.feeHead||'Tuition Fee')}</td><td class="p-2 text-xs">${escapeHTML(f.mode||'-')}</td><td class="p-2 text-right font-medium">Rs.${(Number(f.amount)||0).toLocaleString('en-IN')}</td></tr>`).join('')||'<tr><td colspan="7" class="text-center text-gray-500 py-4">No payments recorded yet</td></tr>'}</tbody></table>
   </div>`;
  } else if(t==='marks'){
   const examList = [...new Set(marks.map(m=>m.examName).filter(Boolean))];
