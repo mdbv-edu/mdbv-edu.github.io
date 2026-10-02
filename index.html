@@ -5171,7 +5171,7 @@ function renderDataManagementModals(){
      <div class="flex flex-wrap gap-2 items-end mb-2">
       <div><label class="text-xs">Document type</label>
        <select id="dmStuDocType" class="text-sm">
-        <option>Aadhaar Card</option><option>Birth Certificate</option><option>Address Proof</option>
+        <option>Aadhaar Card</option><option>Father's Aadhaar Card</option><option>Mother's Aadhaar Card</option><option>Birth Certificate</option><option>Address Proof</option>
         <option>Transfer Certificate (previous school)</option><option>Caste Certificate</option>
         <option>Income Certificate</option><option>Passport Photo</option><option>Report Card (previous)</option><option>Other</option>
        </select>
@@ -22214,13 +22214,29 @@ function attachDataManagementEvents(){
   if (!f) return;
   if (f.size > 5 * 1024 * 1024) { alert('File too large (max 5MB). Please scan at lower resolution.'); e.target.value=''; return; }
   const docType = document.getElementById('dmStuDocType').value;
-  const reader = new FileReader();
-  reader.onload = ev => {
-   _stuDocs.push({ docType, name: f.name, type: f.type, data: ev.target.result, uploadedAt: new Date().toISOString() });
-   _renderStuDocs();
-   e.target.value = '';
+  const input = e.target;
+  const keepInline = () => {
+   const reader = new FileReader();
+   reader.onload = ev => {
+    _stuDocs.push({ docType, name: f.name, type: f.type, data: ev.target.result, uploadedAt: new Date().toISOString() });
+    _renderStuDocs();
+    input.value = '';
+   };
+   reader.readAsDataURL(f);
   };
-  reader.readAsDataURL(f);
+  // Prefer cloud file storage so scans don't fill up the browser's ~5 MB storage.
+  if (DB.storageAvailable()) {
+   const box = document.getElementById('dmStuDocsList');
+   if (box) box.insertAdjacentHTML('beforeend', '<span id="dmStuDocUploading" class="text-xs text-gray-500"><i class="fas fa-spinner fa-spin mr-1"></i>Uploading…</span>');
+   const sid = document.getElementById('dmStuId')?.value || 'new';
+   DB.uploadFile(f, 'kyc/' + sid).then(({ url, path }) => {
+    _stuDocs.push({ docType, name: f.name, type: f.type, data: url, path, uploadedAt: new Date().toISOString() });
+    _renderStuDocs();
+    input.value = '';
+   }).catch(() => { document.getElementById('dmStuDocUploading')?.remove(); keepInline(); });
+  } else {
+   keepInline();
+  }
  });
  // Installment plan: split composite fee evenly into N installments (editable after)
  document.getElementById('dmGenInstBtn')?.addEventListener('click', () => {
