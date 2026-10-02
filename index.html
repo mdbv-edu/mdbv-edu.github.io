@@ -4100,6 +4100,86 @@ function restoreFromBackup(backupObj){
   return { ok:false, error: e.message };
  }
 }
+// ===== STUDENT UPDATE (PATCH) IMPORT =====
+// Applies a prepared "student update" file on top of the CURRENT data instead of replacing
+// everything like a full restore. Each field change records the value it expects to find
+// ("from"); if someone has since edited that field on the site, the change is skipped and
+// reported, so newer work is never overwritten. Attached documents (e.g. Aadhaar scans) are
+// uploaded to cloud storage when available, otherwise kept inline. Saving goes through the
+// normal save path, so the result syncs to the cloud and every device.
+function _patchNorm(field, v){
+ if (v === null || v === undefined) return '';
+ let s = String(v).trim();
+ if (field === 'aadhaar' || /phone/i.test(field)) s = s.replace(/[\s-]/g, '');
+ return s;
+}
+async function applyStudentPatch(patch, progressCb){
+ if (!patch || !patch._mdbvStudentPatch || !Array.isArray(patch.students)) throw new Error('This is not an MDBV student update file.');
+ if (DB.mode === 'cloud' && (!DB._startupDone || !DB._syncEnabled)) throw new Error('NOT_SYNCED');
+ const say = m => { if (progressCb) progressCb(m); };
+ const report = { applied: [], skipped: [], notFound: [], docsCloud: 0, docsInline: 0, docsSkipped: 0 };
+ const mkFile = (blob, name) => (typeof File !== 'undefined') ? new File([blob], name, { type: blob.type }) : blob;
+ let useCloud = DB.storageAvailable();
+
+ // 1) Upload documents first (slow part). Nothing is saved yet.
+ const preparedDocs = {};   // studentId -> [doc]
+ const current0 = getStudents();
+ let n = 0, totalDocs = patch.students.reduce((a, p) => a + ((p.addDocuments || []).length), 0);
+ for (const p of patch.students) {
+  const s = current0.find(x => String(x.id) === String(p.id));
+  if (!s) continue;
+  for (const d of (p.addDocuments || [])) {
+   n++;
+   const existing = Array.isArray(s.documents) ? s.documents : [];
+   if (existing.some(e => e.name === d.name && e.docType === d.docType)) { report.docsSkipped++; continue; }
+   say(`Uploading document ${n} of ${totalDocs} (${s.name})…`);
+   let doc = { docType: d.docType, name: d.name, type: d.type, data: d.data, uploadedAt: d.uploadedAt || new Date().toISOString() };
+   if (useCloud) {
+    try {
+     const blob = _dataURLtoBlob(d.data, d.type);
+     if (!blob) throw new Error('bad image data');
+     const { url, path } = await DB.uploadFile(mkFile(blob, d.name), 'kyc/' + s.id);
+     doc.data = url; doc.path = path;
+    } catch (e) {
+     if (e.message === 'STORAGE_BUCKET_MISSING') useCloud = false;   // fall back to inline for the rest
+    }
+   }
+   if (String(doc.data).startsWith('data:')) report.docsInline++; else report.docsCloud++;
+   (preparedDocs[s.id] = preparedDocs[s.id] || []).push(doc);
+  }
+ }
+
+ // 2) Re-read the LATEST students (a background refresh may have run while uploading) and merge.
+ say('Saving changes…');
+ const all = getStudents();
+ for (const p of patch.students) {
+  const s = all.find(x => String(x.id) === String(p.id));
+  if (!s) { report.notFound.push(p.label || p.id); continue; }
+  for (const c of (p.changes || [])) {
+   const now = _patchNorm(c.field, s[c.field]);
+   if (now === _patchNorm(c.field, c.to)) continue;                 // already done
+   if (now !== _patchNorm(c.field, c.from)) {                        // edited since — don't overwrite
+    report.skipped.push(`${s.name}: ${c.field} is now "${s[c.field] || ''}" (expected "${c.from || ''}") — left unchanged`);
+    continue;
+   }
+   s[c.field] = c.to;
+   report.applied.push(`${s.name}: ${c.field} → ${c.to}`);
+  }
+  const docs = preparedDocs[s.id] || [];
+  if (docs.length) {
+   s.documents = (Array.isArray(s.documents) ? s.documents : []).concat(
+    docs.filter(d => !(s.documents || []).some(e => e.name === d.name && e.docType === d.docType)));
+   report.applied.push(`${s.name}: ${docs.length} document(s) attached`);
+  }
+ }
+ saveStudents(all);                       // normal save path → queues cloud sync
+ if (DB.mode === 'cloud') {
+  say('Uploading to cloud…');
+  await DB.flushNow();
+  if (DB._syncState === 'error' || DB._syncState === 'offline') throw new Error('SYNC_FAILED:' + (DB._lastSyncError || 'unknown error'));
+ }
+ return report;
+}
 function exportUdisCSV(){
  const st=getStudents().filter(x=>!x.archived),tc=getActiveTeachers(),inf=getSchoolInfra();
  let rows=[['UDISE Code','UP-0987-12345','School','Murti Devi Balika Vidyapeeth']];
@@ -4568,8 +4648,11 @@ function renderOwnerDashboard(){
    <div class="flex flex-wrap gap-2">
     <button id="backupDownloadBtn" class="bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-download mr-1"></i>Backup Everything (Download)</button>
     ${isFullOwner() ? `<button id="backupRestoreBtn" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-upload mr-1"></i>Restore from Backup</button>
-    <input type="file" id="backupRestoreFile" class="hidden" accept="application/json,.json">` : ''}
+    <input type="file" id="backupRestoreFile" class="hidden" accept="application/json,.json">
+    <button id="studentPatchBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-file-import mr-1"></i>Import Student Updates</button>
+    <input type="file" id="studentPatchFile" class="hidden" accept="application/json,.json">` : ''}
    </div>
+   ${isFullOwner() ? '<div class="mt-2 text-xs text-indigo-800"><i class="fas fa-circle-info mr-1"></i><b>Import Student Updates</b> adds prepared corrections and documents (e.g. Aadhaar scans) on top of today\'s data — nothing else is replaced.</div>' : ''}
    ${isFullOwner() ? '<div class="mt-2 text-xs text-amber-800"><i class="fas fa-triangle-exclamation mr-1"></i>Restore <b>overwrites</b> current data with the backup file\'s contents. Take a fresh backup first, then restore.</div>' : ''}
    <div id="backupStatus" class="mt-2 text-xs text-teal-800"></div>
   </div>
@@ -20654,7 +20737,7 @@ function attachOwnerEvents(){
   const f = e.target.files[0];
   if (!f) return;
   const reader = new FileReader();
-  reader.onload = ev => {
+  reader.onload = async ev => {
    let obj;
    try { obj = JSON.parse(ev.target.result); }
    catch { alert('Could not read that file — it is not valid JSON.'); e.target.value=''; return; }
@@ -20662,14 +20745,73 @@ function attachOwnerEvents(){
    const when = obj._createdAt ? new Date(obj._createdAt).toLocaleString('en-IN') : 'unknown date';
    const tables = obj._tableCount || (obj.data ? Object.keys(obj.data).length : 0);
    if (!confirm(`Restore this backup?\n\nCreated: ${when}\nBy: ${obj._createdBy||'unknown'}\nContains: ${tables} data tables\n\nThis will OVERWRITE all current data in this browser with the backup's contents. This cannot be undone (except by restoring another backup).\n\nContinue?`)) { e.target.value=''; return; }
+   const cloudOn = DB.mode === 'cloud' && DB._startupDone && DB._syncEnabled;
+   if (DB.mode === 'cloud' && !cloudOn) { alert('The site is not connected to the cloud right now, so a restore would be undone on the next reload. Please refresh, wait for 🟢 Synced, and try again.'); e.target.value=''; return; }
+   if (cloudOn && !confirm('This site is connected to the cloud.\n\nThe backup will ALSO replace the data in the cloud (Supabase), so every device gets it. Anything added on any device after this backup was taken will be lost.\n\nContinue?')) { e.target.value=''; return; }
+   // Stop background refreshes so a cloud pull can't overwrite the restored data mid-way.
+   if (DB._autoPullTimer) { clearInterval(DB._autoPullTimer); DB._autoPullTimer = null; }
+   if (DB._syncTimer) { clearTimeout(DB._syncTimer); DB._syncTimer = null; }
    const result = restoreFromBackup(obj);
    if (result.ok) {
-    alert(`Restore complete — ${result.restored} tables restored. The page will now reload.`);
+    if (cloudOn) {
+     const st = document.getElementById('backupStatus');
+     if (st) st.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Uploading restored data to the cloud — keep this page open…';
+     const res = await DB.pushAll(({ table, step, total }) => { if (st) st.innerHTML = `<i class="fas fa-spinner fa-spin mr-1"></i>Uploading to cloud… ${step}/${total} (${table})`; });
+     const errs = Object.entries(res).filter(([, r]) => r && r.error);
+     if (errs.length) {
+      alert(`Restored on this device, but ${errs.length} table(s) could not be uploaded to the cloud:\n` + errs.slice(0,8).map(([t, r]) => `• ${t}: ${r.error}`).join('\n') + '\n\nDo NOT reload yet. Use "Push Local → Cloud" in the Cloud Sync panel to retry.');
+      e.target.value=''; return;
+     }
+    }
+    alert(`Restore complete — ${result.restored} tables restored${cloudOn ? ' and uploaded to the cloud' : ''}. The page will now reload.`);
     location.reload();
    } else {
     alert('Restore failed: ' + result.error);
    }
    e.target.value='';
+  };
+  reader.readAsText(f);
+ });
+
+ document.getElementById('studentPatchBtn')?.addEventListener('click', () => {
+  document.getElementById('studentPatchFile')?.click();
+ });
+ document.getElementById('studentPatchFile')?.addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const status = document.getElementById('backupStatus');
+  const btn = document.getElementById('studentPatchBtn');
+  const reader = new FileReader();
+  reader.onload = async ev => {
+   e.target.value = '';
+   let obj;
+   try { obj = JSON.parse(ev.target.result); } catch { alert('Could not read that file — it is not valid JSON.'); return; }
+   if (!obj || !obj._mdbvStudentPatch) { alert('This is not an MDBV student update file.\n\n(For a full backup file, use "Restore from Backup".)'); return; }
+   const nStu = (obj.students || []).length;
+   const nDoc = (obj.students || []).reduce((a, p) => a + ((p.addDocuments || []).length), 0);
+   if (!confirm(`Import student updates?\n\n${obj.title || ''}\n${nStu} students · ${nDoc} documents\n\nOnly the listed fields and documents are added. If a field was edited on the site after this file was prepared, it is left unchanged and reported.\n\nPlease keep this page open until it finishes.`)) return;
+   if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Importing…'; }
+   try {
+    const r = await applyStudentPatch(obj, m => { if (status) status.textContent = m; });
+    const lines = [
+     `Done. ${r.applied.length} updates applied.`,
+     `Documents: ${r.docsCloud} saved to cloud storage` + (r.docsInline ? `, ${r.docsInline} stored inline` : '') + (r.docsSkipped ? `, ${r.docsSkipped} already present` : '') + '.',
+    ];
+    if (r.skipped.length) lines.push('', `${r.skipped.length} change(s) NOT applied because the field was edited on the site since:`, ...r.skipped.slice(0, 15));
+    if (r.notFound.length) lines.push('', 'Students not found: ' + r.notFound.join(', '));
+    if (status) status.innerHTML = `<i class="fas fa-circle-check text-emerald-600 mr-1"></i>Student updates imported and synced — ${r.applied.length} updates.` + (r.skipped.length ? ` <span class="text-amber-700">${r.skipped.length} skipped (see message).</span>` : '');
+    alert(lines.join('\n'));
+    renderApp();
+   } catch (err) {
+    const m = err.message || '';
+    let msg = 'Import failed: ' + m;
+    if (m === 'NOT_SYNCED') msg = 'The site is not connected to the cloud right now (check the sync badge in the bottom-left). Please refresh the page, wait for 🟢 Synced, and try again.';
+    else if (m.startsWith('SYNC_FAILED:')) msg = 'The changes were saved on this device but could not be uploaded to the cloud yet:\n' + m.slice(12) + '\n\nKeep this page open — it will retry automatically. Check that the sync badge turns 🟢 before closing.';
+    if (status) status.innerHTML = '<span class="text-rose-700">' + escapeHTML(msg.split('\n')[0]) + '</span>';
+    alert(msg);
+   } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-file-import mr-1"></i>Import Student Updates'; }
+   }
   };
   reader.readAsText(f);
  });
