@@ -329,6 +329,111 @@
   #portal .compliance-card.warn { border-color: #f59e0b; }
   #portal .compliance-card.crit { border-color: #ef4444; }
   #portal .compliance-card.off { border-color: #9ca3af; opacity: .7; }
+
+
+  /* ===== Students list (wide, readable) ===== */
+  .portal-wide { max-width: 1600px; }
+  .st-page { padding-bottom: 110px; }
+  .st-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+  .st-chip { border: 1px solid #e5e7eb; background: #fff; border-radius: 999px; padding: 5px 12px; font-size: 13px; color: #374151; cursor: pointer; }
+  .st-chip span { color: #9ca3af; font-size: 12px; margin-left: 2px; }
+  .st-chip.on { background: var(--burgundy, #7a1e2e); border-color: var(--burgundy, #7a1e2e); color: #fff; }
+  .st-chip.on span { color: rgba(255,255,255,.75); }
+  .st-wrap { overflow-x: auto; border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; }
+  #portal table.st-table, table.st-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 14.5px; border: 0; }
+  #portal table.st-table th, table.st-table th { position: sticky; top: 0; z-index: 2; background: #f8f5f6; color: #5a1220; text-align: left; font-size: 13px; font-weight: 600; padding: 10px 14px; border: 0; border-bottom: 1px solid #e5e7eb; text-transform: none; letter-spacing: 0; white-space: nowrap; }
+  #portal table.st-table td, table.st-table td { padding: 12px 14px; border: 0; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
+  table.st-table tbody tr:not(.st-group):hover td { background: #fcf7f8; }
+  table.st-table tr.st-group td { background: #f3eef0; color: #5a1220; font-weight: 700; font-size: 14px; padding: 8px 14px; border-bottom: 1px solid #e8dfe2; position: sticky; top: 39px; z-index: 1; }
+  table.st-table tr.st-group td span { font-weight: 500; color: #8b6b72; font-size: 12.5px; margin-left: 6px; }
+  table.st-table tr.st-archived td { opacity: .7; }
+  .st-c-stu { min-width: 260px; }
+  .st-who { display: flex; align-items: center; gap: 12px; background: none; border: 0; padding: 0; text-align: left; cursor: pointer; color: inherit; }
+  .st-who:hover .st-name, .st-who:focus-visible .st-name { color: var(--burgundy, #7a1e2e); text-decoration: underline; text-underline-offset: 3px; }
+  .st-av { width: 42px; height: 42px; border-radius: 50%; object-fit: cover; flex: none; }
+  .st-ini { display: inline-flex; align-items: center; justify-content: center; background: #f3e8ea; color: var(--burgundy, #7a1e2e); font-weight: 700; font-size: 14px; }
+  .st-who-txt { display: flex; flex-direction: column; }
+  .st-name { font-size: 16px; font-weight: 700; color: #111827; line-height: 1.25; }
+  .st-meta { font-size: 13px; color: #6b7280; margin-top: 2px; }
+  .st-par { font-size: 14px; line-height: 1.5; }
+  .st-lbl { display: inline-block; min-width: 18px; font-size: 11.5px; color: #9ca3af; margin-right: 6px; font-weight: 600; }
+  .st-phone { margin-top: 2px; font-size: 14px; }
+  .st-tel { color: var(--burgundy, #7a1e2e); font-variant-numeric: tabular-nums; text-decoration: none; border-bottom: 1px dotted currentColor; }
+  .st-miss { color: #b45309; font-size: 13px; }
+  .st-c-num { white-space: nowrap; }
+  .st-due { font-size: 16px; font-weight: 700; color: #b91c1c; font-variant-numeric: tabular-nums; }
+  .st-clear { font-size: 15px; font-weight: 700; color: #047857; }
+  .st-of { font-size: 12.5px; color: #6b7280; font-variant-numeric: tabular-nums; }
+  .st-rec { font-size: 13.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .st-tags .pill { margin: 0 4px 4px 0; display: inline-block; }
+  .st-c-act { white-space: nowrap; width: 1%; }
+  .st-main-acts { display: flex; gap: 6px; }
+  .st-btn { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; padding: 6px 12px; border-radius: 8px; border: 1px solid #e5e7eb; background: #fff; color: #374151; cursor: pointer; }
+  .st-btn:hover { border-color: #9ca3af; }
+  .st-btn-view { background: var(--burgundy, #7a1e2e); border-color: var(--burgundy, #7a1e2e); color: #fff; }
+  .st-btn-view:hover { background: var(--burgundy-deep, #5a1220); }
+  .st-more { display: flex; gap: 2px; margin-top: 6px; }
+  .st-more button { width: 30px; height: 28px; border-radius: 6px; border: 0; background: transparent; color: #6b7280; cursor: pointer; }
+  .st-more button:hover, .st-more button:focus-visible { background: #f3f4f6; color: #111827; }
+  .st-more button.st-danger:hover { background: #fee2e2; color: #b91c1c; }
+  @media (max-width: 760px) {
+   #portal table.st-table td, table.st-table td { padding: 10px; }
+   .st-c-stu { min-width: 210px; }
+   .st-chips { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
+   .st-chip { white-space: nowrap; }
+  }
+  /* ===== Student profile panel (large) ===== */
+  #portal .modal-content.sp-modal, body > .modal .modal-content.sp-modal { max-width: 1120px; width: 100%; max-height: 94vh; padding: 0; border-radius: 14px; overflow-y: auto; }
+  .sp { font-size: 15px; color: #1f2937; }
+  .sp-head { position: sticky; top: 0; z-index: 5; background: var(--burgundy-deep, #5a1220); color: #fff; padding: 20px 24px 0; }
+  .sp-id { display: flex; align-items: center; gap: 16px; }
+  .sp-photo { width: 76px; height: 76px; border-radius: 50%; object-fit: cover; flex: none; border: 3px solid rgba(255,255,255,.85); background: #fff; }
+  .sp-initials { display: flex; align-items: center; justify-content: center; font-size: 26px; font-weight: 700; color: var(--burgundy, #7a1e2e); }
+  .sp-name, #portal .sp-head h3.sp-name { font-size: 26px; font-weight: 700; line-height: 1.15; margin: 0; color: #fff; border: 0; padding: 0; background: none; }
+  #portal .sp-h, .sp-h { border: 0; padding: 0; background: none; }
+  .sp-sub { font-size: 14px; opacity: .85; margin-top: 4px; }
+  .sp-close { margin-left: auto; align-self: flex-start; font-size: 30px; line-height: 1; color: #fff; opacity: .8; background: none; border: 0; cursor: pointer; padding: 0 4px; }
+  .sp-close:hover, .sp-close:focus-visible { opacity: 1; outline: 2px solid #fff; outline-offset: 2px; border-radius: 6px; }
+  .sp-facts { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 1px; margin-top: 18px; background: rgba(255,255,255,.18); border-radius: 10px; overflow: hidden; }
+  .sp-fact { background: rgba(0,0,0,.18); padding: 10px 14px; }
+  .sp-fact span { display: block; font-size: 12px; opacity: .8; }
+  .sp-fact b { display: block; font-size: 17px; margin-top: 2px; }
+  .sp-fact a { color: #fff; text-decoration: underline; text-underline-offset: 3px; }
+  .sp-fact .sp-due { color: #fecaca; }
+  .sp-tabs { display: flex; gap: 4px; margin-top: 16px; overflow-x: auto; }
+  #portal .sp-tabs .profile-tab, .sp-tabs .profile-tab { font-size: 15px; padding: 10px 18px; border-radius: 10px 10px 0 0; background: transparent; color: rgba(255,255,255,.85); border: 0; white-space: nowrap; }
+  #portal .sp-tabs .profile-tab.active, .sp-tabs .profile-tab.active { background: #fff; color: var(--burgundy, #7a1e2e); font-weight: 600; }
+  .sp-body { padding: 22px 24px 26px; }
+  .sp-body table { font-size: 14px; }
+  .sp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .sp-card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px 18px; background: #fff; }
+  .sp-span { grid-column: 1 / -1; }
+  .sp-h { font-size: 16px; font-weight: 700; color: var(--burgundy, #7a1e2e); margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
+  .sp-count { font-size: 12px; font-weight: 600; background: #f3e8ea; color: var(--burgundy, #7a1e2e); border-radius: 999px; padding: 1px 8px; }
+  .sp-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 18px; }
+  .sp-field.sp-wide { grid-column: 1 / -1; }
+  .sp-label { font-size: 12.5px; color: #6b7280; }
+  .sp-value { font-size: 16px; font-weight: 600; margin-top: 2px; word-break: break-word; }
+  .sp-mono { font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+  .sp-empty { color: #b45309; font-weight: 500; font-size: 14px; }
+  .sp-link { color: var(--burgundy, #7a1e2e); text-decoration: underline; text-underline-offset: 3px; }
+  .sp-docs { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+  .sp-doc { display: flex; flex-direction: column; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; text-decoration: none; color: inherit; background: #fafafa; }
+  .sp-doc:hover, .sp-doc:focus-visible { border-color: var(--burgundy, #7a1e2e); box-shadow: 0 0 0 2px rgba(122,30,46,.15); outline: none; }
+  .sp-doc-thumb { height: 120px; display: flex; align-items: center; justify-content: center; background: #f3f4f6; color: #9ca3af; font-size: 34px; }
+  .sp-doc-thumb img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
+  .sp-doc-name { font-weight: 600; font-size: 14px; padding: 8px 10px 0; }
+  .sp-doc-open { font-size: 12px; color: var(--burgundy, #7a1e2e); padding: 2px 10px 9px; }
+  @media (max-width: 760px) {
+   #portal .modal-content.sp-modal, body > .modal .modal-content.sp-modal { max-height: 100vh; height: 100vh; border-radius: 0; }
+   #profileModal { padding: 0 !important; }
+   .sp-head { padding: 14px 14px 0; position: static; }
+   .sp-photo { width: 58px; height: 58px; }
+   .sp-name { font-size: 21px; }
+   .sp-facts { grid-template-columns: 1fr 1fr; }
+   .sp-grid, .sp-fields { grid-template-columns: 1fr; }
+   .sp-body { padding: 16px 14px 22px; }
+  }
   #portal .profile-tab { padding: 8px 16px; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 13px; font-weight: 500; border: none; background: #f3f4f6; color: #4b5563; }
   #portal .profile-tab.active { background: #7a1e2e; color: #fff; }
   #portal table { border-collapse: collapse; width: 100%; }
@@ -4313,7 +4418,7 @@ function renderOwnerDashboard(){
  // If owner is viewing the Accounts section, render the full admin Accounts UI
  // (reusing renderAdminAccountsTab — same component, same data)
  if (ownerView === 'accounts') {
-  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+  return `<div class="p-4 md:p-6 mx-auto portal-wide">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
     <div>
      <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
@@ -4328,7 +4433,7 @@ function renderOwnerDashboard(){
 
  // Users management sub-view
  if (ownerView === 'users') {
-  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+  return `<div class="p-4 md:p-6 mx-auto portal-wide">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
     <div>
      <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
@@ -4343,7 +4448,7 @@ function renderOwnerDashboard(){
 
  // Compliance management sub-view
  if (ownerView === 'compliance') {
-  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+  return `<div class="p-4 md:p-6 mx-auto portal-wide">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
     <div>
      <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
@@ -4358,7 +4463,7 @@ function renderOwnerDashboard(){
 
  // Notice board management sub-view
  if (ownerView === 'notices') {
-  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+  return `<div class="p-4 md:p-6 mx-auto portal-wide">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
     <div>
      <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
@@ -4373,7 +4478,7 @@ function renderOwnerDashboard(){
 
  // Fee structure management sub-view
  if (ownerView === 'feestructure') {
-  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+  return `<div class="p-4 md:p-6 mx-auto portal-wide">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
     <div>
      <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
@@ -4387,7 +4492,7 @@ function renderOwnerDashboard(){
  }
 
  if (ownerView === 'students') {
-  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+  return `<div class="p-4 md:p-6 mx-auto portal-wide">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
     <div>
      <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
@@ -4401,7 +4506,7 @@ function renderOwnerDashboard(){
  }
 
  if (ownerView === 'homework') {
-  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+  return `<div class="p-4 md:p-6 mx-auto portal-wide">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
     <div>
      <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
@@ -4415,7 +4520,7 @@ function renderOwnerDashboard(){
  }
 
  if (ownerView === 'resources') {
-  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+  return `<div class="p-4 md:p-6 mx-auto portal-wide">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
     <div>
      <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
@@ -4429,7 +4534,7 @@ function renderOwnerDashboard(){
  }
 
  if (ownerView === 'staffattendance') {
-  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+  return `<div class="p-4 md:p-6 mx-auto portal-wide">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
     <div>
      <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
@@ -4443,7 +4548,7 @@ function renderOwnerDashboard(){
  }
 
  if (ownerView === 'studentattendance') {
-  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+  return `<div class="p-4 md:p-6 mx-auto portal-wide">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
     <div>
      <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
@@ -4457,7 +4562,7 @@ function renderOwnerDashboard(){
  }
 
  if (ownerView === 'ptm') {
-  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+  return `<div class="p-4 md:p-6 mx-auto portal-wide">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
     <div>
      <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
@@ -4471,7 +4576,7 @@ function renderOwnerDashboard(){
  }
 
  if (ownerView === 'ledger') {
-  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+  return `<div class="p-4 md:p-6 mx-auto portal-wide">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
     <div>
      <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
@@ -4485,7 +4590,7 @@ function renderOwnerDashboard(){
  }
 
  if (ownerView === 'feedashboard') {
-  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+  return `<div class="p-4 md:p-6 mx-auto portal-wide">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
     <div>
      <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
@@ -4499,7 +4604,7 @@ function renderOwnerDashboard(){
  }
 
  if (ownerView === 'contribution') {
-  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+  return `<div class="p-4 md:p-6 mx-auto portal-wide">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
     <div><button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
      <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-crown text-amber-500 mr-2"></i>Owner's Contribution</h1></div>
@@ -4510,7 +4615,7 @@ function renderOwnerDashboard(){
  }
 
  if (ownerView === 'advances') {
-  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+  return `<div class="p-4 md:p-6 mx-auto portal-wide">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
     <div><button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
      <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-crown text-amber-500 mr-2"></i>Advance Accounts</h1></div>
@@ -4521,7 +4626,7 @@ function renderOwnerDashboard(){
  }
 
  if (ownerView === 'facultygap') {
-  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+  return `<div class="p-4 md:p-6 mx-auto portal-wide">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
     <div>
      <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
@@ -4535,7 +4640,7 @@ function renderOwnerDashboard(){
  }
 
  if (ownerView === 'finmodel') {
-  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+  return `<div class="p-4 md:p-6 mx-auto portal-wide">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
     <div>
      <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
@@ -4549,7 +4654,7 @@ function renderOwnerDashboard(){
  }
 
  if (ownerView === 'teachers') {
-  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+  return `<div class="p-4 md:p-6 mx-auto portal-wide">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
     <div>
      <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
@@ -4563,7 +4668,7 @@ function renderOwnerDashboard(){
  }
 
  if (ownerView === 'attendance') {
-  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+  return `<div class="p-4 md:p-6 mx-auto portal-wide">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
     <div>
      <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
@@ -4577,7 +4682,7 @@ function renderOwnerDashboard(){
  }
 
  if (ownerView === 'finance') {
-  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+  return `<div class="p-4 md:p-6 mx-auto portal-wide">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
     <div>
      <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
@@ -4591,7 +4696,7 @@ function renderOwnerDashboard(){
  }
 
  if (ownerView === 'appraisal') {
-  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+  return `<div class="p-4 md:p-6 mx-auto portal-wide">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
     <div>
      <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
@@ -4605,7 +4710,7 @@ function renderOwnerDashboard(){
  }
 
  if (ownerView === 'reportcards') {
-  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+  return `<div class="p-4 md:p-6 mx-auto portal-wide">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
     <div>
      <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
@@ -4630,7 +4735,7 @@ function renderOwnerDashboard(){
  // Counts for Accounts card
  const pendingRequests = getCorrectionRequests().filter(r => r.status === 'pending').length;
  const auditCount = getAuditLog().length;
- return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+ return `<div class="p-4 md:p-6 mx-auto portal-wide">
   <div class="flex flex-wrap justify-between items-center gap-2">
    <div class="min-w-0"><h1 class="text-xl md:text-2xl font-bold text-gray-900"><i class="fas fa-crown text-amber-500 mr-2"></i>${currentUser.role==='managing_director'?'Managing Director':currentUser.role==='trustee'?'Trustee':'Owner'} Dashboard</h1><p class="text-gray-600 text-xs md:text-sm truncate">Welcome, ${currentUser.name} - Binauli, Baghpat</p></div>
    <button id="logoutBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-4 py-2 rounded-lg font-medium text-sm"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
@@ -4844,7 +4949,7 @@ function renderAdminPanel(){
   {id:'tchaudit',label:'Teacher Audit',icon:'clipboard-list'},
   {id:'backup',label:'Backup',icon:'cloud-arrow-down'}
  ];
- return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+ return `<div class="p-4 md:p-6 mx-auto portal-wide">
   <div class="flex flex-wrap justify-between items-center gap-2">
    <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-user-shield text-indigo-600 mr-2"></i>Admin Dashboard</h1>
    <div class="text-sm text-gray-600 hidden md:block">${currentUser.name}</div>
@@ -5038,7 +5143,7 @@ function renderStudentsTab(){
  const activeCount = all.filter(s=>!s.archived).length;
  const archivedCount = all.filter(s=>s.archived).length;
  const inArchiveView = studentFilter.category === 'archived';
- return `<div>
+ return `<div class="st-page">
   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
    <div>
     <h2 class="text-lg font-bold"><i class="fas fa-user-graduate text-indigo-600 mr-1"></i>Students Management${inArchiveView?' <span class="text-sm font-normal text-gray-500">— Archive (TC issued)</span>':''}</h2>
@@ -5103,32 +5208,81 @@ function renderStudentsTab(){
      ${noClass.length ? `<div class="text-xs text-amber-800 mt-2">Tip: click the button above to list the students with no class, then use the ✎ edit icon on each to set their class.</div>` : ''}
     </div>`;
   })()}
-  <div class="overflow-x-auto">
-   <table class="border text-sm"><thead><tr><th>Photo</th><th>Adm No</th>${canSeeSRNumber()?'<th title="Scholar Register No — used for TC">SR No</th>':''}${canSeeConfidentialNumbers()?'<th title="UDISE/PEN — confidential">UDISE</th>':''}<th>Name</th><th>Class</th><th>Sec</th><th>Roll</th><th>Parent</th><th title="Total composite fee for the year">Fee to be Paid</th><th title="Still outstanding">Fee Due</th><th>Tags</th><th>Actions</th></tr></thead>
-   <tbody>
-    ${filt.map(s=>`<tr>
-     <td>${s.photo?`<img src="${s.photo}" class="w-8 h-8 rounded object-cover" alt="">`:`<div class="w-8 h-8 rounded bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold">${initials(s.name)}</div>`}</td>
-     <td class="text-xs text-gray-600">${s.admissionNo||'-'}</td>
-     ${canSeeSRNumber()?`<td class="text-xs text-gray-600 font-mono">${s.registrationNo||'<span class="text-gray-400">—</span>'}</td>`:''}${canSeeConfidentialNumbers()?`<td class="text-xs text-gray-600 font-mono">${s.pen||'<span class="text-gray-400">—</span>'}</td>`:''}
-     <td class="font-medium">${s.name}</td>
-     <td>${s.class}</td><td>${s.section}</td><td>${s.rollNo}</td>
-     <td class="text-xs">${s.fatherName||s.motherName||s.parentName||'-'}<br><span class="text-gray-500">${s.parentPhone||''}</span></td>
-     <td class="text-sm whitespace-nowrap">${(Number(s.decidedFees)||0)>0?`Rs.${Number(s.decidedFees).toLocaleString('en-IN')}`:'<span class="text-gray-400 text-xs">not set</span>'}</td>
-     <td class="whitespace-nowrap">${s.feeBalance>0?`<span class="pill pill-red">Rs.${s.feeBalance.toLocaleString('en-IN')}</span>`:`<span class="pill pill-green">Clear</span>`}${_feePaidRing(s)}</td>
-     <td class="text-xs">${s.bpl?'<span class="pill pill-amber mr-1">BPL</span>':''}${s.cwsn?'<span class="pill pill-blue mr-1">CWSN</span>':''}<span class="pill pill-gray">${s.caste}</span></td>
-     <td class="whitespace-nowrap">
-      <button class="viewStudentBtn text-indigo-600 hover:text-indigo-800" data-id="${s.id}" title="View"><i class="fas fa-eye"></i></button>
-      <button class="idCardBtn text-emerald-600 hover:text-emerald-800 ml-1" data-id="${s.id}" title="Print ID Card"><i class="fas fa-id-card"></i></button>
-      <button class="editStudentBtn text-blue-600 hover:text-blue-800 ml-1" data-id="${s.id}" title="Edit"><i class="fas fa-edit"></i></button>
-      ${s.archived
-        ? `<button class="restoreStudentBtn text-emerald-700 hover:text-emerald-900 ml-1" data-id="${s.id}" title="Restore (re-admit)"><i class="fas fa-rotate-left"></i></button>`
-        : `<button class="archiveStudentBtn text-amber-600 hover:text-amber-800 ml-1" data-id="${s.id}" title="Issue TC / Archive"><i class="fas fa-box-archive"></i></button>`}
-        ${canSeeSRNumber()?`<button class="tcPrintBtn text-rose-700 hover:text-rose-900 ml-1" data-id="${s.id}" title="Transfer Certificate (edit &amp; print)"><i class="fas fa-file-contract"></i></button>`:''}
-        <button class="kycPrintBtn text-slate-600 hover:text-slate-900 ml-1" data-id="${s.id}" title="Print this student's full details"><i class="fas fa-print"></i></button>
-      <button class="delStudentBtn2 text-red-600 hover:text-red-800 ml-1" data-id="${s.id}" title="Delete"><i class="fas fa-trash"></i></button>
-     </td>
-    </tr>`).join('')||`<tr><td colspan="${12+(canSeeSRNumber()?1:0)+(canSeeConfidentialNumbers()?1:0)}" class="text-center text-gray-500 py-6">No students match</td></tr>`}
-   </tbody></table>
+  ${(() => {
+    // Class chips: one tap to see a single class (uses the Class filter above)
+    const pool = all.filter(x => inArchiveView ? x.archived : !x.archived);
+    const counts = {}; pool.forEach(x => { counts[x.class] = (counts[x.class]||0) + 1; });
+    const chip = (v, label, n) => `<button type="button" class="st-chip ${studentFilter.class===v?'on':''}" onclick="(function(){var el=document.getElementById('studentClassFilter');el.value='${v}';el.dispatchEvent(new Event('change'))})()">${label}${n!==undefined?` <span>${n}</span>`:''}</button>`;
+    return `<div class="st-chips">${chip('all','All',pool.length)}${classes.filter(c=>counts[c]).map(c=>chip(c, /^\d+$/.test(c)?'Class '+c:c, counts[c])).join('')}</div>`;
+  })()}
+  <div class="st-wrap">
+   <table class="st-table">
+    <thead><tr>
+     <th class="st-c-stu">Student</th>
+     <th>Parents &amp; phone</th>
+     <th class="st-c-num">Fee due</th>
+     ${(canSeeSRNumber()||canSeeConfidentialNumbers())?'<th>Records</th>':''}
+     <th>Tags</th>
+     <th class="st-c-act">Actions</th>
+    </tr></thead>
+    <tbody>
+    ${(() => {
+      const grouped = ['default','classRoll'].includes(studentFilter.sort||'default') && studentFilter.class === 'all';
+      const ncol = 5 + ((canSeeSRNumber()||canSeeConfidentialNumbers())?1:0);
+      let lastClass = null, out = '';
+      filt.forEach(s => {
+        if (grouped && s.class !== lastClass) {
+          lastClass = s.class;
+          const n = filt.filter(x => x.class === s.class).length;
+          out += `<tr class="st-group"><td colspan="${ncol}">${/^\d+$/.test(String(s.class))?'Class '+escapeHTML(String(s.class)):escapeHTML(String(s.class||'No class'))} <span>${n} student${n===1?'':'s'}</span></td></tr>`;
+        }
+        const fee = Number(s.decidedFees)||0, due = Number(s.feeBalance)||0;
+        const mother = s.parentName || s.motherName || '';
+        const tel = p => p ? `<a href="tel:${escapeHTML(p)}" class="st-tel">${escapeHTML(p)}</a>` : '<span class="st-miss">No phone</span>';
+        out += `<tr class="${s.archived?'st-archived':''}">
+         <td class="st-c-stu">
+          <button type="button" class="viewStudentBtn st-who" data-id="${s.id}" title="Open full profile">
+           ${s.photo?`<img src="${s.photo}" alt="" class="st-av">`:`<span class="st-av st-ini">${initials(s.name)}</span>`}
+           <span class="st-who-txt"><span class="st-name">${escapeHTML(s.name||'')}</span>
+           <span class="st-meta">Class ${escapeHTML(String(s.class||'-'))}${s.section?'-'+escapeHTML(s.section):''} · Roll ${escapeHTML(String(s.rollNo||'-'))}${s.admissionNo?' · '+escapeHTML(s.admissionNo):''}</span></span>
+          </button>
+         </td>
+         <td>
+          <div class="st-par"><span class="st-lbl">F</span>${s.fatherName?escapeHTML(s.fatherName):'<span class="st-miss">not entered</span>'}</div>
+          <div class="st-par"><span class="st-lbl">M</span>${mother?escapeHTML(mother):'<span class="st-miss">not entered</span>'}</div>
+          <div class="st-phone">${tel(s.parentPhone)}${s.alternatePhone?` <span class="text-gray-400">/</span> ${tel(s.alternatePhone)}`:''}</div>
+         </td>
+         <td class="st-c-num">
+          ${fee>0 ? (due>0 ? `<div class="st-due">Rs.${due.toLocaleString('en-IN')}</div>` : `<div class="st-clear">Cleared</div>`) + `<div class="st-of">of Rs.${fee.toLocaleString('en-IN')}</div>` : '<div class="st-miss">Fee not set</div>'}
+          ${_feePaidRing(s)}
+         </td>
+         ${(canSeeSRNumber()||canSeeConfidentialNumbers())?`<td class="st-rec">
+          ${canSeeSRNumber()?`<div><span class="st-lbl">SR</span>${s.registrationNo?escapeHTML(String(s.registrationNo)):'<span class="st-miss">—</span>'}</div>`:''}
+          ${canSeeConfidentialNumbers()?`<div><span class="st-lbl">PEN</span>${s.pen?escapeHTML(String(s.pen)):'<span class="st-miss">—</span>'}</div>`:''}
+          <div><span class="st-lbl">Aadhaar</span>${s.aadhaar?'<span class="text-emerald-700">✓</span>':'<span class="st-miss">missing</span>'}</div>
+         </td>`:''}
+         <td class="st-tags">${s.bpl?'<span class="pill pill-amber">BPL</span>':''}${s.cwsn?'<span class="pill pill-blue">CWSN</span>':''}${s.caste?`<span class="pill pill-gray">${escapeHTML(s.caste)}</span>`:''}${s.archived?'<span class="pill pill-gray">Archived</span>':''}</td>
+         <td class="st-c-act">
+          <div class="st-main-acts">
+           <button class="viewStudentBtn st-btn st-btn-view" data-id="${s.id}" title="Open full profile"><i class="fas fa-eye"></i> View</button>
+           <button class="editStudentBtn st-btn" data-id="${s.id}" title="Edit"><i class="fas fa-pen"></i> Edit</button>
+          </div>
+          <div class="st-more">
+           <button class="idCardBtn" data-id="${s.id}" title="Print ID card"><i class="fas fa-id-card"></i></button>
+           <button class="kycPrintBtn" data-id="${s.id}" title="Print full details"><i class="fas fa-print"></i></button>
+           ${canSeeSRNumber()?`<button class="tcPrintBtn" data-id="${s.id}" title="Transfer Certificate (edit &amp; print)"><i class="fas fa-file-contract"></i></button>`:''}
+           ${s.archived
+             ? `<button class="restoreStudentBtn" data-id="${s.id}" title="Restore (re-admit)"><i class="fas fa-rotate-left"></i></button>`
+             : `<button class="archiveStudentBtn" data-id="${s.id}" title="Issue TC / Archive"><i class="fas fa-box-archive"></i></button>`}
+           <button class="delStudentBtn2 st-danger" data-id="${s.id}" title="Delete"><i class="fas fa-trash"></i></button>
+          </div>
+         </td>
+        </tr>`;
+      });
+      return out || `<tr><td colspan="${ncol}" class="text-center text-gray-500 py-8">No students match</td></tr>`;
+    })()}
+    </tbody>
+   </table>
   </div>
 
   <div id="studentModal" class="hidden modal"><div class="modal-content">
@@ -5171,7 +5325,7 @@ function renderStudentsTab(){
    </div>
   </div></div>
 
-  <div id="profileModal" class="hidden modal"><div class="modal-content" style="max-width:800px"><div id="profileContent"></div></div></div>
+  <div id="profileModal" class="hidden modal"><div class="modal-content sp-modal"><div id="profileContent"></div></div></div>
 
   <!-- Bulk Import Preview Modal -->
   <div id="bulkImportModal" class="hidden modal"><div class="modal-content" style="max-width:1100px">
@@ -6307,6 +6461,15 @@ function printBulkReportCards(cls, examName){
  w.document.write(html); w.document.close();
 }
 
+// A receipt belongs to an EARLIER academic year (old dues) if it is tagged with another session,
+// or its fee head says it is old/previous-year fees. Such receipts must not count toward
+// this year's "paid" total or this year's balance.
+function _isOldFeeTxn(t){
+ if (!t) return false;
+ const cs = (typeof currentSession === 'function') ? currentSession() : '';
+ if (t.academicYear && cs && t.academicYear !== cs) return true;
+ return /\bold\b|previous|last\s*year|pichl/i.test(String(t.feeHead||''));
+}
 function renderStudentProfile(id){
  const s=getStudents().find(x=>x.id===parseInt(id));
  if(!s)return '<div>Student not found</div>';
@@ -6319,45 +6482,63 @@ function renderStudentProfile(id){
  const t=activeStudentProfileTab;
  let body='';
  if(t==='personal'){
-  body=`<div class="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
-   <div><div class="text-xs text-gray-500">Admission No</div><div class="font-medium">${s.admissionNo||'-'}</div></div>
-   <div><div class="text-xs text-gray-500">Class / Sec / Roll</div><div class="font-medium">${s.class} / ${s.section} / ${s.rollNo}</div></div>
-   <div><div class="text-xs text-gray-500">Gender</div><div class="font-medium">${s.gender||'-'}</div></div>
-   <div><div class="text-xs text-gray-500">Date of Birth</div><div class="font-medium">${fmtDate(s.dob)}</div></div>
-   <div><div class="text-xs text-gray-500">Blood Group</div><div class="font-medium">${s.bloodGroup||'-'}</div></div>
-   <div><div class="text-xs text-gray-500">Caste</div><div class="font-medium">${s.caste}</div></div>
-   <div><div class="text-xs text-gray-500">Aadhaar</div><div class="font-medium">${s.aadhaar||'-'}</div></div>
-   ${canSeeSRNumber()?`<div><div class="text-xs text-gray-500">Scholar Reg No <i class="fas fa-id-badge text-amber-500" title="Used for TC"></i></div><div class="font-medium font-mono">${s.registrationNo||'-'}</div></div>`:''}${canSeeConfidentialNumbers()?`<div><div class="text-xs text-gray-500">UDISE/PEN <i class="fas fa-lock text-amber-500" title="Confidential"></i></div><div class="font-medium font-mono">${s.pen||'-'}</div></div>`:''}
-   <div><div class="text-xs text-gray-500">BPL / CWSN</div><div class="font-medium">${s.bpl?'BPL':''} ${s.cwsn?'CWSN':''} ${!s.bpl&&!s.cwsn?'-':''}</div></div>
-   <div><div class="text-xs text-gray-500">Admission Date</div><div class="font-medium">${fmtDate(s.admissionDate)}</div></div>
-   <div><div class="text-xs text-gray-500">Father's Name</div><div class="font-medium">${escapeHTML(s.fatherName||'-')}</div></div><div><div class="text-xs text-gray-500">Mother's Name</div><div class="font-medium">${escapeHTML(s.parentName||s.motherName||'-')}</div></div><div><div class="text-xs text-gray-500">Phone</div><div class="font-medium">${escapeHTML(s.parentPhone||'-')}${s.alternatePhone?' / '+escapeHTML(s.alternatePhone):''}</div></div>
-   <div class="col-span-3"><div class="text-xs text-gray-500">Address</div><div class="font-medium">${s.address||'-'}</div></div>
+  const F = (label, value, opts={}) => `<div class="sp-field${opts.wide?' sp-wide':''}"><div class="sp-label">${label}</div><div class="sp-value${opts.mono?' sp-mono':''}">${(value===undefined||value===null||value==='')?'<span class="sp-empty">Not entered</span>':value}</div></div>`;
+  const esc = v => v ? escapeHTML(String(v)) : '';
+  const docs = Array.isArray(s.documents) ? s.documents : [];
+  const docOrder = ['Aadhaar Card',"Father's Aadhaar Card","Mother's Aadhaar Card"];
+  const sortedDocs = docs.slice().sort((a,b)=>{const ia=docOrder.indexOf(a.docType),ib=docOrder.indexOf(b.docType);return (ia<0?9:ia)-(ib<0?9:ib);});
+  const tel = p => p ? `<a href="tel:${esc(p)}" class="sp-link">${esc(p)}</a>` : '';
+  body=`<div class="sp-grid">
+   <section class="sp-card">
+    <h4 class="sp-h">Student</h4>
+    <div class="sp-fields">
+     ${F('Admission no.', esc(s.admissionNo), {mono:true})}
+     ${F('Class / section / roll', `${esc(s.class)} / ${esc(s.section)} / ${esc(s.rollNo)}`)}
+     ${F('Gender', esc(s.gender))}
+     ${F('Date of birth', s.dob?fmtDate(s.dob):'')}
+     ${F('Blood group', esc(s.bloodGroup))}
+     ${F('Religion / caste', [s.religion,s.caste].filter(Boolean).map(esc).join(' / '))}
+     ${F('Aadhaar no.', esc(s.aadhaar), {mono:true})}
+     ${canSeeSRNumber()?F('Scholar reg. no. <i class="fas fa-id-badge text-amber-500" title="Used for TC"></i>', esc(s.registrationNo), {mono:true}):''}
+     ${canSeeConfidentialNumbers()?F('UDISE / PEN <i class="fas fa-lock text-amber-500" title="Confidential"></i>', esc(s.pen), {mono:true}):''}
+     ${F('BPL / CWSN', [s.bpl?'BPL':'',s.cwsn?'CWSN':''].filter(Boolean).join(', ')||'No')}
+     ${F('Admission date', s.admissionDate?fmtDate(s.admissionDate):'')}
+    </div>
+   </section>
+   <section class="sp-card">
+    <h4 class="sp-h">Parents &amp; contact</h4>
+    <div class="sp-fields">
+     ${F("Father's name", esc(s.fatherName))}
+     ${F("Mother's name", esc(s.parentName||s.motherName))}
+     ${F('Phone', tel(s.parentPhone))}
+     ${s.alternatePhone?F('Second phone', tel(s.alternatePhone)):''}
+     ${F('Village', esc(s.village))}
+     ${F('Full address', esc(s.address), {wide:true})}
+    </div>
+   </section>
+   <section class="sp-card sp-span">
+    <h4 class="sp-h">Documents <span class="sp-count">${docs.length}</span></h4>
+    ${docs.length===0?'<div class="sp-empty py-2"><i class="fas fa-folder-open mr-1"></i>No documents uploaded yet. Add them from Edit Student.</div>':
+    `<div class="sp-docs">${sortedDocs.map(d=>{
+      const isPdf=(d.type||'').includes('pdf');
+      const isImg=!isPdf && /^(https?:|data:image)/.test(d.data||'');
+      return `<a href="${d.data}" target="_blank" rel="noopener" class="docLink sp-doc" title="Opens in a new tab">
+        <span class="sp-doc-thumb">${isImg?`<img src="${d.data}" alt="" loading="lazy">`:`<i class="fas fa-${isPdf?'file-pdf':'file'}"></i>`}</span>
+        <span class="sp-doc-name">${escapeHTML(d.docType||'Document')}</span>
+        <span class="sp-doc-open"><i class="fas fa-up-right-from-square"></i> Open</span>
+      </a>`;}).join('')}</div>`}
+   </section>
   </div>
-  ${s.archived ? `<div class="mt-3 bg-amber-50 border border-amber-300 rounded-lg p-3 text-sm">
-   <div class="font-semibold text-amber-900 mb-1"><i class="fas fa-box-archive mr-1"></i>Archived — TC Issued</div>
-   <div class="grid grid-cols-2 gap-1 text-xs">
-    <div>TC Number: <b>${s.tcNumber||'-'}</b></div><div>TC Date: <b>${s.tcDate?fmtDate(s.tcDate):'-'}</b></div>
+  ${s.archived ? `<div class="mt-4 bg-amber-50 border border-amber-300 rounded-lg p-4 text-sm">
+   <div class="font-semibold text-amber-900 mb-1"><i class="fas fa-box-archive mr-1"></i>Archived — TC issued</div>
+   <div class="grid grid-cols-2 gap-1">
+    <div>TC number: <b>${s.tcNumber||'-'}</b></div><div>TC date: <b>${s.tcDate?fmtDate(s.tcDate):'-'}</b></div>
     <div>Reason: <b>${s.tcReason||'-'}</b></div><div>Archived on: <b>${s.archivedDate?fmtDate(s.archivedDate):'-'}</b></div>
     ${s.tcRemarks?`<div class="col-span-2">Remarks: ${escapeHTML(s.tcRemarks)}</div>`:''}
    </div>
-  </div>` : ''}
-  ${(() => {
-    const docs = Array.isArray(s.documents) ? s.documents : [];
-    if (docs.length === 0) return '<div class="mt-3 text-xs text-gray-400"><i class="fas fa-folder-open mr-1"></i>No KYC documents uploaded</div>';
-    return `<div class="mt-3">
-     <div class="text-xs font-semibold text-gray-700 mb-1"><i class="fas fa-folder-open text-amber-600 mr-1"></i>KYC / Documents</div>
-     <div class="flex flex-wrap gap-2">
-      ${docs.map(d => {
-        const isPdf = (d.type||'').includes('pdf');
-        return `<a href="${d.data}" target="_blank" rel="noopener" class="docLink inline-flex items-center gap-1 bg-gray-100 border rounded px-2 py-1 text-xs hover:bg-gray-200">
-         <i class="fas fa-${isPdf?'file-pdf text-rose-600':'file-image text-blue-600'}"></i>
-         <span class="font-medium">${escapeHTML(d.docType||'Document')}</span>
-        </a>`;
-      }).join('')}
-     </div>
-    </div>`;
-  })()}`;
- } else if(t==='fees'){
+  </div>` : ''}`;
+ 
+} else if(t==='fees'){
   const inst = Array.isArray(s.installments) ? s.installments : [];
   const instTotal = inst.reduce((a,i)=>a+(Number(i.amount)||0),0);
   const instPaid = inst.reduce((a,i)=>a+(i.paid?(Number(i.amount)||0):0),0);
@@ -6366,17 +6547,27 @@ function renderStudentProfile(id){
   const planItems = plan && Array.isArray(plan.items) ? plan.items.filter(x=>(parseInt(x.amount)||0)>0) : [];
   const planTotalAmt = (typeof planTotal==='function' && plan) ? planTotal(plan) : 0;
   // Total collected per fee head (from this student's receipts)
+  const curFees = fees.filter(f => !_isOldFeeTxn(f) && f.status !== 'cancelled');
+  const oldFees = fees.filter(f => _isOldFeeTxn(f) && f.status !== 'cancelled');
   const paidByHead = {};
-  fees.forEach(f => { const h = f.feeHead || 'Tuition Fee'; paidByHead[h] = (paidByHead[h]||0) + (Number(f.amount)||0); });
-  const totalPaid = fees.reduce((a,f)=>a+(Number(f.amount)||0),0);
+  curFees.forEach(f => { const h = f.feeHead || 'Tuition Fee'; paidByHead[h] = (paidByHead[h]||0) + (Number(f.amount)||0); });
+  const totalPaid = curFees.reduce((a,f)=>a+(Number(f.amount)||0),0);   // THIS academic year only
+  const oldPaid = oldFees.reduce((a,f)=>a+(Number(f.amount)||0),0);     // receipts for earlier years
+  const prevDues = Number(s.previousDues)||0;
   const hasComposite = (Number(s.decidedFees)||0) > 0;
   body=`<div>
    <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
     <div class="bg-gray-50 rounded-lg p-3"><div class="text-xs text-gray-500">Annual Fee (class)</div><div class="font-bold text-gray-700">Rs.${(planTotalAmt||s.annualFees||0).toLocaleString('en-IN')}</div><div class="text-[10px] text-gray-400">standard for Class ${s.class}</div></div>
     <div class="bg-indigo-50 rounded-lg p-3"><div class="text-xs text-gray-500">Composite Fee</div>${hasComposite?`<div class="font-bold text-indigo-700">Rs.${(s.decidedFees||0).toLocaleString('en-IN')}</div><div class="text-[10px] text-gray-400">agreed with family</div>`:`<div class="font-bold text-amber-600 text-sm mt-1">Not set yet</div><div class="text-[10px] text-amber-500">set after talking to parent</div>`}</div>
-    <div class="bg-emerald-50 rounded-lg p-3"><div class="text-xs text-gray-500">Total Paid</div><div class="font-bold text-emerald-700">Rs.${totalPaid.toLocaleString('en-IN')}</div></div>
+    <div class="bg-emerald-50 rounded-lg p-3"><div class="text-xs text-gray-500">Paid this year (${currentSession()})</div><div class="font-bold text-emerald-700">Rs.${totalPaid.toLocaleString('en-IN')}</div><div class="text-[10px] text-gray-400">${curFees.length} receipt${curFees.length===1?'':'s'}</div></div>
     <div class="bg-${hasComposite&&s.feeBalance>0?'rose':'green'}-50 rounded-lg p-3"><div class="text-xs text-gray-500">Balance Due</div>${hasComposite?`<div class="font-bold text-${s.feeBalance>0?'rose':'green'}-700">Rs.${(s.feeBalance||0).toLocaleString('en-IN')}</div>`:`<div class="font-bold text-gray-400 text-sm mt-1">—</div><div class="text-[10px] text-gray-400">once composite is set</div>`}</div>
    </div>
+   ${(oldFees.length||prevDues>0)?`<div class="border border-amber-300 bg-amber-50 rounded-lg p-3 mb-4 text-sm flex flex-wrap gap-x-8 gap-y-1 items-center">
+    <div class="font-semibold text-amber-900"><i class="fas fa-clock-rotate-left mr-1"></i>Previous years (old fees)</div>
+    <div>Old fees paid: <b>Rs.${oldPaid.toLocaleString('en-IN')}</b> <span class="text-xs text-gray-500">(${oldFees.length} receipt${oldFees.length===1?'':'s'})</span></div>
+    <div>Old dues still recorded: <b>${prevDues>0?'Rs.'+prevDues.toLocaleString('en-IN'):'none'}</b></div>
+    <div class="w-full text-xs text-amber-800">These are kept separate — they do not count toward this year's paid amount or balance.</div>
+   </div>`:''}
    ${!hasComposite?`<div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-sm text-amber-900"><i class="fas fa-circle-info mr-1"></i>The <b>Annual Fee</b> below is the standard fee for Class ${s.class}. After discussing with the parent, set this student's <b>Composite Fee</b> (the amount the family will actually pay) by editing the student. The balance and receipts will then track against it.</div>`:''}
 
    ${planItems.length>0?`<div class="mb-4">
@@ -6400,8 +6591,8 @@ function renderStudentProfile(id){
    </div>`:''}
 
    <div class="text-sm font-semibold mb-1"><i class="fas fa-receipt text-emerald-600 mr-1"></i>Payment Receipts</div>
-   <table class="border text-sm w-full"><thead class="bg-gray-50"><tr><th class="p-2">Scan</th><th class="text-left p-2">Receipt</th><th class="text-left p-2">Book No</th><th class="text-left p-2">Date</th><th class="text-left p-2">Fee Head</th><th class="text-left p-2">Mode</th><th class="text-right p-2">Amount</th></tr></thead>
-   <tbody>${fees.map(f=>`<tr class="border-t"><td class="p-2 text-center">${receiptScanBtn(f)}</td><td class="p-2 text-xs font-mono">${f.receiptNo||'-'}</td><td class="p-2 text-xs font-mono">${f.bookReceiptNo||'-'}</td><td class="p-2 text-xs">${fmtDate(f.date)}</td><td class="p-2 text-xs">${escapeHTML(f.feeHead||'Tuition Fee')}</td><td class="p-2 text-xs">${escapeHTML(f.mode||'-')}</td><td class="p-2 text-right font-medium">Rs.${(Number(f.amount)||0).toLocaleString('en-IN')}</td></tr>`).join('')||'<tr><td colspan="7" class="text-center text-gray-500 py-4">No payments recorded yet</td></tr>'}</tbody></table>
+   <table class="border text-sm w-full"><thead class="bg-gray-50"><tr><th class="p-2">Scan</th><th class="text-left p-2">Receipt</th><th class="text-left p-2">Book No</th><th class="text-left p-2">Date</th><th class="text-left p-2">Fee Head</th><th class="text-left p-2">For year</th><th class="text-left p-2">Mode</th><th class="text-right p-2">Amount</th></tr></thead>
+   <tbody>${fees.slice().sort((x,y)=>(y.date||'').localeCompare(x.date||'')).map(f=>{const od=_isOldFeeTxn(f);return `<tr class="border-t ${od?'bg-amber-50/60 text-gray-600':''}"><td class="p-2 text-center">${receiptScanBtn(f)}</td><td class="p-2 text-xs font-mono">${f.receiptNo||'-'}</td><td class="p-2 text-xs font-mono">${f.bookReceiptNo||'-'}</td><td class="p-2 text-xs">${fmtDate(f.date)}</td><td class="p-2 text-xs">${escapeHTML(f.feeHead||'Tuition Fee')}</td><td class="p-2 text-xs">${od?`<span class="pill pill-amber">${escapeHTML(f.academicYear||'Previous year')}</span>`:escapeHTML(f.academicYear||currentSession())}</td><td class="p-2 text-xs">${escapeHTML(f.mode||'-')}</td><td class="p-2 text-right font-medium">Rs.${(Number(f.amount)||0).toLocaleString('en-IN')}</td></tr>`;}).join('')||'<tr><td colspan="8" class="text-center text-gray-500 py-4">No payments recorded yet</td></tr>'}</tbody></table>
   </div>`;
  } else if(t==='marks'){
   const examList = [...new Set(marks.map(m=>m.examName).filter(Boolean))];
@@ -6429,18 +6620,30 @@ function renderStudentProfile(id){
  } else if(t==='homework'){
   body=`<ul class="space-y-2">${hws.map(h=>`<li class="p-3 border rounded"><b>${h.subject}</b> - ${h.description}<div class="text-xs text-gray-500">Due: ${fmtDate(h.dueDate)} - ${h.teacher}</div></li>`).join('')||'<li class="text-gray-500">No homework</li>'}</ul>`;
  }
- return `<div>
-  <div class="flex justify-between items-start mb-3">
-   <div class="flex items-center gap-3">
-    <div class="w-14 h-14 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white flex items-center justify-center font-bold text-lg">${initials(s.name)}</div>
-    <div><h3 class="text-xl font-bold">${s.name}</h3><p class="text-sm text-gray-600">Class ${s.class}-${s.section} - Roll ${s.rollNo}</p></div>
+ const _bal = Number(s.feeBalance)||0, _hasFee = (Number(s.decidedFees)||0) > 0;
+ const _hasAadhaarScan = (s.documents||[]).some(d => d.docType === 'Aadhaar Card');
+ const _tabLabels = {personal:'Details', fees:'Fees', marks:'Marks', attendance:'Attendance', homework:'Homework'};
+ return `<div class="sp">
+  <header class="sp-head">
+   <div class="sp-id">
+    ${s.photo?`<img class="sp-photo" src="${s.photo}" alt="">`:`<div class="sp-photo sp-initials">${initials(s.name)}</div>`}
+    <div class="min-w-0">
+     <h3 class="sp-name">${escapeHTML(s.name)}</h3>
+     <div class="sp-sub">Class ${escapeHTML(String(s.class))}${s.section?'-'+escapeHTML(s.section):''} · Roll ${escapeHTML(String(s.rollNo||'-'))}${s.admissionNo?' · '+escapeHTML(s.admissionNo):''}${s.archived?' · <b class="text-amber-300">Archived</b>':''}</div>
+    </div>
+    <button class="closeModal sp-close" title="Close" aria-label="Close">&times;</button>
    </div>
-   <button class="closeModal text-gray-500 hover:text-gray-700 text-xl">&times;</button>
-  </div>
-  <div class="tab-scroll gap-1 border-b mb-3">
-   ${['personal','fees','marks','attendance','homework'].map(tb=>`<button class="profile-tab ${t===tb?'active':''}" data-ptab="${tb}">${tb.charAt(0).toUpperCase()+tb.slice(1)}</button>`).join('')}
-  </div>
-  <div>${body}</div>
+   <div class="sp-facts">
+    <div class="sp-fact"><span>Parent's phone</span><b>${s.parentPhone?`<a href="tel:${escapeHTML(s.parentPhone)}">${escapeHTML(s.parentPhone)}</a>`:'—'}</b></div>
+    <div class="sp-fact"><span>Fee balance ${currentSession()}</span><b class="${_hasFee&&_bal>0?'sp-due':''}">${_hasFee?(_bal>0?'Rs.'+_bal.toLocaleString('en-IN'):'Cleared'):'Not set'}</b></div>
+    <div class="sp-fact"><span>Attendance</span><b>${tot?Math.round(pr/tot*100)+'%':'—'}</b></div>
+    <div class="sp-fact"><span>Aadhaar</span><b>${s.aadhaar?(_hasAadhaarScan?'On file + scan':'Number only'):'Missing'}</b></div>
+   </div>
+   <nav class="sp-tabs">
+    ${['personal','fees','marks','attendance','homework'].map(tb=>`<button class="profile-tab ${t===tb?'active':''}" data-ptab="${tb}">${_tabLabels[tb]}</button>`).join('')}
+   </nav>
+  </header>
+  <div class="sp-body">${body}</div>
  </div>`;
 }
 
@@ -8332,7 +8535,7 @@ function renderActivityInchargePanel(){
   {id:'activities', label:'Activities', icon:'photo-film'},
   {id:'calendar',   label:'Activity Calendar', icon:'calendar-star'}
  ];
- return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+ return `<div class="p-4 md:p-6 mx-auto portal-wide">
   <div class="flex justify-between items-center mb-4 gap-2 flex-wrap">
    <div>
     <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-star text-purple-600 mr-2"></i>Activity Incharge</h1>
@@ -8501,7 +8704,7 @@ function renderPrincipalPanel(){
   {id:'documents',label:'Documents',icon:'folder-open'},
   {id:'reports',label:'Reports',icon:'chart-bar'}
  ];
- return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+ return `<div class="p-4 md:p-6 mx-auto portal-wide">
   <div class="flex flex-wrap justify-between items-center gap-2">
    <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-user-tie text-purple-600 mr-2"></i>Principal Dashboard</h1>
    <div class="text-sm text-gray-600 hidden md:block">${currentUser.name}</div>
@@ -9325,8 +9528,9 @@ function printHelpGuide(){
 function _renderRefreshFab(){
  if (!currentUser) return '';
  return `<button id="refreshFab" title="Fetch the latest data from the school server"
-   class="fixed bottom-24 right-20 h-12 px-4 rounded-full bg-white border-2 border-emerald-600 text-emerald-700 shadow-lg z-40 flex items-center gap-2 text-sm font-medium">
-   <i class="fas fa-rotate"></i><span class="hidden sm:inline">Refresh</span>
+   aria-label="Refresh data"
+   class="fixed bottom-14 left-3 h-9 px-3 rounded-full bg-white/95 border border-emerald-600 text-emerald-700 shadow-md z-40 flex items-center gap-1.5 text-xs font-medium">
+   <i class="fas fa-rotate"></i><span>Refresh</span>
    <span id="lastRefreshedAt" class="text-[10px] text-gray-400"></span></button>`;
 }
 function _renderHelpFab(){
@@ -11279,7 +11483,7 @@ function renderTeacherPanel(){
   {id:'class',      label:'My Class',   icon:'users'},
   {id:'audit',      label:'Audit Log',  icon:'clipboard-list'}
  ];
- return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+ return `<div class="p-4 md:p-6 mx-auto portal-wide">
   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
    <div class="flex items-center gap-3">
     ${(() => { const me = getTeachers().find(t => t.id === currentUser.teacherId); const photo = me?.photo; return photo ? `<img src="${photo}" class="w-12 h-12 rounded-full object-cover border-2 border-purple-200">` : `<div class="w-12 h-12 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center font-bold">${initials(currentUser.name)}</div>`; })()}
@@ -13839,7 +14043,7 @@ function renderParentPanel(){
    <button id="parLangHi" class="px-2 py-1 rounded ${parentLang()==='hi'?'bg-indigo-600 text-white':'text-gray-600'}">हिंदी</button>
   </div>`;
  if (students.length === 0) {
-  return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+  return `<div class="p-4 md:p-6 mx-auto portal-wide">
    <div class="flex justify-between items-center mb-4 gap-2 flex-wrap">
     <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-person text-indigo-600 mr-2"></i>${pt('Parent Dashboard','अभिभावक डैशबोर्ड')}</h1>
     <div class="flex items-center gap-2">${langToggle}<button id="logoutParentBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>${pt('Logout','लॉग आउट')}</button></div>
@@ -13860,7 +14064,7 @@ function renderParentPanel(){
   {id:'complaint',  label:pt('Complaint','शिकायत'),             icon:'comment-dots'}
  ];
 
- return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+ return `<div class="p-4 md:p-6 mx-auto portal-wide">
   <div class="flex justify-between items-center mb-4 gap-2 flex-wrap">
    <div>
     <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-person text-indigo-600 mr-2"></i>${pt('Parent Dashboard','अभिभावक डैशबोर्ड')}</h1>
@@ -13952,7 +14156,8 @@ function renderParFees(students){
  return `<div class="space-y-4">
   ${students.map(s => {
    const txns = allTxns.filter(t => t.studentId === s.id).sort((a,b) => (b.date||'').localeCompare(a.date||''));
-   const totalPaid = txns.reduce((sum, t) => sum + (t.amount || 0), 0);
+   const totalPaid = txns.filter(t => !_isOldFeeTxn(t)).reduce((sum, t) => sum + (t.amount || 0), 0);   // this year only
+   const oldPaidP = txns.filter(t => _isOldFeeTxn(t)).reduce((sum, t) => sum + (t.amount || 0), 0);
    const decided = s.decidedFees || s.annualFees || 0;
    const balance = s.feeBalance || 0;
    return `<div class="bg-white rounded-xl shadow-sm border p-4">
@@ -13966,7 +14171,7 @@ function renderParFees(students){
      <div class="bg-emerald-50 border border-emerald-200 p-3 rounded">
       <div class="text-xs text-emerald-700 font-semibold uppercase">${pt('Paid So Far','अब तक जमा')}</div>
       <div class="text-xl font-bold text-emerald-900">${fmtINR(totalPaid)}</div>
-      <div class="text-xs text-emerald-700">${txns.length} ${pt('transaction'+(txns.length===1?'':'s'),'लेन-देन')}</div>
+      <div class="text-xs text-emerald-700">${pt('This year','इस वर्ष')}${oldPaidP?` · ${pt('old fees','पुरानी फीस')} ${fmtINR(oldPaidP)} ${pt('separate','अलग')}`:''}</div>
      </div>
      <div class="bg-${balance>0?'rose':'emerald'}-50 border border-${balance>0?'rose':'emerald'}-200 p-3 rounded">
       <div class="text-xs text-${balance>0?'rose':'emerald'}-700 font-semibold uppercase">${pt('Balance Due','शेष राशि')}</div>
@@ -14389,7 +14594,7 @@ function renderStudentPanel(){
   {id:'fees',      label:'Fees',      icon:'rupee-sign'},
   {id:'messages',  label:'Messages',  icon:'envelope'}
  ];
- return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+ return `<div class="p-4 md:p-6 mx-auto portal-wide">
   <div class="flex justify-between items-center mb-4">
    <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-user-graduate text-indigo-600 mr-2"></i>Student Portal</h1>
    <button id="logoutStudentBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
@@ -14532,15 +14737,16 @@ function renderStuHomework(s){
 
 function renderStuFees(s){
  const txns = getFeeTransactions().filter(t => t.studentId === s.id).sort((a,b) => (b.date||'').localeCompare(a.date||''));
- const totalPaid = txns.reduce((sum, t) => sum + (t.amount || 0), 0);
+ const totalPaid = txns.filter(t => !_isOldFeeTxn(t)).reduce((sum, t) => sum + (t.amount || 0), 0);   // this year only
+ const oldPaidS = txns.filter(t => _isOldFeeTxn(t)).reduce((sum, t) => sum + (t.amount || 0), 0);
  const decided = s.decidedFees || s.annualFees || 0;
  const fmtINR = n => 'Rs.' + (n||0).toLocaleString('en-IN');
  return `<div>
   <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
    <div class="bg-emerald-50 border border-emerald-200 p-4 rounded-lg">
-    <div class="text-xs text-emerald-700 font-semibold uppercase">Total Paid</div>
+    <div class="text-xs text-emerald-700 font-semibold uppercase">Paid This Year</div>
     <div class="text-2xl font-bold text-emerald-900 mt-1">${fmtINR(totalPaid)}</div>
-    <div class="text-xs text-emerald-700 mt-1">${txns.length} transaction${txns.length===1?'':'s'}</div>
+    <div class="text-xs text-emerald-700 mt-1">${oldPaidS?`Old fees paid separately: ${fmtINR(oldPaidS)}`:`${txns.length} transaction${txns.length===1?'':'s'}`}</div>
    </div>
    <div class="bg-${s.feeBalance>0?'rose':'emerald'}-50 border border-${s.feeBalance>0?'rose':'emerald'}-200 p-4 rounded-lg">
     <div class="text-xs text-${s.feeBalance>0?'rose':'emerald'}-700 font-semibold uppercase">Balance Due</div>
@@ -14986,7 +15192,7 @@ function renderManagerPanel(){
     ${tabs.map(t => `<button class="mgr-tab px-3 py-2 rounded-t-lg text-sm font-medium whitespace-nowrap ${activeManagerTab===t.id?'bg-teal-600 text-white':'bg-gray-100 hover:bg-gray-200 text-gray-700'}" data-tab="${t.id}"><i class="fas fa-${t.icon} mr-1"></i>${t.label}</button>`).join('')}
    </div>
   </div>
-  <div class="max-w-7xl mx-auto p-4">${content}</div>
+  <div class="mx-auto p-4 portal-wide">${content}</div>
  </div>`;
 }
 function attachManagerEvents(){
@@ -15351,7 +15557,7 @@ function _ownerSectionCards(section){
 function _ownerSectionPage(section){
  const s = OWNER_SECTIONS[section] || {label:'Section',icon:'folder',color:'#333'};
  const roleLabel = currentUser.role==='managing_director'?'Managing Director':currentUser.role==='trustee'?'Trustee':'Owner';
- return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+ return `<div class="p-4 md:p-6 mx-auto portal-wide">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
     <div>
      <button id="ownerSecBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
@@ -16575,7 +16781,7 @@ function renderAccountantPanel(){
   {id:'audit',    label:'Audit Trail', icon:'clipboard-list'},
   {id:'recyclebin',label:'Recycle Bin', icon:'trash-arrow-up'}
  ];
- return `<div class="p-4 md:p-6 max-w-7xl mx-auto">
+ return `<div class="p-4 md:p-6 mx-auto portal-wide">
   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
    <div>
     <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-calculator text-green-600 mr-2"></i>Accountant Panel</h1>
@@ -17084,7 +17290,7 @@ function _openingReceiptCandidates(){
   const bal = s.feeBalance || 0;
   const paid = Math.max(0, fee - bal);
   if (paid <= 0) return;
-  const already = txns.filter(t => t.studentId === s.id && t.status !== 'cancelled')
+  const already = txns.filter(t => t.studentId === s.id && t.status !== 'cancelled' && !_isOldFeeTxn(t))
                       .reduce((a,t) => a + (t.amount||0), 0);
   const shortfall = paid - already;
   if (shortfall > 0) out.push({ id:s.id, name:s.name, cls:s.class, fee, bal, paid, already, shortfall });
@@ -20453,7 +20659,7 @@ function renderApp(){
  _attachScanViewers();
  document.getElementById('refreshFab')?.addEventListener('click', async () => {
   const b = document.getElementById('refreshFab');
-  if (b) b.innerHTML = '<i class="fas fa-rotate fa-spin"></i><span class="hidden sm:inline">Refreshing…</span>';
+  if (b) b.innerHTML = '<i class="fas fa-rotate fa-spin"></i><span>Refreshing…</span>';
   try { await DB.autoRefresh(true); showToast('Up to date'); } catch(e){ alert('Could not refresh: '+e.message); }
   renderApp();
  });
