@@ -5109,9 +5109,10 @@ function getFilteredStudents(all){
   dueAsc:   (a,b) => _due(a)-_due(b) || String(a.name||'').localeCompare(String(b.name||'')),
   feeDesc:  (a,b) => _fee(b)-_fee(a) || String(a.name||'').localeCompare(String(b.name||'')),
   name:     (a,b) => String(a.name||'').localeCompare(String(b.name||'')),
-  classRoll:(a,b) => _clsIdx(a)-_clsIdx(b) || (Number(a.rollNo)||9999)-(Number(b.rollNo)||9999)
+  classRoll:(a,b) => _clsIdx(a)-_clsIdx(b) || String(a.section||'').localeCompare(String(b.section||'')) || (Number(a.rollNo)||9999)-(Number(b.rollNo)||9999) || String(a.name||'').localeCompare(String(b.name||''))
  };
- if (sorters[f.sort]) filt.sort(sorters[f.sort]);
+ // Default order = class-wise (Pre Nursery → 12), then section, then roll number.
+ filt.sort(sorters[f.sort] || sorters.classRoll);
  return filt;
 }
 // Plain-words description of the active filters, printed as the report subtitle.
@@ -5171,7 +5172,7 @@ function renderStudentsTab(){
    <select id="studentCategoryFilter"><option value="all" ${studentFilter.category==='all'?'selected':''}>All Categories</option><option value="bpl" ${studentFilter.category==='bpl'?'selected':''}>BPL</option><option value="cwsn" ${studentFilter.category==='cwsn'?'selected':''}>CWSN</option><option value="feeDue" ${studentFilter.category==='feeDue'?'selected':''}>Fee Due</option></select>
    <select id="studentFeeFilter" title="Filter by fee position">${FEE_FILTERS.map(([v,l])=>`<option value="${v}" ${(studentFilter.fee||'all')===v?'selected':''}>${l}</option>`).join('')}</select>
    <select id="studentSort" title="Sort the list">
-    <option value="default" ${studentFilter.sort==='default'?'selected':''}>Sort: default</option>
+    <option value="default" ${(studentFilter.sort||'default')==='default'?'selected':''}>Sort: class-wise (default)</option>
     <option value="dueDesc" ${studentFilter.sort==='dueDesc'?'selected':''}>Fees due — highest first</option>
     <option value="dueAsc" ${studentFilter.sort==='dueAsc'?'selected':''}>Fees due — lowest first</option>
     <option value="feeDesc" ${studentFilter.sort==='feeDesc'?'selected':''}>Total fee — highest first</option>
@@ -5227,7 +5228,7 @@ function renderStudentsTab(){
     </tr></thead>
     <tbody>
     ${(() => {
-      const grouped = ['default','classRoll'].includes(studentFilter.sort||'default') && studentFilter.class === 'all';
+      const grouped = ['default','classRoll'].includes(studentFilter.sort||'default') && (studentFilter.class||'all') === 'all';
       const ncol = 5 + ((canSeeSRNumber()||canSeeConfidentialNumbers())?1:0);
       let lastClass = null, out = '';
       filt.forEach(s => {
