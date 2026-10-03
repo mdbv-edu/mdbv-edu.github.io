@@ -3276,6 +3276,45 @@ function _recomputeFeeBalance(s){
  }
  return s;
 }
+// ===== SIMPLE FEE MODEL (Oct 2026) =====
+// Parents pay whatever they can, whenever they come. So the balance is simply:
+//   Balance = Composite fee − paid before the portal (opening) − receipts this year
+// No installment plan is needed. "Paid before the portal" (feeOpeningPaid) captures money that was
+// paid before receipts were entered here; it is worked out once from the old balance.
+function _paidThisYear(s, txns){
+ txns = txns || getFeeTransactions();
+ return txns.filter(t => t.studentId === s.id && !t._deleted && t.status !== 'cancelled' && !_isOldFeeTxn(t))
+  .reduce((a,t) => a + _balanceReducingAmount(t), 0);
+}
+function _ensureFeeOpening(s, txns){
+ const fee = Number(s.decidedFees)||0;
+ if (!fee || (s.feeOpeningPaid !== undefined && s.feeOpeningPaid !== null && s.feeOpeningPaid !== '')) return;
+ // Positive = paid before receipts were entered on the portal.
+ // Negative = receipts on the portal that the old balance never counted (flagged for the accountant).
+ s.feeOpeningPaid = fee - (Number(s.feeBalance)||0) - _paidThisYear(s, txns);
+}
+function recalcFeeBalance(s, txns){
+ const fee = Number(s.decidedFees)||0;
+ if (!fee) return s;                       // no composite fee set: keep the balance as entered
+ _ensureFeeOpening(s, txns);
+ s.feeBalance = Math.max(0, fee - (Number(s.feeOpeningPaid)||0) - _paidThisYear(s, txns));
+ return s;
+}
+// One-time move to the simple model: give every student an opening figure so today's balances are
+// kept, and correct any balance that ignored a receipt (the old installment plan could do that).
+function _migrateToSimpleFees(){
+ try {
+  if (!currentUser || !['owner','managing_director','accountant','accountant_teacher','admin','admin_teacher'].includes(currentUser.role)) return;
+  const ss = getStudents(); const txns = getFeeTransactions(); let changed = 0;
+  ss.forEach(s => {
+   if (!(Number(s.decidedFees) > 0)) return;
+   if (s.feeOpeningPaid !== undefined && s.feeOpeningPaid !== null && s.feeOpeningPaid !== '') return;
+   _ensureFeeOpening(s, txns);      // keeps today's balance exactly
+   changed++;
+  });
+  if (changed) saveStudents(ss);
+ } catch (e) { console.warn('simple-fee migration', e); }
+}
 // Returns the next unpaid installment for a student (soonest due first), or null.
 function _nextDueInstallment(s){
  const inst = (Array.isArray(s.installments) ? s.installments : [])
@@ -4335,6 +4374,7 @@ async function applyStudentPatch(patch, progressCb){
  for (const p of patch.students) {
   const s = all.find(x => String(x.id) === String(p.id));
   if (!s) { report.notFound.push(p.label || p.id); continue; }
+  if (typeof _ensureFeeOpening === 'function') _ensureFeeOpening(s);
   for (const c of (p.changes || [])) {
    const now = _patchNorm(c.field, s[c.field]);
    if (now === _patchNorm(c.field, c.to)) continue;                 // already done
@@ -5456,25 +5496,21 @@ function renderDataManagementModals(){
     <div><label class="text-xs font-medium">Annual Fees (Rs.)</label><input type="number" id="dmStuAnnual" placeholder="e.g. 24000"></div>
     <div><label class="text-xs font-medium">Composite Fee (Rs.) <i class="fas fa-circle-info text-gray-400" title="Total fee after any discount/concession — the amount actually payable"></i></label><input type="number" id="dmStuDecided" placeholder="total after discount"></div>
     <div><label class="text-xs font-medium">Transport (monthly Rs.)</label><input type="number" id="dmStuTransport" placeholder="0 if not using"></div>
-    <div><label class="text-xs font-medium">Fee Balance (Rs.) <i class="fas fa-circle-info text-gray-400" title="Current year's outstanding. Auto-calculated from installments if a plan is set below."></i></label><input type="number" id="dmStuFeeBal" value="0"></div>
+    <div><label class="text-xs font-medium">Fee Balance (Rs.) <i class="fas fa-circle-info text-gray-400" title="Current year's outstanding — worked out automatically: composite fee minus payments."></i></label><input type="number" id="dmStuFeeBal" value="0" readonly class="bg-gray-100 text-gray-700" title="Worked out automatically from the composite fee and receipts"></div>
     <div><label class="text-xs font-medium text-amber-700">Previous Year Dues (Rs.) <i class="fas fa-circle-info text-gray-400" title="Amount still owed from LAST academic year (carry-forward). Tracked separately so old dues are visible and can be collected."></i></label><input type="number" id="dmStuPrevDues" value="0" placeholder="0"></div>
     <div class="col-span-2 md:col-span-3 flex flex-wrap gap-4 mt-2">
      <label class="text-sm flex items-center gap-1"><input type="checkbox" id="dmStuBpl" class="w-auto"> BPL (Below Poverty Line)</label>
      <label class="text-sm flex items-center gap-1"><input type="checkbox" id="dmStuCwsn" class="w-auto"> CWSN (Children with Special Needs)</label>
      <label class="text-sm flex items-center gap-1"><input type="checkbox" id="dmStuFreeChild" class="w-auto"> RTE Free Child</label>
     </div>
-    <div class="col-span-2 md:col-span-3 mt-3 pt-3 border-t border-gray-200 bg-indigo-50 -mx-1 px-3 py-3 rounded">
-     <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
-      <div class="text-xs font-semibold text-indigo-900"><i class="fas fa-list-ol mr-1"></i>Installment Plan</div>
-      <div class="flex gap-1 items-center">
-       <input type="number" id="dmInstCount" value="3" min="1" max="12" class="w-14 text-sm" title="Number of installments">
-       <button type="button" id="dmGenInstBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-1 rounded text-xs"><i class="fas fa-wand-magic-sparkles mr-1"></i>Split Composite Fee</button>
-       <button type="button" id="dmAddInstBtn" class="bg-gray-200 hover:bg-gray-300 px-2 py-1 rounded text-xs"><i class="fas fa-plus mr-1"></i>Add row</button>
-      </div>
+    <div class="col-span-2 md:col-span-3 mt-3 pt-3 border-t border-gray-200 bg-emerald-50 -mx-1 px-3 py-3 rounded">
+     <div class="text-xs font-semibold text-emerald-900 mb-1"><i class="fas fa-calculator mr-1"></i>How the balance is worked out</div>
+     <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+      <div><label class="text-xs font-medium">Paid before the portal (Rs.) <i class="fas fa-circle-info text-gray-400" title="Money paid this year before receipts were entered on the portal. Set automatically. A MINUS figure means some receipts on the portal were never counted in the balance — check them, then set this to 0 to count them."></i></label><input type="number" id="dmStuOpening" placeholder="0"></div>
+      <div class="md:col-span-2 text-sm text-emerald-900" id="dmFeeFormula"></div>
      </div>
-     <p class="text-xs text-indigo-700 mb-2">Set the Composite Fee above, choose how many installments, then "Split" to divide it evenly. You can edit each row's label, amount, and due date. The Fee Balance updates from unpaid installments.</p>
-     <div id="dmInstList"></div>
-     <div id="dmInstSummary" class="text-xs font-medium text-indigo-900 mt-1"></div>
+     <p class="text-xs text-emerald-800 mt-2">Balance = Composite fee − paid before the portal − this year's receipts. Every receipt you record reduces it automatically; there is no installment plan to update.</p>
+     <div id="dmInstList" class="hidden"></div><div id="dmInstSummary" class="hidden"></div>
     </div>
     <div class="col-span-2 md:col-span-3 mt-3 pt-3 border-t border-gray-200">
      <div class="text-xs font-semibold text-gray-800 mb-1"><i class="fas fa-folder-open text-amber-600 mr-1"></i>KYC / Documents</div>
@@ -6660,14 +6696,18 @@ function renderStudentProfile(id){
     <p class="text-xs text-gray-500 mt-1">This is the standard fee for Class ${s.class}. The student's actual payable is the <b>Composite Fee</b> above (after any concession).</p>
    </div>`:`<div class="mb-4 text-xs text-gray-400 bg-gray-50 rounded p-3"><i class="fas fa-circle-info mr-1"></i>No fee structure set for Class ${s.class} yet. Set it in Fee Structure (Owner/Accountant).</div>`}
 
-   ${inst.length>0?`<div class="mb-4">
-    <div class="text-sm font-semibold mb-1"><i class="fas fa-list-ol text-indigo-600 mr-1"></i>Installment Plan <span class="text-xs font-normal text-gray-500">(Paid Rs.${instPaid.toLocaleString('en-IN')} of Rs.${instTotal.toLocaleString('en-IN')})</span></div>
-    <table class="border text-sm w-full"><thead class="bg-gray-50"><tr><th class="text-left p-2">Installment</th><th class="text-left p-2">Due Date</th><th class="text-right p-2">Amount</th><th class="text-center p-2">Status</th></tr></thead>
-    <tbody>${inst.map(it=>{
-      const overdue = !it.paid && it.dueDate && it.dueDate < today;
-      return `<tr class="border-t"><td class="p-2">${escapeHTML(it.label||'-')}</td><td class="p-2 ${overdue?'text-rose-600 font-medium':''}">${it.dueDate?fmtDate(it.dueDate):'-'}${overdue?' (overdue)':''}</td><td class="p-2 text-right">Rs.${(Number(it.amount)||0).toLocaleString('en-IN')}</td><td class="p-2 text-center">${it.paid?'<span class="pill pill-green">Paid</span>':(Number(it.paidAmount)||0)>0?`<span class="pill pill-blue">Part-paid Rs.${Number(it.paidAmount).toLocaleString('en-IN')}</span>${overdue?' <span class="pill pill-red">Overdue</span>':''}`:overdue?'<span class="pill pill-red">Overdue</span>':'<span class="pill pill-amber">Due</span>'}</td></tr>`;
-    }).join('')}</tbody></table>
-   </div>`:''}
+   ${(Number(s.decidedFees)||0)>0?(()=>{const _c=JSON.parse(JSON.stringify(s));_ensureFeeOpening(_c);const op=Number(_c.feeOpeningPaid)||0;const fee=Number(s.decidedFees)||0;const pty=_paidThisYear(s);const bal=Math.max(0,fee-op-pty);
+    return `<div class="mb-4 border rounded-lg p-3 text-sm bg-gray-50">
+     <div class="font-semibold mb-1"><i class="fas fa-calculator text-emerald-600 mr-1"></i>How the balance is worked out (${currentSession()})</div>
+     <div class="flex flex-wrap gap-x-6 gap-y-1">
+      <span>Composite fee <b>Rs.${fee.toLocaleString('en-IN')}</b></span>
+      ${op>0?`<span>− paid before the portal <b>Rs.${op.toLocaleString('en-IN')}</b></span>`:''}
+      ${op<0?`<span class="text-amber-800">+ receipts not counted in the balance <b>Rs.${(-op).toLocaleString('en-IN')}</b></span>`:''}
+      <span>− receipts this year <b>Rs.${pty.toLocaleString('en-IN')}</b></span>
+      <span>= balance <b class="${bal>0?'text-rose-700':'text-emerald-700'}">Rs.${bal.toLocaleString('en-IN')}</b></span>
+     </div>
+     ${op<0?`<div class="text-xs text-amber-800 mt-1"><i class="fas fa-triangle-exclamation mr-1"></i>Some receipts were never taken off this student's balance. Check them (wrong student? last year's fee?). If they are correct, open Edit and set "Paid before the portal" to 0.</div>`:''}
+    </div>`;})():''}
 
    <div class="text-sm font-semibold mb-1"><i class="fas fa-receipt text-emerald-600 mr-1"></i>Payment Receipts</div>
    <table class="border text-sm w-full"><thead class="bg-gray-50"><tr><th class="p-2">Scan</th><th class="text-left p-2">Receipt</th><th class="text-left p-2">Book No</th><th class="text-left p-2">Date</th><th class="text-left p-2">Fee Head</th><th class="text-left p-2">For year</th><th class="text-left p-2">Mode</th><th class="text-right p-2">Amount</th></tr></thead>
@@ -16937,7 +16977,7 @@ function renderFeeRemindersTab(){
         const pctPaid = composite > 0 ? Math.round((paidAmt/composite)*100) : 0;
         const today = new Date().toISOString().slice(0,10);
         const inst = Array.isArray(s.installments) ? s.installments : [];
-        const overdueInst = inst.filter(i => !i.paid && i.dueDate && i.dueDate < today).length;
+        const overdueInst = 0;   // simple fee model: no installment due dates
         const pctColor = pctPaid>=75?'emerald':pctPaid>=40?'amber':'rose';
         return `<tr class="border-t" data-class="${s.class}" data-balance="${bal}">
        <td class="p-2">${s.rollNo||'-'}</td>
@@ -17016,7 +17056,7 @@ function attachFeeRemindersEvents(){
    const paid = Math.max(0, composite-bal);
    const pct = composite>0?Math.round((paid/composite)*100):0;
    const inst = Array.isArray(s.installments)?s.installments:[];
-   const overdueInst = inst.filter(i=>!i.paid && i.dueDate && i.dueDate < today).length;
+   const overdueInst = 0;
    h += `<tr><td>${s.rollNo||''}</td><td>${s.name}</td><td>${s.class}</td><td>${s.section||''}</td><td>${s.parentName||''}</td><td>${s.parentPhone||''}</td><td>${composite}</td><td>${paid}</td><td>${bal}</td><td>${pct}%</td><td>${overdueInst}</td></tr>`;
   });
   h += '</table>';
@@ -19181,8 +19221,8 @@ function _reverseTxnEffect(t, kind){
    const ss = getStudents();
    const i = ss.findIndex(x => x.id === t.studentId);
    if (i > -1) {
-    if (_hasInstallments(ss[i])) _unapplyFromInstallments(ss[i], red);
-    else ss[i].feeBalance = (ss[i].feeBalance || 0) + red;
+    _ensureFeeOpening(ss[i]);
+    ss[i].feeBalance = (ss[i].feeBalance || 0) + red;
     saveStudents(ss);
    }
   }
@@ -19389,8 +19429,7 @@ function _openTxnEditModal(txnId, txnKind){
     const ss = getStudents();
     const i = ss.findIndex(x => x.id === updated.studentId);
     if (i > -1) {
-     if (_hasInstallments(ss[i])) _applyToInstallments(ss[i], red2, updated.date);
-     else ss[i].feeBalance = Math.max(0, (ss[i].feeBalance || 0) - red2);
+     ss[i].feeBalance = Math.max(0, (ss[i].feeBalance || 0) - red2);
      saveStudents(ss);
     }
    }
@@ -20116,15 +20155,17 @@ function _attachReceiptEvents(){
     if (i > -1) {
      // If this receipt is for a PAST academic year, clear previous-year dues first; any
      // remainder reduces the current-year balance. For the current year, reduce balance directly.
-     // With an installment plan, the money is applied to the installments (earliest due first)
-     // so the plan and the balance always agree — otherwise the next edit of the student would
-     // recalculate the balance from an out-of-date plan and the payment would seem to vanish.
+     // Simple model: the receipt comes straight off the balance (Composite fee − payments).
+     _ensureFeeOpening(ss[i]);                     // fix the opening figure before this receipt counts
+     const isPastYear = academicYear && academicYear !== currentSession();
      const takeOff = (amt) => {
       if (amt <= 0) return;
-      if (_hasInstallments(ss[i])) _applyToInstallments(ss[i], amt, transaction.date);
-      else ss[i].feeBalance = Math.max(0, (ss[i].feeBalance||0) - amt);
+      ss[i].feeBalance = Math.max(0, (ss[i].feeBalance||0) - amt);
+      // A past-year receipt is not counted in "this year's receipts", so record the part that
+      // reduced this year's balance in the opening figure — keeps the formula and balance in step.
+      if (isPastYear && (Number(ss[i].decidedFees)||0) > 0) ss[i].feeOpeningPaid = (Number(ss[i].feeOpeningPaid)||0) + amt;
      };
-     if (academicYear && academicYear !== currentSession() && (ss[i].previousDues||0) > 0) {
+     if (isPastYear && (ss[i].previousDues||0) > 0) {
       const prev = ss[i].previousDues || 0;
       const appliedToPrev = Math.min(prev, reducing);
       ss[i].previousDues = Math.max(0, prev - appliedToPrev);
@@ -20751,6 +20792,11 @@ function renderApp(){
  app.innerHTML=html+_renderHelpFab()+_renderRefreshFab();
  document.getElementById('helpFab')?.addEventListener('click', openHelpCenter);
  _attachScanViewers();
+ if (!window._simpleFeeMigrationRun) {
+  window._simpleFeeMigrationRun = true;
+  const _tryMig = () => { if (DB.mode !== 'cloud' || DB._startupDone) _migrateToSimpleFees(); else setTimeout(_tryMig, 2000); };
+  setTimeout(_tryMig, 1500);
+ }
  document.getElementById('refreshFab')?.addEventListener('click', async () => {
   const b = document.getElementById('refreshFab');
   if (b) b.innerHTML = '<i class="fas fa-rotate fa-spin"></i><span>Refreshing…</span>';
@@ -22558,6 +22604,13 @@ function attachDataManagementEvents(){
     document.getElementById('dmStuDecided').value = s.decidedFees || '';
     document.getElementById('dmStuTransport').value = s.transportMonthly || '';
     document.getElementById('dmStuFeeBal').value = s.feeBalance || 0;
+    { const _s2 = JSON.parse(JSON.stringify(s)); _ensureFeeOpening(_s2);
+      const opEl = document.getElementById('dmStuOpening'); if (opEl) opEl.value = (Number(_s2.feeOpeningPaid)||0) || '';
+      const upd = () => { const fee = parseInt(document.getElementById('dmStuDecided')?.value)||0; const op = parseInt(document.getElementById('dmStuOpening')?.value)||0; const paid = _paidThisYear(s);
+        const bal = Math.max(0, fee - op - paid); const f = document.getElementById('dmFeeFormula');
+        if (f) f.innerHTML = fee ? `Rs.${fee.toLocaleString('en-IN')} − Rs.${op.toLocaleString('en-IN')} − Rs.${paid.toLocaleString('en-IN')} (receipts this year) = <b>Rs.${bal.toLocaleString('en-IN')} balance</b>` : 'Enter the Composite Fee to work out the balance.';
+        document.getElementById('dmStuFeeBal').value = fee ? bal : (s.feeBalance||0); };
+      upd(); document.getElementById('dmStuDecided')?.addEventListener('input', upd); opEl?.addEventListener('input', upd); }
     document.getElementById('dmStuPrevDues').value = s.previousDues || 0;
     document.getElementById('dmStuBpl').checked = !!s.bpl;
     document.getElementById('dmStuCwsn').checked = !!s.cwsn;
@@ -22692,11 +22745,16 @@ function attachDataManagementEvents(){
     documents: _stuDocs.slice(),
     installments: _stuInstallments.slice()
   };
-  // If an installment plan exists, the fee balance is derived from it (unpaid installments).
-  if (Array.isArray(data.installments) && data.installments.length > 0){
-   const total = data.installments.reduce((a,i)=>a+(Number(i.amount)||0),0);
-   const paid = data.installments.reduce((a,i)=>a+_instPaidAmt(i),0);
-   data.feeBalance = Math.max(0, total - paid);
+  // Simple fee model: Balance = Composite fee − paid before portal − this year's receipts.
+  {
+   const opEl = document.getElementById('dmStuOpening');
+   const prevRec = getStudents().find(x => String(x.id) === String(data.id || document.getElementById('dmStuId')?.value));
+   if (prevRec) _ensureFeeOpening(prevRec);            // opening figure as it stood before this edit
+   const opening = (opEl && opEl.value !== '') ? (parseInt(opEl.value)||0) : (prevRec ? (Number(prevRec.feeOpeningPaid)||0) : 0);
+   if ((Number(data.decidedFees)||0) > 0) {
+    data.feeOpeningPaid = opening;
+    data.feeBalance = Math.max(0, (Number(data.decidedFees)||0) - opening - (prevRec ? _paidThisYear(prevRec) : 0));
+   }
   }
   // Confidential numbers (SR + UDISE/PEN) can only be set by Owner/MD. For everyone else,
   // do NOT overwrite them — the fields are hidden and would otherwise blank out real data.
