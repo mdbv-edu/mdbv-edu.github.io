@@ -4255,6 +4255,29 @@ async function applyStudentPatch(patch, progressCb){
   }
  }
 
+ // 1b) Upload profile photos (shown on the profile, the student list and the ID card).
+ //     Each photo carries a key; a student who already has that exact photo is not uploaded again.
+ const preparedPhotos = {};
+ const withPhoto = patch.students.filter(p => p.photo && p.photo.data);
+ let pn = 0;
+ for (const p of withPhoto) {
+  pn++;
+  const s = current0.find(x => String(x.id) === String(p.id));
+  if (!s) continue;
+  if (s.photoKey && s.photoKey === p.photo.key) { report.docsSkipped++; continue; }
+  say(`Uploading photo ${pn} of ${withPhoto.length} (${s.name})…`);
+  let url = p.photo.data;
+  if (useCloud) {
+   try {
+    const blob = _dataURLtoBlob(p.photo.data, p.photo.type || 'image/jpeg');
+    const r = await DB.uploadFile(mkFile(blob, p.photo.name || ('photo_' + s.id + '.jpg')), 'photos/' + s.id);
+    url = r.url;
+   } catch (e) { if (e.message === 'STORAGE_BUCKET_MISSING') useCloud = false; }
+  }
+  if (String(url).startsWith('data:')) report.docsInline++; else report.docsCloud++;
+  preparedPhotos[s.id] = { url, key: p.photo.key };
+ }
+
  // 2) Re-read the LATEST students (a background refresh may have run while uploading) and merge.
  say('Saving changes…');
  const all = getStudents();
@@ -4270,6 +4293,10 @@ async function applyStudentPatch(patch, progressCb){
    }
    s[c.field] = c.to;
    report.applied.push(`${s.name}: ${c.field} → ${c.to}`);
+  }
+  if (preparedPhotos[s.id]) {
+   s.photo = preparedPhotos[s.id].url; s.photoKey = preparedPhotos[s.id].key;
+   report.applied.push(`${s.name}: photo added`);
   }
   const docs = preparedDocs[s.id] || [];
   if (docs.length) {
@@ -21075,7 +21102,7 @@ function attachOwnerEvents(){
    try { obj = JSON.parse(ev.target.result); } catch { alert('Could not read that file — it is not valid JSON.'); return; }
    if (!obj || !obj._mdbvStudentPatch) { alert('This is not an MDBV student update file.\n\n(For a full backup file, use "Restore from Backup".)'); return; }
    const nStu = (obj.students || []).length;
-   const nDoc = (obj.students || []).reduce((a, p) => a + ((p.addDocuments || []).length), 0);
+   const nDoc = (obj.students || []).reduce((a, p) => a + ((p.addDocuments || []).length) + (p.photo ? 1 : 0), 0);
    const nSal = (obj.salaryPayments||[]).length, nTch = (obj.teachers||[]).length + (obj.newTeachers||[]).length;
    if (!confirm(`Import updates?\n\n${obj.title || ''}\n${nStu} students · ${nDoc} documents · ${nTch} staff · ${nSal} salary payments\n\nOnly the listed fields and documents are added. If a field was edited on the site after this file was prepared, it is left unchanged and reported.\n\nPlease keep this page open until it finishes.`)) return;
    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Importing…'; }
