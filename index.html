@@ -3214,9 +3214,59 @@ function _installmentsTotal(s){
  const inst = Array.isArray(s.installments) ? s.installments : [];
  return inst.reduce((a,i) => a + (Number(i.amount)||0), 0);
 }
+// Amount actually paid against one installment. A fully paid installment counts its amount;
+// a part-paid one (paid:false with paidAmount) counts what has been paid so far.
+function _instPaidAmt(i){
+ if (!i) return 0;
+ return i.paid ? (Number(i.paidAmount)||Number(i.amount)||0) : (Number(i.paidAmount)||0);
+}
 function _installmentsPaid(s){
  const inst = Array.isArray(s.installments) ? s.installments : [];
- return inst.reduce((a,i) => a + (i.paid ? (Number(i.paidAmount)||Number(i.amount)||0) : 0), 0);
+ return inst.reduce((a,i) => a + _instPaidAmt(i), 0);
+}
+// Apply a fee payment to the installment plan: earliest due first, part-payments allowed.
+// Returns any amount left over (paid beyond the plan). Also refreshes feeBalance.
+function _applyToInstallments(s, amount, date){
+ let left = Math.max(0, Number(amount)||0);
+ const inst = Array.isArray(s.installments) ? s.installments : [];
+ const order = inst.slice().sort((a,b) => String(a.dueDate||'9999').localeCompare(String(b.dueDate||'9999')));
+ for (const it of order) {
+  if (left <= 0) break;
+  const amt = Number(it.amount)||0;
+  if (amt <= 0) continue;
+  const done = _instPaidAmt(it);
+  if (done >= amt) continue;
+  const take = Math.min(amt - done, left);
+  left -= take;
+  const now = done + take;
+  if (now >= amt) { it.paid = true; it.paidAmount = amt; it.paidDate = date || new Date().toISOString().slice(0,10); }
+  else { it.paid = false; it.paidAmount = now; if (!it.paidDate) it.paidDate = date || new Date().toISOString().slice(0,10); }
+ }
+ s.feeBalance = Math.max(0, _installmentsTotal(s) - _installmentsPaid(s));
+ return left;
+}
+// Undo a payment (receipt cancelled / edited): take it back from the latest-paid installments first.
+function _unapplyFromInstallments(s, amount){
+ let left = Math.max(0, Number(amount)||0);
+ const inst = Array.isArray(s.installments) ? s.installments : [];
+ const order = inst.slice().sort((a,b) => String(b.dueDate||'').localeCompare(String(a.dueDate||'')));
+ for (const it of order) {
+  if (left <= 0) break;
+  const done = _instPaidAmt(it);
+  if (done <= 0) continue;
+  const back = Math.min(done, left);
+  left -= back;
+  const now = done - back;
+  it.paid = false; it.paidAmount = now; if (now === 0) it.paidDate = '';
+ }
+ s.feeBalance = Math.max(0, _installmentsTotal(s) - _installmentsPaid(s));
+ return left;
+}
+function _hasInstallments(s){ return Array.isArray(s.installments) && s.installments.length > 0; }
+// Fee-balance part of a receipt (only heads that count toward the composite fee).
+function _balanceReducingAmount(t){
+ const heads = Array.isArray(t.heads) && t.heads.length ? t.heads : [{ head: t.feeHead, amount: t.amount }];
+ return heads.filter(h => BALANCE_REDUCING_HEADS.includes(h.head)).reduce((a,h) => a + (Number(h.amount)||0), 0);
 }
 // Recompute a student's feeBalance from installments (if an installment plan exists),
 // otherwise leave the legacy feeBalance as-is.
@@ -3992,12 +4042,12 @@ function _renderStuInstallments(){
    <input class="instLabel text-xs flex-1" data-i="${i}" value="${escapeHTML(it.label||'')}" placeholder="Label">
    <input type="number" class="instAmount text-xs w-24" data-i="${i}" value="${it.amount||''}" placeholder="Amount">
    <input type="date" class="instDate text-xs w-36" data-i="${i}" value="${it.dueDate||''}">
-   <label class="text-xs flex items-center gap-1 whitespace-nowrap ${it.paid?'text-emerald-700':'text-gray-500'}"><input type="checkbox" class="instPaid w-auto" data-i="${i}" ${it.paid?'checked':''}>Paid</label>
+   <label class="text-xs flex items-center gap-1 whitespace-nowrap ${it.paid?'text-emerald-700':'text-gray-500'}"><input type="checkbox" class="instPaid w-auto" data-i="${i}" ${it.paid?'checked':''}>P${!it.paid&&(Number(it.paidAmount)||0)>0?`<span class="text-blue-700" title="Part-paid so far"> (Rs.${Number(it.paidAmount).toLocaleString('en-IN')})</span>`:''}aid</label>
    <button type="button" class="instDel text-rose-500 hover:text-rose-700 px-1" data-i="${i}"><i class="fas fa-times"></i></button>
   </div>`).join('')}</div>`;
 
  const total = _stuInstallments.reduce((a,i)=>a+(Number(i.amount)||0),0);
- const paid = _stuInstallments.reduce((a,i)=>a+(i.paid?(Number(i.amount)||0):0),0);
+ const paid = _stuInstallments.reduce((a,i)=>a+_instPaidAmt(i),0);
  const composite = parseInt(document.getElementById('dmStuDecided')?.value)||0;
  const mismatch = composite && total !== composite;
  if (summary) summary.innerHTML = `Total of installments: <b>Rs.${total.toLocaleString('en-IN')}</b> · Paid: <b class="text-emerald-700">Rs.${paid.toLocaleString('en-IN')}</b> · Balance: <b class="text-rose-700">Rs.${(total-paid).toLocaleString('en-IN')}</b>${mismatch?` <span class="text-amber-700">⚠ doesn't match composite fee (Rs.${composite.toLocaleString('en-IN')})</span>`:''}`;
@@ -4006,14 +4056,14 @@ function _renderStuInstallments(){
  box.querySelectorAll('.instLabel').forEach(el=>el.addEventListener('input',e=>{_stuInstallments[+e.target.dataset.i].label=e.target.value;}));
  box.querySelectorAll('.instAmount').forEach(el=>el.addEventListener('input',e=>{_stuInstallments[+e.target.dataset.i].amount=parseInt(e.target.value)||0;_renderInstSummaryOnly();}));
  box.querySelectorAll('.instDate').forEach(el=>el.addEventListener('input',e=>{_stuInstallments[+e.target.dataset.i].dueDate=e.target.value;}));
- box.querySelectorAll('.instPaid').forEach(el=>el.addEventListener('change',e=>{const it=_stuInstallments[+e.target.dataset.i];it.paid=e.target.checked;if(it.paid&&!it.paidDate)it.paidDate=new Date().toISOString().slice(0,10);_renderStuInstallments();}));
+ box.querySelectorAll('.instPaid').forEach(el=>el.addEventListener('change',e=>{const it=_stuInstallments[+e.target.dataset.i];it.paid=e.target.checked;it.paidAmount=it.paid?(Number(it.amount)||0):0;if(it.paid&&!it.paidDate)it.paidDate=new Date().toISOString().slice(0,10);_renderStuInstallments();}));
  box.querySelectorAll('.instDel').forEach(el=>el.addEventListener('click',e=>{_stuInstallments.splice(+e.target.closest('.instDel').dataset.i,1);_renderStuInstallments();}));
 }
 function _renderInstSummaryOnly(){
  const summary = document.getElementById('dmInstSummary');
  if (!summary) return;
  const total = _stuInstallments.reduce((a,i)=>a+(Number(i.amount)||0),0);
- const paid = _stuInstallments.reduce((a,i)=>a+(i.paid?(Number(i.amount)||0):0),0);
+ const paid = _stuInstallments.reduce((a,i)=>a+_instPaidAmt(i),0);
  const composite = parseInt(document.getElementById('dmStuDecided')?.value)||0;
  const mismatch = composite && total !== composite;
  summary.innerHTML = `Total of installments: <b>Rs.${total.toLocaleString('en-IN')}</b> · Paid: <b class="text-emerald-700">Rs.${paid.toLocaleString('en-IN')}</b> · Balance: <b class="text-rose-700">Rs.${(total-paid).toLocaleString('en-IN')}</b>${mismatch?` <span class="text-amber-700">⚠ doesn't match composite fee (Rs.${composite.toLocaleString('en-IN')})</span>`:''}`;
@@ -4214,6 +4264,7 @@ function restoreFromBackup(backupObj){
 // normal save path, so the result syncs to the cloud and every device.
 function _patchNorm(field, v){
  if (v === null || v === undefined) return '';
+ if (typeof v === 'object') return JSON.stringify(v);
  let s = String(v).trim();
  if (field === 'aadhaar' || /phone/i.test(field)) s = s.replace(/[\s-]/g, '');
  return s;
@@ -6569,7 +6620,7 @@ function renderStudentProfile(id){
 } else if(t==='fees'){
   const inst = Array.isArray(s.installments) ? s.installments : [];
   const instTotal = inst.reduce((a,i)=>a+(Number(i.amount)||0),0);
-  const instPaid = inst.reduce((a,i)=>a+(i.paid?(Number(i.amount)||0):0),0);
+  const instPaid = inst.reduce((a,i)=>a+_instPaidAmt(i),0);
   const today = new Date().toISOString().slice(0,10);
   const plan = (typeof getFeeStructureForClass==='function') ? getFeeStructureForClass(s.class) : null;
   const planItems = plan && Array.isArray(plan.items) ? plan.items.filter(x=>(parseInt(x.amount)||0)>0) : [];
@@ -6614,7 +6665,7 @@ function renderStudentProfile(id){
     <table class="border text-sm w-full"><thead class="bg-gray-50"><tr><th class="text-left p-2">Installment</th><th class="text-left p-2">Due Date</th><th class="text-right p-2">Amount</th><th class="text-center p-2">Status</th></tr></thead>
     <tbody>${inst.map(it=>{
       const overdue = !it.paid && it.dueDate && it.dueDate < today;
-      return `<tr class="border-t"><td class="p-2">${escapeHTML(it.label||'-')}</td><td class="p-2 ${overdue?'text-rose-600 font-medium':''}">${it.dueDate?fmtDate(it.dueDate):'-'}${overdue?' (overdue)':''}</td><td class="p-2 text-right">Rs.${(Number(it.amount)||0).toLocaleString('en-IN')}</td><td class="p-2 text-center">${it.paid?'<span class="pill pill-green">Paid</span>':overdue?'<span class="pill pill-red">Overdue</span>':'<span class="pill pill-amber">Due</span>'}</td></tr>`;
+      return `<tr class="border-t"><td class="p-2">${escapeHTML(it.label||'-')}</td><td class="p-2 ${overdue?'text-rose-600 font-medium':''}">${it.dueDate?fmtDate(it.dueDate):'-'}${overdue?' (overdue)':''}</td><td class="p-2 text-right">Rs.${(Number(it.amount)||0).toLocaleString('en-IN')}</td><td class="p-2 text-center">${it.paid?'<span class="pill pill-green">Paid</span>':(Number(it.paidAmount)||0)>0?`<span class="pill pill-blue">Part-paid Rs.${Number(it.paidAmount).toLocaleString('en-IN')}</span>${overdue?' <span class="pill pill-red">Overdue</span>':''}`:overdue?'<span class="pill pill-red">Overdue</span>':'<span class="pill pill-amber">Due</span>'}</td></tr>`;
     }).join('')}</tbody></table>
    </div>`:''}
 
@@ -19125,11 +19176,15 @@ function _logAccountingChange(action, kind, before, after, reason){
 function _reverseTxnEffect(t, kind){
  if (kind === 'receipt') {
   // If receipt updated student feeBalance, restore it
-  const reducedBalance = ['Tuition Fee','Admission Fee','Annual Fee','Transport','Late Fee'].includes(t.feeHead);
-  if (t.studentId && reducedBalance) {
+  const red = _balanceReducingAmount(t);
+  if (t.studentId && red > 0 && !_isOldFeeTxn(t)) {
    const ss = getStudents();
    const i = ss.findIndex(x => x.id === t.studentId);
-   if (i > -1) { ss[i].feeBalance = (ss[i].feeBalance || 0) + (t.amount || 0); saveStudents(ss); }
+   if (i > -1) {
+    if (_hasInstallments(ss[i])) _unapplyFromInstallments(ss[i], red);
+    else ss[i].feeBalance = (ss[i].feeBalance || 0) + red;
+    saveStudents(ss);
+   }
   }
   // If non-cash, debit back the bank account
   if (t.bankAccountId && t.mode !== 'Cash') {
@@ -19329,11 +19384,15 @@ function _openTxnEditModal(txnId, txnKind){
 
   // Now apply the new effect
   if (txnKind === 'receipt') {
-   const reducesBalance = ['Tuition Fee','Admission Fee','Annual Fee','Transport','Late Fee'].includes(updated.feeHead);
-   if (updated.studentId && reducesBalance) {
+   const red2 = _balanceReducingAmount(updated);
+   if (updated.studentId && red2 > 0 && !_isOldFeeTxn(updated)) {
     const ss = getStudents();
     const i = ss.findIndex(x => x.id === updated.studentId);
-    if (i > -1) { ss[i].feeBalance = Math.max(0, (ss[i].feeBalance || 0) - updated.amount); saveStudents(ss); }
+    if (i > -1) {
+     if (_hasInstallments(ss[i])) _applyToInstallments(ss[i], red2, updated.date);
+     else ss[i].feeBalance = Math.max(0, (ss[i].feeBalance || 0) - red2);
+     saveStudents(ss);
+    }
    }
    if (newBankId && updated.mode !== 'Cash') {
     const bb = get('bankAccounts');
@@ -20057,14 +20116,21 @@ function _attachReceiptEvents(){
     if (i > -1) {
      // If this receipt is for a PAST academic year, clear previous-year dues first; any
      // remainder reduces the current-year balance. For the current year, reduce balance directly.
+     // With an installment plan, the money is applied to the installments (earliest due first)
+     // so the plan and the balance always agree — otherwise the next edit of the student would
+     // recalculate the balance from an out-of-date plan and the payment would seem to vanish.
+     const takeOff = (amt) => {
+      if (amt <= 0) return;
+      if (_hasInstallments(ss[i])) _applyToInstallments(ss[i], amt, transaction.date);
+      else ss[i].feeBalance = Math.max(0, (ss[i].feeBalance||0) - amt);
+     };
      if (academicYear && academicYear !== currentSession() && (ss[i].previousDues||0) > 0) {
       const prev = ss[i].previousDues || 0;
       const appliedToPrev = Math.min(prev, reducing);
       ss[i].previousDues = Math.max(0, prev - appliedToPrev);
-      const leftover = reducing - appliedToPrev;
-      if (leftover > 0) ss[i].feeBalance = Math.max(0, (ss[i].feeBalance||0) - leftover);
+      takeOff(reducing - appliedToPrev);
      } else {
-      ss[i].feeBalance = Math.max(0, (ss[i].feeBalance||0) - reducing);
+      takeOff(reducing);
      }
      saveStudents(ss);
     }
@@ -22629,7 +22695,7 @@ function attachDataManagementEvents(){
   // If an installment plan exists, the fee balance is derived from it (unpaid installments).
   if (Array.isArray(data.installments) && data.installments.length > 0){
    const total = data.installments.reduce((a,i)=>a+(Number(i.amount)||0),0);
-   const paid = data.installments.reduce((a,i)=>a+(i.paid?(Number(i.amount)||0):0),0);
+   const paid = data.installments.reduce((a,i)=>a+_instPaidAmt(i),0);
    data.feeBalance = Math.max(0, total - paid);
   }
   // Confidential numbers (SR + UDISE/PEN) can only be set by Owner/MD. For everyone else,
