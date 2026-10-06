@@ -16919,6 +16919,114 @@ function renderAccountantPanel(){
    send WhatsApp reminders to parents (opens wa.me with a prefilled
    polite message) and logs each reminder sent.
 ============================================================ */
+// ===== Village-wise dues (plan collection visits) =====
+let _frView = 'class';
+// Village names are typed in many spellings; group them under one name for the visit plan.
+const _VILLAGE_ALIASES = {
+ 'begmabadgarhi':'Begamabad Garhi','begamabadgarhi':'Begamabad Garhi','begamabad':'Begamabad Garhi','begmabad':'Begamabad Garhi','begumabad':'Begamabad Garhi',
+ 'darkavda':'Darkavda','darkawda':'Darkavda','darkavada':'Darkavda',
+ 'galheta':'Galheta','galehaita':'Galheta','galhta':'Galheta','galhaita':'Galheta','galhetta':'Galheta',
+ 'harar':'Harra','harra':'Harra','hara':'Harra',
+ 'ranchhar':'Ranchhar','ranchar':'Ranchhar',
+ 'shekpura':'Shekhpura','shekhpura':'Shekhpura','shaikhpura':'Shekhpura','shekpur':'Shekhpura',
+ 'malmazra':'Mal Majra','malmajra':'Mal Majra','maimzra':'Mal Majra','malmazara':'Mal Majra',
+ 'makhar':'Makhar','makhan':'Makhar',
+ 'khabrana':'Khaprana','khaprana':'Khaprana','kapran':'Khaprana','kaprana':'Khaprana',
+ 'shahpurbanganga':'Banganga','banganga':'Banganga','bangangaa':'Banganga',
+ 'johny':'Johri','johri':'Johri','johari':'Johri','johdi':'Johri',
+ 'barnawa':'Barnawa','barnava':'Barnawa','baranawa':'Barnawa','barnaua':'Barnawa',
+ 'binauli':'Binauli','binoli':'Binauli','jiwana':'Jiwana','jiwna':'Jiwana','khiwai':'Khiwai','khiwi':'Khiwai',
+ 'sirsali':'Sirsali','sirsaligarh':'Sirsalgarh','sirsalgarh':'Sirsalgarh','mangrauli':'Mangrauli','mukimpura':'Mukimpura','makimpura':'Mukimpura',
+ 'dadri':'Dadri','pichokra':'Pichokra','picholera':'Pichokra','jiwanaguliyan':'Jiwana','jiwanagulija':'Jiwana','chirchita':'Chirchita','bijwara':'Bijwara'
+};
+function _villageName(v){
+ // An Aadhaar-style address ("D/O: Anil Gautam, Baranawa, PO: …") — the village is the part after the name.
+ let txt = String(v||'').trim();
+ if (/^[CDSW]\s*\/\s*O\s*:?/i.test(txt)) txt = txt.split(',').slice(1).join(',');
+ txt = txt.replace(/^\s*(village|vill\.?|gram)\s*[-:]?\s*/i,'');
+ const raw = txt.split(/[,(]/)[0].trim();
+ if (!raw) return '';
+ const key = raw.toLowerCase().replace(/[^a-z]/g,'');
+ return _VILLAGE_ALIASES[key] || raw.replace(/\b\w/g, c => c.toUpperCase());
+}
+function _villageDues(){
+ const due = getStudents().filter(s => !s.archived && ((Number(s.feeBalance)||0) + (Number(s.previousDues)||0)) > 0);
+ const groups = {};
+ due.forEach(s => {
+  const v = _villageName(s.village || s.address) || 'Village not entered';
+  (groups[v] = groups[v] || []).push(s);
+ });
+ return Object.entries(groups).map(([village, list]) => {
+  // families = same phone (or same father) — one visit covers brothers and sisters
+  const fam = {};
+  list.forEach(s => { const k = (s.parentPhone||'').replace(/\D/g,'') || ('f:' + String(s.fatherName||s.name).toLowerCase()); (fam[k] = fam[k] || []).push(s); });
+  const families = Object.values(fam).map(m => ({ members: m.sort((a,b)=>ALL_CLASSES.indexOf(a.class)-ALL_CLASSES.indexOf(b.class)),
+    total: m.reduce((a,s)=>a+(Number(s.feeBalance)||0)+(Number(s.previousDues)||0),0) })).sort((a,b)=>b.total-a.total);
+  return { village, students: list.length, families, total: families.reduce((a,f)=>a+f.total,0) };
+ }).sort((a,b) => (a.village==='Village not entered') - (b.village==='Village not entered') || b.total - a.total);
+}
+function _renderVillageDues(){
+ const vd = _villageDues();
+ const grand = vd.reduce((a,v)=>a+v.total,0), nStu = vd.reduce((a,v)=>a+v.students,0), nFam = vd.reduce((a,v)=>a+v.families.length,0);
+ const inr = n => 'Rs.' + Number(n||0).toLocaleString('en-IN');
+ return `
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+   <div class="bg-rose-50 border border-rose-200 p-3 rounded-lg"><div class="text-xs text-rose-700 font-semibold uppercase">Total to collect</div><div class="text-2xl font-bold text-rose-900 mt-1">${inr(grand)}</div><div class="text-[11px] text-rose-700">this year + old dues</div></div>
+   <div class="bg-amber-50 border border-amber-200 p-3 rounded-lg"><div class="text-xs text-amber-700 font-semibold uppercase">Villages</div><div class="text-2xl font-bold text-amber-900 mt-1">${vd.filter(v=>v.village!=='Village not entered').length}</div></div>
+   <div class="bg-blue-50 border border-blue-200 p-3 rounded-lg"><div class="text-xs text-blue-700 font-semibold uppercase">Families to visit</div><div class="text-2xl font-bold text-blue-900 mt-1">${nFam}</div></div>
+   <div class="bg-emerald-50 border border-emerald-200 p-3 rounded-lg"><div class="text-xs text-emerald-700 font-semibold uppercase">Students with dues</div><div class="text-2xl font-bold text-emerald-900 mt-1">${nStu}</div></div>
+  </div>
+  <div class="flex flex-wrap gap-2 mb-3 items-center">
+   <input id="frVillageSearch" placeholder="Find a village…" class="text-sm" style="width:200px">
+   <button id="frVillagePrintBtn" class="bg-slate-700 hover:bg-slate-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Printable visit sheet — one village per section, with space to write what was collected"><i class="fas fa-print mr-1"></i>Print visit sheets</button>
+   <button id="frVillageExportBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-file-excel mr-1"></i>Export</button>
+   <span class="text-xs text-gray-500">Villages with the most money due come first. Brothers and sisters are grouped as one family visit.</span>
+  </div>
+  <div id="frVillageList" class="grid gap-3">
+  ${vd.map(v => `
+   <details class="vd-card border rounded-lg bg-white" data-village="${escapeHTML(v.village.toLowerCase())}">
+    <summary class="flex flex-wrap items-center gap-x-4 gap-y-1 p-3 cursor-pointer">
+     <span class="font-bold text-base ${v.village==='Village not entered'?'text-amber-700':''}"><i class="fas fa-location-dot text-rose-600 mr-1"></i>${escapeHTML(v.village)}</span>
+     <span class="text-sm text-gray-600">${v.families.length} famil${v.families.length===1?'y':'ies'} · ${v.students} student${v.students===1?'':'s'}</span>
+     <span class="ml-auto font-bold text-rose-700">${inr(v.total)}</span>
+    </summary>
+    <div class="overflow-x-auto border-t">
+     <table class="text-sm w-full">
+      <thead class="bg-gray-50"><tr><th class="text-left p-2">Family (father · phone)</th><th class="text-left p-2">Student</th><th class="text-left p-2">Class</th><th class="text-right p-2">This year due</th><th class="text-right p-2">Old dues</th><th class="text-right p-2">Family total</th></tr></thead>
+      <tbody>
+      ${v.families.map(f => f.members.map((s,i) => `<tr class="${i===0?'border-t':''}">
+        ${i===0?`<td class="p-2 align-top" rowspan="${f.members.length}"><div class="font-medium">${escapeHTML(s.fatherName||'—')}</div>${s.parentPhone?`<a href="tel:${escapeHTML(s.parentPhone)}" class="text-xs font-mono text-blue-700 underline">${escapeHTML(s.parentPhone)}</a>`:'<span class="text-xs text-rose-500">no phone</span>'}</td>`:''}
+        <td class="p-2">${escapeHTML(s.name)}</td>
+        <td class="p-2">${escapeHTML(String(s.class))}${s.section?'-'+escapeHTML(s.section):''}</td>
+        <td class="p-2 text-right">${(Number(s.feeBalance)||0)?inr(s.feeBalance):'—'}</td>
+        <td class="p-2 text-right ${(Number(s.previousDues)||0)?'text-amber-700':''}">${(Number(s.previousDues)||0)?inr(s.previousDues):'—'}</td>
+        ${i===0?`<td class="p-2 text-right font-semibold text-rose-700 align-top" rowspan="${f.members.length}">${inr(f.total)}</td>`:''}
+       </tr>`).join('')).join('')}
+      </tbody>
+     </table>
+    </div>
+   </details>`).join('')}
+  </div>`;
+}
+function printVillageVisitSheets(){
+ const vd = _villageDues(); const inr = n => Number(n||0).toLocaleString('en-IN');
+ const date = new Date().toLocaleDateString('en-IN');
+ const body = vd.map(v => `<section><h2>${escapeHTML(v.village)} <small>${v.families.length} families · Rs.${inr(v.total)} due</small></h2>
+  <table><thead><tr><th>#</th><th>Father / phone</th><th>Student (class)</th><th>Due</th><th>Collected</th><th>Receipt no. / remarks</th></tr></thead><tbody>
+  ${v.families.map((f,i) => `<tr><td>${i+1}</td><td><b>${escapeHTML(f.members[0].fatherName||'—')}</b><br>${escapeHTML(f.members[0].parentPhone||'')}</td>
+   <td>${f.members.map(s=>`${escapeHTML(s.name)} (${escapeHTML(String(s.class))})${(Number(s.previousDues)||0)?` <i>+old ${inr(s.previousDues)}</i>`:''}`).join('<br>')}</td>
+   <td class="r"><b>${inr(f.total)}</b></td><td></td><td></td></tr>`).join('')}
+  </tbody></table></section>`).join('');
+ const w = window.open('', '_blank');
+ if (!w) { alert('Please allow pop-ups to print.'); return; }
+ w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Village visit sheets — ${date}</title><style>
+  body{font-family:Arial,sans-serif;font-size:12px;margin:18px;color:#111} h1{font-size:18px;margin:0 0 4px} .sub{color:#555;margin-bottom:12px}
+  section{page-break-inside:avoid;margin-bottom:18px} h2{font-size:15px;margin:10px 0 4px;color:#7a1e2e} h2 small{font-weight:normal;color:#555;font-size:12px}
+  table{border-collapse:collapse;width:100%} th,td{border:1px solid #999;padding:5px 6px;vertical-align:top} th{background:#f1e7e9;text-align:left} td.r{text-align:right;white-space:nowrap}
+  td:nth-child(5){width:80px} td:nth-child(6){width:150px}
+ </style></head><body><h1>Murti Devi Balika Vidyapeeth — fee collection visits</h1><div class="sub">Printed ${date} · total due Rs.${inr(vd.reduce((a,v)=>a+v.total,0))} · this year's balance + old dues</div>${body}</body></html>`);
+ w.document.close(); setTimeout(() => w.print(), 400);
+}
 function renderFeeRemindersTab(){
  const students = getStudents();
  const overdue = students
@@ -16937,7 +17045,12 @@ function renderFeeRemindersTab(){
     <h2 class="text-lg font-bold"><i class="fas fa-bell text-amber-600 mr-1"></i>Fee Reminders</h2>
     <p class="text-xs text-gray-500">Students with outstanding fee balance. Send a polite WhatsApp reminder to parents in one tap.</p>
    </div>
+   <div class="inline-flex rounded-lg border overflow-hidden text-sm">
+    <button class="frViewBtn px-3 py-1.5 ${_frView!=='village'?'bg-burgundy text-white':'bg-white text-gray-700'}" data-view="class" style="${_frView!=='village'?'background:#7a1e2e;color:#fff':''}"><i class="fas fa-list mr-1"></i>By student</button>
+    <button class="frViewBtn px-3 py-1.5 ${_frView==='village'?'text-white':'bg-white text-gray-700'}" data-view="village" style="${_frView==='village'?'background:#7a1e2e;color:#fff':''}"><i class="fas fa-location-dot mr-1"></i>By village (plan visits)</button>
+   </div>
   </div>
+  ${_frView==='village' ? _renderVillageDues() : `
 
   <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
    <div class="bg-rose-50 border border-rose-200 p-3 rounded-lg"><div class="text-xs text-rose-700 font-semibold uppercase">Total Outstanding</div><div class="text-2xl font-bold text-rose-900 mt-1">Rs.${totalDue.toLocaleString('en-IN')}</div></div>
@@ -16998,6 +17111,7 @@ function renderFeeRemindersTab(){
    </div>
    <p class="text-xs text-gray-500 mt-3"><i class="fas fa-info-circle mr-1"></i>"Send" opens WhatsApp with a polite reminder message pre-filled for that parent. Review and tap send in WhatsApp. "Send All" opens each parent's chat one by one.</p>
   `}
+  `}
  </div>`;
 }
 
@@ -17007,6 +17121,20 @@ function _feeReminderMessage(s){
 }
 
 function attachFeeRemindersEvents(){
+ document.querySelectorAll('.frViewBtn').forEach(b => b.addEventListener('click', () => { _frView = b.dataset.view; renderApp(); }));
+ document.getElementById('frVillageSearch')?.addEventListener('input', e => {
+  const q = e.target.value.trim().toLowerCase();
+  document.querySelectorAll('#frVillageList .vd-card').forEach(c => { const m = !q || c.dataset.village.includes(q); c.style.display = m ? '' : 'none'; if (q && m) c.open = true; });
+ });
+ document.getElementById('frVillagePrintBtn')?.addEventListener('click', printVillageVisitSheets);
+ document.getElementById('frVillageExportBtn')?.addEventListener('click', () => {
+  let h = '<table border="1"><tr><th>Village</th><th>Father</th><th>Phone</th><th>Student</th><th>Class</th><th>This year due</th><th>Old dues</th><th>Total</th></tr>';
+  _villageDues().forEach(v => v.families.forEach(f => f.members.forEach(s => {
+   h += `<tr><td>${escapeHTML(v.village)}</td><td>${escapeHTML(s.fatherName||'')}</td><td>${escapeHTML(s.parentPhone||'')}</td><td>${escapeHTML(s.name)}</td><td>${escapeHTML(String(s.class))}</td><td>${Number(s.feeBalance)||0}</td><td>${Number(s.previousDues)||0}</td><td>${(Number(s.feeBalance)||0)+(Number(s.previousDues)||0)}</td></tr>`;
+  })));
+  h += '</table>';
+  downloadExcel(h, 'MDBV_Village_Dues_' + new Date().toISOString().slice(0,10));
+ });
  // Class filter
  document.getElementById('frClassFilter')?.addEventListener('change', e => {
   const cls = e.target.value;
