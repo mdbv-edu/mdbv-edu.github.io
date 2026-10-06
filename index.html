@@ -4378,7 +4378,7 @@ async function applyStudentPatch(patch, progressCb){
   for (const c of (p.changes || [])) {
    const now = _patchNorm(c.field, s[c.field]);
    if (now === _patchNorm(c.field, c.to)) continue;                 // already done
-   if (now !== _patchNorm(c.field, c.from)) {                        // edited since — don't overwrite
+   if (c.from !== '*' && now !== _patchNorm(c.field, c.from)) {     // edited since — don't overwrite ('*' = verified from the original document, always apply)
     report.skipped.push(`${s.name}: ${c.field} is now "${s[c.field] || ''}" (expected "${c.from || ''}") — left unchanged`);
     continue;
    }
