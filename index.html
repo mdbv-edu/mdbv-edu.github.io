@@ -417,6 +417,21 @@
   .sp-mono { font-variant-numeric: tabular-nums; letter-spacing: .02em; }
   .sp-empty { color: #b45309; font-weight: 500; font-size: 14px; }
   .sp-link { color: var(--burgundy, #7a1e2e); text-decoration: underline; text-underline-offset: 3px; }
+  .qchips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .qchip { display: inline-block; font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; border: 1px solid transparent; }
+  .qc-deg { background: #eef2ff; color: #3730a3; border-color: #c7d2fe; }
+  .qc-train { background: #ecfdf5; color: #065f46; border-color: #a7f3d0; }
+  .qc-tet { background: #fffbeb; color: #92400e; border-color: #fcd34d; }
+  .qc-prog { background: #f3f4f6; color: #4b5563; border-color: #e5e7eb; font-weight: 500; }
+  .sq-table { width: 100%; border-collapse: collapse; }
+  .sq-table th { background: #f9fafb; font-size: 12.5px; color: #4b5563; font-weight: 600; text-align: left; padding: 8px 10px; border-bottom: 1px solid #e5e7eb; }
+  .sq-table td { padding: 9px 10px; border-bottom: 1px solid #f1f5f9; vertical-align: top; font-size: 14px; }
+  .sq-table td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .sq-lvl { font-weight: 700; color: var(--burgundy, #7a1e2e); white-space: nowrap; }
+  .sq-sub { font-size: 12.5px; color: #6b7280; margin-top: 2px; }
+  .tq-row { display: grid; grid-template-columns: 120px 1fr 1fr 70px 80px 26px; gap: 6px; align-items: center; }
+  .tq-row input, .tq-row select { font-size: 12px; padding: 4px 6px; width: 100%; min-width: 0; box-sizing: border-box; }
+  @media (max-width: 640px) { .tq-row { grid-template-columns: 1fr 1fr; } }
   .sp-docs { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
   .sp-doc { display: flex; flex-direction: column; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; text-decoration: none; color: inherit; background: #fafafa; }
   .sp-doc:hover, .sp-doc:focus-visible { border-color: var(--burgundy, #7a1e2e); box-shadow: 0 0 0 2px rgba(122,30,46,.15); outline: none; }
@@ -4034,7 +4049,7 @@ function _renderTchQualDocs(){
   const isPdf = (d.type || '').includes('pdf');
   return `<span class="inline-flex items-center gap-1 bg-gray-100 border rounded px-2 py-1 text-xs">
    <i class="fas fa-${isPdf ? 'file-pdf text-rose-600' : 'file-image text-blue-600'}"></i>
-   <a href="${d.data}" target="_blank" rel="noopener" class="docLink hover:underline max-w-[140px] truncate" title="${escapeHTML(d.name)}">${escapeHTML(d.name)}</a>
+   <a href="${d.data}" target="_blank" rel="noopener" class="docLink hover:underline max-w-[180px] truncate" title="${escapeHTML(d.name||'')}">${escapeHTML(d.title||d.name||'Document')}</a>
    <button type="button" class="tchQualDocDel text-rose-500 hover:text-rose-700 ml-1" data-idx="${i}"><i class="fas fa-times"></i></button>
   </span>`;
  }).join('');
@@ -4044,6 +4059,90 @@ function _renderTchQualDocs(){
  }));
 }
 
+
+// ===== Staff qualifications (structured) =====
+// Each staff member can carry a list of qualifications read from their certificates:
+// {level, course, subjects, board, institute, year, rollNo, marks, maxMarks, percentage, division, result}
+const QUAL_LEVELS = ['10th','12th','Graduation','Post Graduation','B.Ed','D.El.Ed/BTC','TET','Diploma / Certificate','PhD','Other'];
+const _QUAL_RANK = {'10th':1,'12th':2,'Graduation':3,'Post Graduation':4,'PhD':5};
+const STAFF_DOC_TYPES = ['Aadhaar card','PAN card','Bank passbook','10th marksheet','12th marksheet','Graduation marksheet','Graduation degree','Post Graduation marksheet','Post Graduation degree','B.Ed marksheet','D.El.Ed / BTC marksheet','TET certificate','Experience certificate','Domicile certificate','Voter ID','Resume','Other'];
+function teacherQuals(t){ return Array.isArray(t && t.qualifications) ? t.qualifications.filter(q => q && (q.level || q.course)) : []; }
+function _qualPct(q){
+ if (q.percentage !== undefined && q.percentage !== null && q.percentage !== '') return Number(q.percentage);
+ const m = Number(q.marks), mx = Number(q.maxMarks);
+ return (m > 0 && mx > 0) ? Math.round(m / mx * 10000) / 100 : null;
+}
+function _qualProgLabel(q){ return String(q.course||q.level).replace(/\s*[-—,]?\s*\(?\s*(in progress|pursuing|appearing)[^)]*\)?/ig,'').trim() + ' (pursuing)'; }
+function _qualInProgress(q){ return /progress|pursuing|appearing/i.test(String(q.course||'') + ' ' + String(q.result||'')); }
+// Short summary used in lists: highest completed degree + teacher training + TET.
+function teacherQualSummary(t){
+ const q = teacherQuals(t);
+ if (!q.length) return t.qualification || '';
+ const done = q.filter(x => !_qualInProgress(x));
+ const acad = done.filter(x => _QUAL_RANK[x.level]);
+ const top = Math.max(0, ...acad.map(x => _QUAL_RANK[x.level]));
+ const parts = acad.filter(x => _QUAL_RANK[x.level] === top).map(x => x.level === '10th' ? 'High School' : x.level === '12th' ? 'Intermediate' : String(x.course||x.level).replace(/\s*-\s*Distance Mode/i,'').replace(/\s*\((Private|Pvt\.?)\)/i,''));
+ const train = done.filter(x => x.level === 'B.Ed' || x.level === 'D.El.Ed/BTC').map(x => x.level === 'B.Ed' ? 'B.Ed.' : 'D.El.Ed.');
+ const tet = [...new Set(done.filter(x => x.level === 'TET').map(x => /ctet/i.test(x.course) ? 'CTET' : /uptet/i.test(x.course) ? 'UPTET' : 'TET'))];
+ const prog = q.filter(_qualInProgress).map(x => _qualProgLabel(x));
+ return [...new Set(parts)].concat(train, tet, prog).join(', ');
+}
+// Coloured chips for the staff table and profile.
+function teacherQualBadges(t){
+ const q = teacherQuals(t);
+ if (!q.length) return t.qualification ? `<span class="text-xs">${escapeHTML(t.qualification)}</span>` : '<span class="text-gray-300">—</span>';
+ const done = q.filter(x => !_qualInProgress(x));
+ const acad = done.filter(x => _QUAL_RANK[x.level]);
+ const top = Math.max(0, ...acad.map(x => _QUAL_RANK[x.level]));
+ const chip = (txt, cls, tip) => `<span class="qchip ${cls}" title="${escapeHTML(tip||'')}">${escapeHTML(txt)}</span>`;
+ const out = [];
+ acad.filter(x => _QUAL_RANK[x.level] === top).forEach(x => out.push(chip(x.level==='10th'?'High School':x.level==='12th'?'Intermediate':String(x.course||x.level).replace(/\s*-\s*Distance Mode/i,'').replace(/\s*\((Private|Pvt\.?)\)/i,''), 'qc-deg', [x.boardOrUniversity||x.board, x.year, _qualPct(x)!=null?_qualPct(x)+'%':x.division].filter(Boolean).join(' · '))));
+ done.filter(x => x.level === 'B.Ed' || x.level === 'D.El.Ed/BTC').forEach(x => out.push(chip(x.level==='B.Ed'?'B.Ed.':'D.El.Ed.', 'qc-train', [x.year, _qualPct(x)!=null?_qualPct(x)+'%':''].filter(Boolean).join(' · '))));
+ [...new Set(done.filter(x => x.level === 'TET').map(x => /ctet/i.test(x.course)?'CTET':/uptet/i.test(x.course)?'UPTET':'TET'))].forEach(n => out.push(chip(n+' ✓', 'qc-tet', 'Teacher Eligibility Test qualified')));
+ q.filter(_qualInProgress).forEach(x => out.push(chip(_qualProgLabel(x), 'qc-prog', 'Still studying' + (x.result ? ' — ' + x.result : ''))));
+ return `<div class="qchips">${out.join('')}</div>`;
+}
+function _qualFind(t, level){ return teacherQuals(t).filter(q => q.level === level); }
+
+// Qualification rows — working array while the teacher modal is open
+let _tchQualRows = [];
+function _qualMarksText(q){
+ if (q.marks && q.maxMarks) return q.marks + '/' + q.maxMarks;
+ if (q.percentage !== undefined && q.percentage !== null && q.percentage !== '') return q.percentage + '%';
+ return q.division || '';
+}
+function _renderTchQualRows(){
+ const box = document.getElementById('tchQualRows');
+ if (!box) return;
+ if (!_tchQualRows.length) { box.innerHTML = '<div class="text-xs text-gray-400">No qualifications added yet</div>'; return; }
+ box.innerHTML = _tchQualRows.map((q, i) => `<div class="tq-row" data-i="${i}">
+   <select class="tqLevel">${QUAL_LEVELS.map(v=>`<option ${q.level===v?'selected':''}>${v}</option>`).join('')}</select>
+   <input class="tqCourse" value="${escapeHTML(q.course||'')}" placeholder="e.g. B.Sc. (PCM)">
+   <input class="tqBoard" value="${escapeHTML(q.board||'')}" placeholder="e.g. CCS University">
+   <input class="tqYear" value="${escapeHTML(String(q.year||''))}" placeholder="2019">
+   <input class="tqMarks" value="${escapeHTML(_qualMarksText(q))}" placeholder="441/600">
+   <button type="button" class="tqDel text-rose-500 hover:text-rose-700" title="Remove"><i class="fas fa-times"></i></button>
+  </div>`).join('');
+ const read = (row, i) => {
+  const q = _tchQualRows[i];
+  q.level = row.querySelector('.tqLevel').value;
+  q.course = row.querySelector('.tqCourse').value.trim();
+  q.board = row.querySelector('.tqBoard').value.trim();
+  q.year = row.querySelector('.tqYear').value.trim();
+  const m = row.querySelector('.tqMarks').value.trim();
+  if (m !== _qualMarksText(q)) {
+   const mm = m.match(/^([\d.]+)\s*\/\s*([\d.]+)$/), pc = m.match(/^([\d.]+)\s*%?$/);
+   if (mm) { q.marks = Number(mm[1]); q.maxMarks = Number(mm[2]); q.percentage = Math.round(q.marks / q.maxMarks * 10000) / 100; }
+   else if (pc) { q.marks = null; q.maxMarks = null; q.percentage = Number(pc[1]); }
+   else { q.marks = null; q.maxMarks = null; q.percentage = null; q.division = m; }
+  }
+ };
+ box.querySelectorAll('.tq-row').forEach(row => {
+  const i = parseInt(row.dataset.i);
+  row.querySelectorAll('input,select').forEach(el => el.addEventListener('change', () => read(row, i)));
+  row.querySelector('.tqDel').addEventListener('click', () => { _tchQualRows.splice(i, 1); _renderTchQualRows(); });
+ });
+}
 // Student KYC/documents — working array while the student modal is open
 let _stuDocs = [];
 function _renderStuDocs(){
@@ -4368,6 +4467,40 @@ async function applyStudentPatch(patch, progressCb){
   preparedPhotos[s.id] = { url, key: p.photo.key };
  }
 
+ // 1c) Staff documents (Aadhaar, marksheets, degrees…) → uploaded the same way, kept on the staff record.
+ const preparedStaffDocs = {};
+ {
+  const staff0 = (Array.isArray(patch.teachers) && patch.teachers.some(p => (p.addDocuments||[]).length)) ? getTeachers() : [];
+  const totalSD = (patch.teachers || []).reduce((a, p) => a + ((p.addDocuments || []).length), 0);
+  let sn = 0;
+  for (const p of (patch.teachers || [])) {
+   const t = staff0.find(x => String(x.id) === String(p.id));
+   if (!t) continue;
+   for (const d of (p.addDocuments || [])) {
+    sn++;
+    if ((t.qualificationDocs || []).some(e => e.name === d.name && e.title === d.title)) { report.docsSkipped++; continue; }
+    say(`Uploading staff document ${sn} of ${totalSD} (${t.name})…`);
+    const doc = { title: d.title || 'Document', name: d.name, type: d.type, data: d.data, uploadedAt: d.uploadedAt || new Date().toISOString() };
+    if (useCloud) {
+     try {
+      const blob = _dataURLtoBlob(d.data, d.type);
+      if (!blob) throw new Error('bad file data');
+      const { url, path } = await DB.uploadFile(mkFile(blob, d.name), 'staff/' + t.id);
+      doc.data = url; doc.path = path;
+     } catch (e) { if (e.message === 'STORAGE_BUCKET_MISSING') useCloud = false; }
+    }
+    if (String(doc.data).startsWith('data:')) report.docsInline++; else report.docsCloud++;
+    (preparedStaffDocs[t.id] = preparedStaffDocs[t.id] || []).push(doc);
+   }
+  }
+ }
+
+ {
+  // Kept inline, a big set of scans would overflow the browser's storage and nothing would save.
+  const inlineChars = Object.values(preparedStaffDocs).flat().filter(d => String(d.data).startsWith('data:')).reduce((a, d) => a + String(d.data).length, 0);
+  if (inlineChars > 3000000) throw new Error('Cloud file storage is not reachable, so these staff documents cannot be saved right now. Please refresh, wait for 🟢 Synced and import again.');
+ }
+
  // 2) Re-read the LATEST students (a background refresh may have run while uploading) and merge.
  say('Saving changes…');
  const all = getStudents();
@@ -4414,9 +4547,15 @@ async function applyStudentPatch(patch, progressCb){
    (p.changes || []).forEach(c => {
     const now = _patchNorm(c.field, t[c.field]);
     if (now === _patchNorm(c.field, c.to)) return;
-    if (now !== _patchNorm(c.field, c.from)) { report.skipped.push(`${t.name}: ${c.field} is now "${t[c.field]||''}" (expected "${c.from||''}") — left unchanged`); return; }
-    t[c.field] = c.to; report.applied.push(`${t.name}: ${c.field} → ${c.to}`);
+    if (c.from !== '*' && now !== _patchNorm(c.field, c.from)) { report.skipped.push(`${t.name}: ${c.field} is now "${typeof t[c.field]==='object'?'(edited list)':(t[c.field]||'')}" (expected "${typeof c.from==='object'?'(older list)':(c.from||'')}") — left unchanged`); return; }
+    t[c.field] = c.to; report.applied.push(`${t.name}: ${c.field} → ${typeof c.to==='object'?(Array.isArray(c.to)?c.to.length+' entries':'updated'):c.to}`);
    });
+   const docs = preparedStaffDocs[t.id] || [];
+   if (docs.length) {
+    t.qualificationDocs = (Array.isArray(t.qualificationDocs) ? t.qualificationDocs : []).concat(
+     docs.filter(d => !(t.qualificationDocs || []).some(e => e.name === d.name && e.title === d.title)));
+    report.applied.push(`${t.name}: ${docs.length} document(s) attached`);
+   }
   });
   saveTeachers(ts);
  }
@@ -6841,7 +6980,7 @@ function renderTeachersTab(){
  const byType = {}; STAFF_TYPES.forEach(k => byType[k] = sortStaffByName(ts.filter(t => staffTypeOf(t) === k)));
  const teaching = byType['Teaching'], nonTeaching = byType['Non-Teaching'];
  const inStaffArchive = (typeof _staffArchiveView !== 'undefined') && _staffArchiveView;
- const staffRow = t => `<tr><td>${t.photo?`<img src="${t.photo}" class="w-9 h-9 rounded-full object-cover" alt="">`:`<div class="w-9 h-9 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold">${initials(t.name)}</div>`}</td><td class="font-medium">${t.name}</td><td>${t.subject||'-'}</td><td class="text-xs">${isAcademicStaff(t)?(teacherTeaching(t).length?teacherTeaching(t).map(r=>`<div><b>${escapeHTML(r.subject)}</b>: ${escapeHTML(r.classes.join(', ')||'—')}</div>`).join(''):'<span class="text-amber-600">none</span>'):'<span class="text-gray-300">—</span>'}</td><td>${t.qualification||'-'}</td><td>${t.employeeId || t.udiseTeacherId || '-'}</td><td>${t.trainingDate?fmtDate(t.trainingDate):'-'}</td>${canSeeSalary()?`<td>Rs.${(t.salary||0).toLocaleString('en-IN')}</td>`:''}<td>${t.phone||'-'}</td><td class="whitespace-nowrap"><button class="editTeacherBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${t.id}" title="Edit"><i class="fas fa-edit"></i></button> <button class="staffKycBtn bg-slate-600 hover:bg-slate-700 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Print staff record / KYC"><i class="fas fa-print"></i></button><button class="archiveTeacherBtn bg-amber-500 hover:bg-amber-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Archive (keeps full record & salary history)"><i class="fas fa-box-archive"></i></button>${currentUser&&currentUser.role==='owner'?` <button class="delTeacherBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Delete permanently (Owner only)"><i class="fas fa-trash"></i></button>`:''}</td></tr>`;
+ const staffRow = t => `<tr><td>${t.photo?`<img src="${t.photo}" class="w-9 h-9 rounded-full object-cover" alt="">`:`<div class="w-9 h-9 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold">${initials(t.name)}</div>`}</td><td class="font-medium"><button class="viewStaffBtn text-left hover:underline" data-id="${t.id}">${escapeHTML(t.name||'')}</button>${t.aadhaarName && t.aadhaarName.toLowerCase()!==String(t.name||'').toLowerCase()?`<div class="text-[11px] text-gray-500 font-normal">${escapeHTML(t.aadhaarName)}</div>`:''}</td><td>${t.subject||'-'}</td><td class="text-xs">${isAcademicStaff(t)?(teacherTeaching(t).length?teacherTeaching(t).map(r=>`<div><b>${escapeHTML(r.subject)}</b>: ${escapeHTML(r.classes.join(', ')||'—')}</div>`).join(''):'<span class="text-amber-600">none</span>'):'<span class="text-gray-300">—</span>'}</td><td style="min-width:150px">${teacherQualBadges(t)}</td><td>${t.employeeId || t.udiseTeacherId || '-'}</td><td>${t.trainingDate?fmtDate(t.trainingDate):'-'}</td>${canSeeSalary()?`<td>Rs.${(t.salary||0).toLocaleString('en-IN')}</td>`:''}<td>${t.phone||'-'}</td><td class="whitespace-nowrap"><button class="viewStaffBtn bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-1 rounded text-xs" data-id="${t.id}" title="View full profile, qualifications & documents"><i class="fas fa-eye"></i></button> <button class="editTeacherBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${t.id}" title="Edit"><i class="fas fa-edit"></i></button> <button class="staffKycBtn bg-slate-600 hover:bg-slate-700 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Print staff record / KYC"><i class="fas fa-print"></i></button><button class="archiveTeacherBtn bg-amber-500 hover:bg-amber-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Archive (keeps full record & salary history)"><i class="fas fa-box-archive"></i></button>${currentUser&&currentUser.role==='owner'?` <button class="delTeacherBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Delete permanently (Owner only)"><i class="fas fa-trash"></i></button>`:''}</td></tr>`;
  // Archived staff row: shows when they left, why, and their salary history at a glance.
  const archivedRow = t => { const h = staffHistory(t.id); return `<tr class="bg-gray-50">
    <td class="font-medium">${escapeHTML(t.name||'')}</td>
@@ -6868,6 +7007,7 @@ function renderTeachersTab(){
     <select id="staffKycScope" class="border rounded-lg px-2 py-1.5 text-sm" style="width:auto"><option value="all">All current staff</option><option value="teaching">Teaching only</option><option value="nonteaching">Non-teaching only</option><option value="principal">Principal</option><option value="manager">Manager</option><option value="archived">Archived staff</option></select>
     <button id="printStaffTableBtn" class="bg-slate-700 hover:bg-slate-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Every staff member in one table"><i class="fas fa-table mr-1"></i>Print Staff List</button>
     <button id="printStaffKycBtn" class="bg-slate-600 hover:bg-slate-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="One full record per staff member"><i class="fas fa-print mr-1"></i>Print Records</button>
+    <button id="printQualChartBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Every teacher's 10th, 12th, degree, B.Ed/D.El.Ed and TET in one table"><i class="fas fa-graduation-cap mr-1"></i>Qualification Chart</button>
     <button id="xlsStaffBtn" class="bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Export staff records to Excel"><i class="fas fa-file-excel mr-1"></i>XLSX</button>
     <button id="addTeacherBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-plus mr-1"></i>Add Staff</button>
    </div>
@@ -6888,7 +7028,7 @@ function renderTeachersTab(){
    };
    const order = ['Principal','Teaching','Manager','Non-Teaching'];
    const cols = canSeeSalary()?10:9;
-   return order.map(k => {
+   return _staffQualOverview(ts) + order.map(k => {
     const list = byType[k] || [];
     const alwaysShow = (k === 'Teaching' || k === 'Non-Teaching');
     if (!list.length && !alwaysShow) return '';
@@ -6932,7 +7072,7 @@ function renderTeachersTab(){
      </table></div>`}
    </div>
   </div>
-  <div id="teacherModal" class="hidden modal"><div class="modal-content" style="max-width:600px">
+  <div id="teacherModal" class="hidden modal"><div class="modal-content" style="max-width:760px">
    <h3 class="text-lg font-bold mb-3" id="teacherModalTitle">Add Teacher</h3>
    <input type="hidden" id="tchId">
    <div class="flex items-center gap-3 mb-3">
@@ -6948,7 +7088,7 @@ function renderTeachersTab(){
     <div><label class="text-xs">Name *</label><input id="tchName"></div>
     <div><label class="text-xs">Staff Type *</label><select id="tchStaffType">${STAFF_TYPES.map(v=>`<option value="${v}">${STAFF_TYPE_LABELS[v]}</option>`).join('')}</select></div>
     <div><label class="text-xs" id="tchSubjectLabel">Subject</label><input id="tchSubject" placeholder="e.g. Mathematics"></div>
-    <div><label class="text-xs">Qualification</label><input id="tchQual"></div>
+    <div><label class="text-xs">Qualification <span class="text-gray-400">(summary — filled from the list below)</span></label><input id="tchQual"></div>
     <div><label class="text-xs">Employee ID</label><input id="tchEmpId" placeholder="e.g. MDB-T-001"></div>
     <div><label class="text-xs">Date of Joining</label><input type="date" id="tchTrain"></div>
     <div${canSeeSalary()?'':' style="display:none"'}><label class="text-xs">Salary</label><input type="number" id="tchSalary"></div>
@@ -6958,6 +7098,15 @@ function renderTeachersTab(){
     <div><label class="text-xs">Date of Birth</label><input type="date" id="tchDob"></div>
     <div><label class="text-xs">Blood Group</label><select id="tchBlood"><option value="">—</option><option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>AB+</option><option>AB-</option><option>O+</option><option>O-</option></select></div>
     <div class="col-span-2"><label class="text-xs">Address</label><input id="tchAddress"></div>
+    <div class="col-span-2 border-t pt-2 mt-1 text-xs font-semibold text-gray-700"><i class="fas fa-id-card mr-1 text-indigo-600"></i>Identity (as on Aadhaar)</div>
+    <div><label class="text-xs">Name as on Aadhaar</label><input id="tchAadhaarName"></div>
+    <div><label class="text-xs">Gender</label><select id="tchGender"><option value="">—</option><option>Female</option><option>Male</option><option>Other</option></select></div>
+    <div><label class="text-xs">Father's Name</label><input id="tchFather"></div>
+    <div><label class="text-xs">Mother's Name</label><input id="tchMother"></div>
+    <div><label class="text-xs">Husband's / Wife's Name</label><input id="tchSpouse"></div>
+    <div><label class="text-xs">Aadhaar No.</label><input id="tchAadhaar" inputmode="numeric" placeholder="12 digits"></div>
+    <div><label class="text-xs">PAN</label><input id="tchPan" style="text-transform:uppercase" placeholder="e.g. ABCDE1234F"></div>
+    <div class="col-span-2"><label class="text-xs">Address as on Aadhaar</label><input id="tchAadhaarAddress"></div>
     <div${canSeeSalary()?'':' style="display:none"'}><label class="text-xs">Bank Name</label><input id="tchBankName" placeholder="e.g. SBI"></div>
     <div${canSeeSalary()?'':' style="display:none"'}><label class="text-xs">Bank Account No.</label><input id="tchBank" placeholder="Full account number"></div>
     <div${canSeeSalary()?'':' style="display:none"'}><label class="text-xs">IFSC Code</label><input id="tchIfsc" placeholder="e.g. SBIN0002319" style="text-transform:uppercase"></div>
@@ -6970,8 +7119,16 @@ function renderTeachersTab(){
     <div id="tchTeachingSummary" class="text-[11px] text-gray-500 mt-2"></div>
    </div>
    <div class="mt-3 border-t pt-3">
-    <label class="text-xs font-semibold block mb-1"><i class="fas fa-file-pdf mr-1 text-rose-600"></i>Qualification Documents</label>
-    <p class="text-xs text-gray-500 mb-2">Upload degree/certificate PDFs or images (e.g. B.Ed, graduation). Stored securely with the teacher record.</p>
+    <label class="text-xs font-semibold block mb-1"><i class="fas fa-graduation-cap mr-1 text-indigo-600"></i>Qualifications</label>
+    <p class="text-xs text-gray-500 mb-2">One row per exam passed: 10th, 12th, degree, B.Ed / D.El.Ed, TET. Marks can be "obtained/maximum" (e.g. 441/600) or a percentage.</p>
+    <div class="tq-row text-[11px] text-gray-500 font-semibold mb-1"><span>Level</span><span>Course / subjects</span><span>Board / University</span><span>Year</span><span>Marks or %</span><span></span></div>
+    <div id="tchQualRows" class="space-y-1"></div>
+    <button type="button" id="tchAddQualBtn" class="mt-2 text-xs text-indigo-600 hover:text-indigo-800 font-medium"><i class="fas fa-plus mr-1"></i>Add qualification</button>
+   </div>
+   <div class="mt-3 border-t pt-3">
+    <label class="text-xs font-semibold block mb-1"><i class="fas fa-file-pdf mr-1 text-rose-600"></i>Documents</label>
+    <p class="text-xs text-gray-500 mb-2">Aadhaar, PAN, passbook, marksheets, degrees, TET — PDF or photo. Choose the document type, then the file.</p>
+    <select id="tchQualDocType" class="text-xs" style="width:auto;padding:4px 6px">${STAFF_DOC_TYPES.map(v=>`<option>${v}</option>`).join('')}</select>
     <input type="file" id="tchQualDocFile" accept="application/pdf,image/*" class="text-xs">
     <input type="hidden" id="tchQualDocs">
     <div id="tchQualDocsList" class="mt-2 flex flex-wrap gap-2"></div>
@@ -16369,16 +16526,25 @@ function exportStaffExcel(which){
  const headers = ['#','Name','Staff Type','Subject','Assigned Classes','Qualification','Employee ID','UDISE Teacher ID',
    'Phone','Email','Date of Birth','Blood Group','Address','Joined']
    .concat(pay?['Monthly Salary','Bank Account','Salary Payments','Total Paid to Date','First Payment','Last Payment']:[])
-   .concat(['Attendance Days','Present/Leave','Attendance %','Status','Left On','Reason for Leaving','Qualification Docs']);
+   .concat(['Attendance Days','Present/Leave','Attendance %','Status','Left On','Reason for Leaving','Qualification Docs',
+     'Name as on Aadhaar','Gender',"Father's Name","Mother's Name","Husband's/Wife's Name",'Aadhaar No.','PAN','Address as on Aadhaar',
+     '10th','10th %','12th','12th %','Graduation','Graduation %','Post Graduation','PG %','B.Ed / D.El.Ed','TET']);
  const rows = list.map((t,i) => {
   const h = staffHistory(t.id);
   return [i+1, t.name||'', t.staffType||'Teaching', t.subject||'', (t.assignedClasses||[]).join(', '),
-    t.qualification||'', t.employeeId||'', t.udiseTeacherId||'', t.phone||'', t.email||'',
+    teacherQualSummary(t)||'', t.employeeId||'', t.udiseTeacherId||'', t.phone||'', t.email||'',
     t.dob||'', t.bloodGroup||'', t.address||'', t.trainingDate||t.joinDate||'']
    .concat(pay?[Math.round(Number(t.salary)||0), t.bankAccount||'', h.paymentCount, h.totalPaid, h.firstPaid||'', h.lastPaid||'']:[])
    .concat([h.attendanceDays, h.attendancePresent, h.attendancePct==null?'':h.attendancePct,
      t.archived?'Archived':'Current', t.archivedDate||'', t.archiveReason||'',
-     (t.qualificationDocs||[]).map(d=>d.title||'Document').join(', ')]);
+     (t.qualificationDocs||[]).map(d=>d.title||'Document').join(', ')])
+   .concat((() => {
+     const one = lv => { const q = _qualFind(t, lv); return [q.map(x => [x.course||lv, x.board, x.year].filter(Boolean).join(' · ')).join('; '), q.map(x => { const p = _qualPct(x); return p!=null ? p : (x.division||''); }).join('; ')]; };
+     return [t.aadhaarName||'', t.gender||'', t.fatherName||'', t.motherName||'', t.spouseName||'', t.aadhaar||'', t.pan||'', t.aadhaarAddress||'']
+      .concat(one('10th'), one('12th'), one('Graduation'), one('Post Graduation'))
+      .concat([[..._qualFind(t,'B.Ed'),..._qualFind(t,'D.El.Ed/BTC')].map(x => [x.level==='B.Ed'?'B.Ed.':'D.El.Ed.', x.year, _qualPct(x)!=null?_qualPct(x)+'%':''].filter(Boolean).join(' · ')).join('; '),
+               _qualFind(t,'TET').map(x => x.course||'TET').join('; ')]);
+   })());
  });
  const titles = {archived:'Archived Staff Records', teaching:'Teaching Staff Records', nonteaching:'Non-Teaching Staff Records', principal:'Principal Record', manager:'Manager Records'};
  downloadExcel(_xlsSheet(titles[which]||'Staff Records', headers, rows), 'MDBV_Staff_'+(which||'all')+'_'+_stamp());
@@ -16542,11 +16708,14 @@ function _staffKYCCard(t){
    <div class="grid2">
     <div>
      <div class="sect">Personal</div>
-     ${_kvRows([['Date of Birth', t.dob?fmtDate(t.dob):''],['Blood Group', t.bloodGroup],
+     ${_kvRows([['Name as on Aadhaar', t.aadhaarName],["Father's Name", t.fatherName],["Mother's Name", t.motherName],t.spouseName?["Husband's / Wife's Name", t.spouseName]:null,
+       ['Gender', t.gender],['Date of Birth', t.dob?fmtDate(t.dob):''],['Blood Group', t.bloodGroup],
        ['Phone', t.phone],['Email', t.email],['Address', t.address]])}
+     <div class="sect">Identification</div>
+     ${_kvRows([['Aadhaar No.', t.aadhaar?String(t.aadhaar).replace(/(\d{4})(?=\d)/g,'$1 '):''],['PAN', t.pan],['Address as on Aadhaar', t.aadhaarAddress]])}
      <div class="sect">Employment</div>
      ${_kvRows([['Employee ID', t.employeeId],['UDISE Teacher ID', t.udiseTeacherId],
-       ['Qualification', t.qualification],['Joined / Training Date', t.trainingDate?fmtDate(t.trainingDate):(t.joinDate?fmtDate(t.joinDate):'')],
+       ['Qualification', teacherQualSummary(t)],['Joined / Training Date', t.trainingDate?fmtDate(t.trainingDate):(t.joinDate?fmtDate(t.joinDate):'')],
        t.archived?['Left on', t.archivedDate?fmtDate(t.archivedDate):'']:null,
        t.archived?['Reason', t.archiveReason]:null])}
     </div>
@@ -16557,8 +16726,140 @@ function _staffKYCCard(t){
        ['Attendance %', h.attendancePct!=null?h.attendancePct+'%':'-']])}
     </div>
    </div>
+   ${teacherQuals(t).length?`<div class="sect">Qualifications</div><table class="kv" style="width:100%">${teacherQuals(t).map(x=>{const pc=_qualPct(x);return `<tr><td class="k">${escapeHTML(x.level||'')}</td><td>${escapeHTML([x.course, x.board, x.year].filter(Boolean).join(' · '))}${x.marks&&x.maxMarks?' · '+escapeHTML(x.marks+'/'+x.maxMarks):''}${pc!=null?' · <b>'+pc.toFixed(2)+'%</b>':''}${x.division?' · '+escapeHTML(x.division):''}</td></tr>`;}).join('')}</table>`:''}
    ${docs}
   </div>`;
+}
+
+// ===== Staff profile (eye button) =====
+function _staffDocsSorted(t){
+ const order = STAFF_DOC_TYPES;
+ return (t.qualificationDocs || []).slice().sort((a,b) => {
+  const ia = order.indexOf(String(a.title||'').replace(/ \(.*$/,'')), ib = order.indexOf(String(b.title||'').replace(/ \(.*$/,''));
+  return (ia<0?99:ia) - (ib<0?99:ib);
+ });
+}
+function _staffQualTable(t){
+ const q = teacherQuals(t);
+ if (!q.length) return `<div class="sp-empty">No qualifications entered yet${t.qualification?' — summary on record: '+escapeHTML(t.qualification):''}.</div>`;
+ const order = l => { const i = QUAL_LEVELS.indexOf(l); return i < 0 ? 99 : i; };
+ const rows = q.slice().sort((a,b) => order(a.level) - order(b.level) || String(a.year||'').localeCompare(String(b.year||'')));
+ return `<div class="overflow-x-auto"><table class="sq-table"><thead><tr><th>Level</th><th>Course &amp; subjects</th><th>Board / University</th><th>Year</th><th style="text-align:right">Marks</th><th style="text-align:right">%</th><th>Division / grade</th></tr></thead><tbody>
+  ${rows.map(x => { const pc = _qualPct(x); return `<tr>
+   <td class="sq-lvl">${escapeHTML(x.level||'')}</td>
+   <td><div style="font-weight:600">${escapeHTML(x.course||'')}</div>${x.subjects?`<div class="sq-sub">${escapeHTML(x.subjects)}</div>`:''}${x.rollNo?`<div class="sq-sub">Roll no. ${escapeHTML(x.rollNo)}</div>`:''}</td>
+   <td>${escapeHTML(x.board||'')}${x.institute?`<div class="sq-sub">${escapeHTML(x.institute)}</div>`:''}</td>
+   <td>${escapeHTML(String(x.year||''))}</td>
+   <td class="num">${x.marks&&x.maxMarks?escapeHTML(x.marks+' / '+x.maxMarks):'—'}</td>
+   <td class="num"><b>${pc!=null?pc.toFixed(2)+'%':'—'}</b></td>
+   <td>${escapeHTML(x.division||'')}${x.result&&!/^pass(ed)?$/i.test(x.result)?`<div class="sq-sub">${escapeHTML(x.result)}</div>`:''}</td></tr>`; }).join('')}
+ </tbody></table></div>`;
+}
+function openStaffProfile(id){
+ const t = getTeachers().find(x => String(x.id) === String(id));
+ if (!t) { alert('Staff member not found.'); return; }
+ const v = (val, mono) => (val!==undefined && val!==null && String(val).trim()!=='') ? `<div class="sp-value${mono?' sp-mono':''}">${escapeHTML(String(val))}</div>` : `<div class="sp-value sp-empty">Not entered</div>`;
+ const f = (label, val, opts={}) => `<div class="sp-field${opts.wide?' sp-wide':''}"><div class="sp-label">${label}</div>${v(val, opts.mono)}</div>`;
+ const aad = t.aadhaar ? String(t.aadhaar).replace(/(\d{4})(?=\d)/g,'$1 ') : '';
+ const docs = _staffDocsSorted(t);
+ const photo = t.photo ? `<img class="sp-photo" src="${t.photo}" alt="">` : `<div class="sp-photo sp-initials">${escapeHTML(initials(t.name||'?'))}</div>`;
+ const joined = t.trainingDate || t.joinDate;
+ const html = `<div class="sp">
+  <div class="sp-head"><div class="sp-id">${photo}
+   <div><h3 class="sp-name sp-h" style="color:#fff">${escapeHTML(t.name||'')}</h3>
+    <div class="sp-sub">${escapeHTML(STAFF_TYPE_LABELS[staffTypeOf(t)]||staffTypeOf(t))}${t.subject?' · '+escapeHTML(t.subject):''}${t.aadhaarName&&t.aadhaarName.toLowerCase()!==String(t.name||'').toLowerCase()?' · Aadhaar name: '+escapeHTML(t.aadhaarName):''}</div></div>
+   <button class="sp-close" id="staffProfileClose" aria-label="Close">&times;</button></div>
+   <div class="sp-facts" style="margin-bottom:18px">
+    <div class="sp-fact"><span>Phone</span><b>${t.phone?`<a href="tel:${escapeHTML(t.phone)}">${escapeHTML(t.phone)}</a>`:'—'}</b></div>
+    <div class="sp-fact"><span>Joined</span><b>${joined?fmtDate(joined):'—'}</b></div>
+    <div class="sp-fact"><span>Qualification</span><b style="font-size:14px">${escapeHTML(teacherQualSummary(t)||'—')}</b></div>
+    <div class="sp-fact"><span>Documents</span><b>${docs.length}</b></div>
+   </div></div>
+  <div class="sp-body"><div class="sp-grid">
+   <div class="sp-card"><h4 class="sp-h"><i class="fas fa-user"></i>Personal</h4><div class="sp-fields">
+    ${f("Father's name", t.fatherName)}${f("Mother's name", t.motherName)}
+    ${t.spouseName?f("Husband's / wife's name", t.spouseName):''}${f('Gender', t.gender)}
+    ${f('Date of birth', t.dob?fmtDate(t.dob):'')}${f('Blood group', t.bloodGroup)}
+    ${f('Email', t.email, {wide:true})}${f('Address', t.address, {wide:true})}
+   </div></div>
+   <div class="sp-card"><h4 class="sp-h"><i class="fas fa-id-card"></i>Identity${canSeeSalary()?' &amp; bank':''}</h4><div class="sp-fields">
+    ${f('Aadhaar no.', aad, {mono:true})}${f('PAN', t.pan, {mono:true})}
+    ${f('Address as on Aadhaar', t.aadhaarAddress, {wide:true})}
+    ${canSeeSalary()?f('Bank', t.bankName)+f('IFSC', t.ifsc, {mono:true})+f('Account no.', t.bankAccount, {mono:true, wide:true}):''}
+   </div></div>
+   <div class="sp-card sp-span"><h4 class="sp-h"><i class="fas fa-graduation-cap"></i>Qualifications <span class="sp-count">${teacherQuals(t).length}</span></h4>
+    <div style="margin-bottom:10px">${teacherQualBadges(t)}</div>${_staffQualTable(t)}</div>
+   <div class="sp-card sp-span"><h4 class="sp-h"><i class="fas fa-folder-open"></i>Documents <span class="sp-count">${docs.length}</span></h4>
+    ${docs.length?`<div class="sp-docs">${docs.map(d => { const isImg = /^image\//.test(d.type||'') || /\.(jpe?g|png|webp)(\?|$)/i.test(String(d.data||'')) || String(d.data||'').startsWith('data:image'); const isPdf = /pdf/i.test(d.type||'');
+      return `<a href="${d.data}" target="_blank" rel="noopener" class="docLink sp-doc" title="Opens in a new tab"><span class="sp-doc-thumb">${isImg?`<img src="${d.data}" alt="" loading="lazy">`:`<i class="fas fa-${isPdf?'file-pdf':'file'}"></i>`}</span><span class="sp-doc-name">${escapeHTML(d.title||'Document')}</span><span class="sp-doc-open"><i class="fas fa-up-right-from-square"></i> Open</span></a>`; }).join('')}</div>`
+     : '<div class="sp-empty">No documents uploaded yet. Use Edit to add them.</div>'}
+   </div>
+  </div></div></div>`;
+ let m = document.getElementById('staffProfileModal');
+ if (m) m.remove();
+ m = document.createElement('div');
+ m.id = 'staffProfileModal'; m.className = 'modal';
+ m.innerHTML = `<div class="modal-content sp-modal">${html}</div>`;
+ document.body.appendChild(m);
+ const close = () => m.remove();
+ m.addEventListener('click', e => { if (e.target === m) close(); });
+ m.querySelector('#staffProfileClose').addEventListener('click', close);
+ document.addEventListener('keydown', function esc(e){ if (e.key === 'Escape') { close(); document.removeEventListener('keydown', esc); } });
+}
+// Small summary above the staff tables: how many teachers hold each kind of qualification.
+function _staffQualOverview(list){
+ const teach = list.filter(t => isAcademicStaff(t));
+ if (!teach.length) return '';
+ const has = (t, lv) => teacherQuals(t).some(q => q.level === lv && !_qualInProgress(q));
+ const withData = teach.filter(t => teacherQuals(t).length).length;
+ const n = {
+  pg: teach.filter(t => has(t,'Post Graduation')).length,
+  grad: teach.filter(t => has(t,'Graduation') || has(t,'Post Graduation')).length,
+  bed: teach.filter(t => has(t,'B.Ed')).length,
+  deled: teach.filter(t => has(t,'D.El.Ed/BTC')).length,
+  tet: teach.filter(t => has(t,'TET')).length,
+  trained: teach.filter(t => has(t,'B.Ed') || has(t,'D.El.Ed/BTC')).length
+ };
+ const box = (num, label, cls) => `<div class="rounded-lg border px-3 py-2 ${cls}"><div class="text-xl font-bold">${num}</div><div class="text-[11px]">${label}</div></div>`;
+ return `<div class="bg-white border rounded-lg p-3 mb-4">
+  <div class="flex flex-wrap items-baseline justify-between gap-2 mb-2"><div class="text-sm font-semibold text-indigo-800"><i class="fas fa-graduation-cap mr-1"></i>Teaching staff qualifications</div>
+   <div class="text-xs text-gray-500">${withData} of ${teach.length} teachers have certificates entered</div></div>
+  <div class="grid grid-cols-3 md:grid-cols-6 gap-2 text-center">
+   ${box(n.grad,'Graduates','bg-indigo-50 border-indigo-200 text-indigo-900')}
+   ${box(n.pg,'Post graduates','bg-indigo-50 border-indigo-200 text-indigo-900')}
+   ${box(n.trained,'Trained (B.Ed / D.El.Ed)','bg-emerald-50 border-emerald-200 text-emerald-900')}
+   ${box(n.bed,'B.Ed','bg-emerald-50 border-emerald-200 text-emerald-900')}
+   ${box(n.deled,'D.El.Ed / BTC','bg-emerald-50 border-emerald-200 text-emerald-900')}
+   ${box(n.tet,'TET qualified','bg-amber-50 border-amber-200 text-amber-900')}
+  </div></div>`;
+}
+// One printable table: every teacher's exams side by side.
+function printStaffQualChart(which){
+ const all = getTeachers();
+ let list = (which === 'archived') ? all.filter(t=>t.archived) : all.filter(t=>!t.archived);
+ if (which === 'teaching') list = list.filter(t => staffTypeOf(t) === 'Teaching');
+ else if (which === 'nonteaching') list = list.filter(t => staffTypeOf(t) === 'Non-Teaching');
+ else if (which === 'principal') list = list.filter(t => staffTypeOf(t) === 'Principal');
+ else if (which === 'manager') list = list.filter(t => staffTypeOf(t) === 'Manager');
+ else list = list.filter(t => isAcademicStaff(t) || teacherQuals(t).length);
+ if (!list.length) { alert('No staff found for that selection.'); return; }
+ list.sort((a,b) => String(a.name||'').localeCompare(String(b.name||'')));
+ const cell = (t, lv) => { const q = _qualFind(t, lv); if (!q.length) return '<td class="na">—</td>';
+  return '<td>' + q.map(x => { const pc = _qualPct(x); return `<div><b>${escapeHTML(lv==='10th'||lv==='12th'?(x.board&&/cbse|central/i.test(x.board)?'CBSE':'UP Board'):String(x.course||lv))}</b>${x.year?' · '+escapeHTML(String(x.year).slice(0,4)):''}${pc!=null?` · <b>${pc.toFixed(1)}%</b>`:(x.division?' · '+escapeHTML(x.division):'')}${_qualInProgress(x)&&!/pursuing/i.test(x.course||'')?' <i>(pursuing)</i>':''}</div>`; }).join('') + '</td>'; };
+ const rows = list.map((t,i) => `<tr><td>${i+1}</td><td><b>${escapeHTML(t.name||'')}</b><div class="s">${escapeHTML(t.subject||STAFF_TYPE_LABELS[staffTypeOf(t)]||'')}</div></td>
+  ${cell(t,'10th')}${cell(t,'12th')}${cell(t,'Graduation')}${cell(t,'Post Graduation')}
+  <td>${[..._qualFind(t,'B.Ed'),..._qualFind(t,'D.El.Ed/BTC')].map(x=>{const pc=_qualPct(x);return `<div><b>${x.level==='B.Ed'?'B.Ed.':'D.El.Ed.'}</b>${x.year?' · '+escapeHTML(String(x.year).slice(0,4)):''}${pc!=null?' · <b>'+pc.toFixed(1)+'%</b>':''}</div>`;}).join('')||'<span class="na">—</span>'}</td>
+  <td>${_qualFind(t,'TET').map(x=>`<div><b>${escapeHTML(String(x.course||'TET').replace(/ - /,' '))}</b></div>`).join('')||'<span class="na">—</span>'}</td>
+  <td>${[..._qualFind(t,'Diploma / Certificate'),..._qualFind(t,'Other'),..._qualFind(t,'PhD')].map(x=>`<div>${escapeHTML(x.course||x.level)}</div>`).join('')}${!teacherQuals(t).length?`<span class="na">${t.qualification?'On record: '+escapeHTML(t.qualification)+' — ':''}certificates not entered yet</span>`:''}</td></tr>`).join('');
+ const w = window.open('', '_blank');
+ if (!w) { alert('Please allow pop-ups to print.'); return; }
+ w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Staff qualification chart</title><style>
+  body{font-family:Arial,sans-serif;font-size:11px;margin:16px;color:#111} h1{font-size:17px;margin:0 0 3px} .sub{color:#555;margin-bottom:10px}
+  table{border-collapse:collapse;width:100%} th,td{border:1px solid #999;padding:4px 5px;vertical-align:top;text-align:left} th{background:#eef2ff} td .s{color:#666;font-size:10px} .na{color:#bbb} tr{page-break-inside:avoid}
+  @page{size:A4 landscape;margin:10mm}
+ </style></head><body><h1>Murti Devi Balika Vidyapeeth — staff qualification chart</h1><div class="sub">Printed ${new Date().toLocaleDateString('en-IN')} · ${list.length} staff · percentages as worked out from the marksheets</div>
+ <table><thead><tr><th>#</th><th>Name</th><th>10th</th><th>12th</th><th>Graduation</th><th>Post graduation</th><th>B.Ed / D.El.Ed</th><th>TET</th><th>Other</th></tr></thead><tbody>${rows}</tbody></table></body></html>`);
+ w.document.close(); setTimeout(() => w.print(), 400);
 }
 function printStaffKYC(teacherId){
  const t = getTeachers().find(x => x.id === parseInt(teacherId));
@@ -16950,7 +17251,12 @@ function _villageName(v){
  return _VILLAGE_ALIASES[key] || raw.replace(/\b\w/g, c => c.toUpperCase());
 }
 function _villageDues(){
- const due = getStudents().filter(s => !s.archived && ((Number(s.feeBalance)||0) + (Number(s.previousDues)||0)) > 0);
+ // Everyone who still owes anything: nothing paid, part-paid, old dues — plus students whose
+ // composite fee has not been set yet (their amount can't be worked out, so they are flagged).
+ const due = getStudents().filter(s => !s.archived && (
+   ((Number(s.feeBalance)||0) + (Number(s.previousDues)||0)) > 0 ||
+   (!(Number(s.decidedFees) > 0) && !s.freeChild && !/free/i.test(String(s.feeNote||'')))
+ ));
  const groups = {};
  due.forEach(s => {
   const v = _villageName(s.village || s.address) || 'Village not entered';
@@ -16974,11 +17280,13 @@ function _renderVillageDues(){
    <div class="bg-rose-50 border border-rose-200 p-3 rounded-lg"><div class="text-xs text-rose-700 font-semibold uppercase">Total to collect</div><div class="text-2xl font-bold text-rose-900 mt-1">${inr(grand)}</div><div class="text-[11px] text-rose-700">this year + old dues</div></div>
    <div class="bg-amber-50 border border-amber-200 p-3 rounded-lg"><div class="text-xs text-amber-700 font-semibold uppercase">Villages</div><div class="text-2xl font-bold text-amber-900 mt-1">${vd.filter(v=>v.village!=='Village not entered').length}</div></div>
    <div class="bg-blue-50 border border-blue-200 p-3 rounded-lg"><div class="text-xs text-blue-700 font-semibold uppercase">Families to visit</div><div class="text-2xl font-bold text-blue-900 mt-1">${nFam}</div></div>
-   <div class="bg-emerald-50 border border-emerald-200 p-3 rounded-lg"><div class="text-xs text-emerald-700 font-semibold uppercase">Students with dues</div><div class="text-2xl font-bold text-emerald-900 mt-1">${nStu}</div></div>
+   <div class="bg-emerald-50 border border-emerald-200 p-3 rounded-lg"><div class="text-xs text-emerald-700 font-semibold uppercase">Students with dues</div><div class="text-2xl font-bold text-emerald-900 mt-1">${nStu}</div>
+    <div class="text-[11px] text-emerald-800">${(()=>{let np=0,pp=0,ns=0,od=0;vd.forEach(v=>v.families.forEach(f=>f.members.forEach(s=>{const fee=Number(s.decidedFees)||0,bal=Number(s.feeBalance)||0;if(!fee)ns++;else if(bal<=0)od++;else if(bal>=fee)np++;else pp++;})));return `${pp} part-paid · ${np} nothing paid${od?` · ${od} old dues only`:''}${ns?` · ${ns} fee not set`:''}`;})()}</div></div>
   </div>
   <div class="flex flex-wrap gap-2 mb-3 items-center">
    <input id="frVillageSearch" placeholder="Find a village…" class="text-sm" style="width:200px">
    <button id="frVillagePrintBtn" class="bg-slate-700 hover:bg-slate-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Printable visit sheet — one village per section, with space to write what was collected"><i class="fas fa-print mr-1"></i>Print visit sheets</button>
+   <button id="frVillageExpandBtn" class="bg-white border hover:bg-gray-50 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-up-down mr-1"></i>Open all villages</button>
    <button id="frVillageExportBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-file-excel mr-1"></i>Export</button>
    <span class="text-xs text-gray-500">Villages with the most money due come first. Brothers and sisters are grouped as one family visit.</span>
   </div>
@@ -16992,12 +17300,17 @@ function _renderVillageDues(){
     </summary>
     <div class="overflow-x-auto border-t">
      <table class="text-sm w-full">
-      <thead class="bg-gray-50"><tr><th class="text-left p-2">Family (father · phone)</th><th class="text-left p-2">Student</th><th class="text-left p-2">Class</th><th class="text-right p-2">This year due</th><th class="text-right p-2">Old dues</th><th class="text-right p-2">Family total</th></tr></thead>
+      <thead class="bg-gray-50"><tr><th class="text-left p-2">Family (father · phone)</th><th class="text-left p-2">Student</th><th class="text-left p-2">Class</th><th class="text-left p-2">Status</th><th class="text-right p-2">Paid so far</th><th class="text-right p-2">This year due</th><th class="text-right p-2">Old dues</th><th class="text-right p-2">Family total</th></tr></thead>
       <tbody>
       ${v.families.map(f => f.members.map((s,i) => `<tr class="${i===0?'border-t':''}">
         ${i===0?`<td class="p-2 align-top" rowspan="${f.members.length}"><div class="font-medium">${escapeHTML(s.fatherName||'—')}</div>${s.parentPhone?`<a href="tel:${escapeHTML(s.parentPhone)}" class="text-xs font-mono text-blue-700 underline">${escapeHTML(s.parentPhone)}</a>`:'<span class="text-xs text-rose-500">no phone</span>'}</td>`:''}
         <td class="p-2">${escapeHTML(s.name)}</td>
         <td class="p-2">${escapeHTML(String(s.class))}${s.section?'-'+escapeHTML(s.section):''}</td>
+        <td class="p-2">${(()=>{const fee=Number(s.decidedFees)||0,bal=Number(s.feeBalance)||0;
+          if(!fee) return '<span class="pill pill-gray">Fee not set</span>';
+          if(bal<=0) return '<span class="pill pill-amber">Old dues only</span>';
+          return bal>=fee?'<span class="pill pill-red">Nothing paid</span>':'<span class="pill pill-blue">Part-paid</span>';})()}</td>
+        <td class="p-2 text-right text-emerald-700">${(Number(s.decidedFees)||0)?inr(Math.max(0,(Number(s.decidedFees)||0)-(Number(s.feeBalance)||0))):'—'}</td>
         <td class="p-2 text-right">${(Number(s.feeBalance)||0)?inr(s.feeBalance):'—'}</td>
         <td class="p-2 text-right ${(Number(s.previousDues)||0)?'text-amber-700':''}">${(Number(s.previousDues)||0)?inr(s.previousDues):'—'}</td>
         ${i===0?`<td class="p-2 text-right font-semibold text-rose-700 align-top" rowspan="${f.members.length}">${inr(f.total)}</td>`:''}
@@ -17014,7 +17327,7 @@ function printVillageVisitSheets(){
  const body = vd.map(v => `<section><h2>${escapeHTML(v.village)} <small>${v.families.length} families · Rs.${inr(v.total)} due</small></h2>
   <table><thead><tr><th>#</th><th>Father / phone</th><th>Student (class)</th><th>Due</th><th>Collected</th><th>Receipt no. / remarks</th></tr></thead><tbody>
   ${v.families.map((f,i) => `<tr><td>${i+1}</td><td><b>${escapeHTML(f.members[0].fatherName||'—')}</b><br>${escapeHTML(f.members[0].parentPhone||'')}</td>
-   <td>${f.members.map(s=>`${escapeHTML(s.name)} (${escapeHTML(String(s.class))})${(Number(s.previousDues)||0)?` <i>+old ${inr(s.previousDues)}</i>`:''}`).join('<br>')}</td>
+   <td>${f.members.map(s=>`${escapeHTML(s.name)} (${escapeHTML(String(s.class))})${!(Number(s.decidedFees)>0)?' <i>fee not set</i>':''}${(Number(s.previousDues)||0)?` <i>+old ${inr(s.previousDues)}</i>`:''}`).join('<br>')}</td>
    <td class="r"><b>${inr(f.total)}</b></td><td></td><td></td></tr>`).join('')}
   </tbody></table></section>`).join('');
  const w = window.open('', '_blank');
@@ -17127,6 +17440,10 @@ function attachFeeRemindersEvents(){
   document.querySelectorAll('#frVillageList .vd-card').forEach(c => { const m = !q || c.dataset.village.includes(q); c.style.display = m ? '' : 'none'; if (q && m) c.open = true; });
  });
  document.getElementById('frVillagePrintBtn')?.addEventListener('click', printVillageVisitSheets);
+ document.getElementById('frVillageExpandBtn')?.addEventListener('click', e => {
+  const cards = [...document.querySelectorAll('#frVillageList .vd-card')]; const open = !cards.every(c => c.open);
+  cards.forEach(c => c.open = open); e.currentTarget.innerHTML = open ? '<i class="fas fa-up-down mr-1"></i>Close all villages' : '<i class="fas fa-up-down mr-1"></i>Open all villages';
+ });
  document.getElementById('frVillageExportBtn')?.addEventListener('click', () => {
   let h = '<table border="1"><tr><th>Village</th><th>Father</th><th>Phone</th><th>Student</th><th>Class</th><th>This year due</th><th>Old dues</th><th>Total</th></tr>';
   _villageDues().forEach(v => v.families.forEach(f => f.members.forEach(s => {
@@ -21342,7 +21659,8 @@ function attachOwnerEvents(){
    try { obj = JSON.parse(ev.target.result); } catch { alert('Could not read that file — it is not valid JSON.'); return; }
    if (!obj || !obj._mdbvStudentPatch) { alert('This is not an MDBV student update file.\n\n(For a full backup file, use "Restore from Backup".)'); return; }
    const nStu = (obj.students || []).length;
-   const nDoc = (obj.students || []).reduce((a, p) => a + ((p.addDocuments || []).length) + (p.photo ? 1 : 0), 0);
+   const nDoc = (obj.students || []).reduce((a, p) => a + ((p.addDocuments || []).length) + (p.photo ? 1 : 0), 0)
+              + (obj.teachers || []).reduce((a, p) => a + ((p.addDocuments || []).length), 0);
    const nSal = (obj.salaryPayments||[]).length, nTch = (obj.teachers||[]).length + (obj.newTeachers||[]).length;
    if (!confirm(`Import updates?\n\n${obj.title || ''}\n${nStu} students · ${nDoc} documents · ${nTch} staff · ${nSal} salary payments\n\nOnly the listed fields and documents are added. If a field was edited on the site after this file was prepared, it is left unchanged and reported.\n\nPlease keep this page open until it finishes.`)) return;
    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Importing…'; }
@@ -22302,8 +22620,10 @@ function attachTeachersTabEvents(){
  // Helper to open modal in either Add or Edit mode
  const openTeacherModal = (existingId) => {
   // Clear all fields
-  ['tchId','tchName','tchSubject','tchQual','tchEmpId','tchTrain','tchSalary','tchPhone','tchBank','tchBankName','tchIfsc','tchEmail','tchDob','tchAddress','tchPhoto']
+  ['tchId','tchName','tchSubject','tchQual','tchEmpId','tchTrain','tchSalary','tchPhone','tchBank','tchBankName','tchIfsc','tchEmail','tchDob','tchAddress','tchPhoto',
+   'tchAadhaarName','tchGender','tchFather','tchMother','tchSpouse','tchAadhaar','tchPan','tchAadhaarAddress']
    .forEach(f => { const el = document.getElementById(f); if (el) el.value = ''; });
+  _tchQualRows = [];
   document.getElementById('tchBlood').value = '';
   { const st = document.getElementById('tchStaffType'); if (st) st.value = 'Teaching'; }
   const prev = document.getElementById('tchPhotoPreview');
@@ -22332,6 +22652,10 @@ function attachTeachersTabEvents(){
     document.getElementById('tchAddress').value = t.address || '';
     document.getElementById('tchBlood').value = t.bloodGroup || '';
     document.getElementById('tchPhoto').value = t.photo || '';
+    { const setv = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
+      setv('tchAadhaarName', t.aadhaarName); setv('tchGender', t.gender); setv('tchFather', t.fatherName); setv('tchMother', t.motherName);
+      setv('tchSpouse', t.spouseName); setv('tchAadhaar', t.aadhaar); setv('tchPan', t.pan); setv('tchAadhaarAddress', t.aadhaarAddress); }
+    _tchQualRows = teacherQuals(t).map(q => ({...q}));
     // Load qualification documents
     _tchQualDocs = Array.isArray(t.qualificationDocs) ? [...t.qualificationDocs] : [];
     _renderTchQualDocs();
@@ -22350,6 +22674,7 @@ function attachTeachersTabEvents(){
   }
   _applyStaffTypeUI();
   _renderTeachingRows();
+  _renderTchQualRows();
   document.getElementById('teacherModal').classList.remove('hidden');
  };
 
@@ -22360,7 +22685,7 @@ function attachTeachersTabEvents(){
   if (f.size > 5 * 1024 * 1024) { alert('File too large (max 5MB). Please compress or scan at lower resolution.'); e.target.value=''; return; }
   const reader = new FileReader();
   reader.onload = ev => {
-   _tchQualDocs.push({ name: f.name, type: f.type, data: ev.target.result });
+   _tchQualDocs.push({ title: (document.getElementById('tchQualDocType')||{}).value || 'Document', name: f.name, type: f.type, data: ev.target.result, uploadedAt: new Date().toISOString() });
    _renderTchQualDocs();
    e.target.value = '';
   };
@@ -22387,6 +22712,8 @@ function attachTeachersTabEvents(){
  });
 
  document.getElementById('addTeacherBtn')?.addEventListener('click', () => openTeacherModal(null));
+ document.getElementById('tchAddQualBtn')?.addEventListener('click', () => { _tchQualRows.push({level: _tchQualRows.length ? 'Graduation' : '10th', course:'', board:'', year:''}); _renderTchQualRows(); });
+ document.querySelectorAll('.viewStaffBtn').forEach(b => b.addEventListener('click', () => openStaffProfile(b.dataset.id)));
  document.querySelectorAll('.editTeacherBtn').forEach(b => b.addEventListener('click', () => openTeacherModal(b.dataset.id)));
 
  document.getElementById('saveTeacherBtn')?.addEventListener('click', async () => {
@@ -22410,6 +22737,15 @@ function attachTeachersTabEvents(){
    bloodGroup: document.getElementById('tchBlood').value,
    photo: document.getElementById('tchPhoto').value || '',
    qualificationDocs: _tchQualDocs.slice(),
+   aadhaarName: (document.getElementById('tchAadhaarName')?.value || '').trim(),
+   gender: document.getElementById('tchGender')?.value || '',
+   fatherName: (document.getElementById('tchFather')?.value || '').trim(),
+   motherName: (document.getElementById('tchMother')?.value || '').trim(),
+   spouseName: (document.getElementById('tchSpouse')?.value || '').trim(),
+   aadhaar: (document.getElementById('tchAadhaar')?.value || '').replace(/\D/g, ''),
+   pan: (document.getElementById('tchPan')?.value || '').trim().toUpperCase(),
+   aadhaarAddress: (document.getElementById('tchAadhaarAddress')?.value || '').trim(),
+   qualifications: (_tchQualRows || []).filter(q => q.level && (q.course || q.year || q.board)).map(q => ({...q})),
    // Non-teaching staff don't handle classes.
    assignedClasses: []
   };
@@ -22429,6 +22765,8 @@ function attachTeachersTabEvents(){
     data.assignedClasses = [];
    }
   }
+  // The summary "Qualification" follows the detailed list whenever one exists.
+  if (data.qualifications.length) data.qualification = teacherQualSummary(data);
   // Only write the salary if this user is allowed to see it — otherwise keep what's on record.
   if (canSeeSalary()) {
    data.salary = parseInt(document.getElementById('tchSalary').value) || 0;
@@ -22462,6 +22800,7 @@ function attachTeachersTabEvents(){
  // Archive instead of delete: the record, salary history and attendance are all kept.
  document.getElementById('staffArchiveToggleBtn')?.addEventListener('click', () => { _staffArchiveView = !_staffArchiveView; refresh(); });
  document.querySelectorAll('.staffKycBtn').forEach(b => b.addEventListener('click', () => printStaffKYC(b.dataset.id)));
+ document.getElementById('printQualChartBtn')?.addEventListener('click', () => printStaffQualChart(document.getElementById('staffKycScope')?.value || 'all'));
  document.getElementById('printStaffKycBtn')?.addEventListener('click', () => printStaffKYCBulk(document.getElementById('staffKycScope')?.value || 'all'));
  document.getElementById('printStaffTableBtn')?.addEventListener('click', () => printStaffTable(document.getElementById('staffKycScope')?.value || 'all'));
  document.getElementById('xlsStaffBtn')?.addEventListener('click', () => exportStaffExcel(document.getElementById('staffKycScope')?.value || 'all'));
