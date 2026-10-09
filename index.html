@@ -4529,7 +4529,33 @@ async function applyStudentPatch(patch, progressCb){
    report.applied.push(`${s.name}: ${docs.length} document(s) attached`);
   }
  }
+ // 2b) Former students (e.g. last year's leavers) kept as ARCHIVED records, so their old
+ //     receipts and dues have somewhere to live. Never shown in current lists or totals.
+ if (Array.isArray(patch.newStudents)) {
+  patch.newStudents.forEach(ns => {
+   if (all.some(x => String(x.id) === String(ns.id) || (ns.importKey && x.importKey === ns.importKey))) { report.docsSkipped++; return; }
+   all.push(Object.assign({ archived: true }, ns));
+   report.applied.push(`Former student record: ${ns.name} (${ns.class})`);
+  });
+ }
  saveStudents(all);                       // normal save path → queues cloud sync
+
+ // 2c) Fee receipts from an earlier year (e.g. the 2025-26 fee register). Tagged with their
+ //     academic year, so this year's balances are not touched; importKey prevents doubles.
+ if (Array.isArray(patch.feeTransactions) && patch.feeTransactions.length) {
+  say('Recording fee receipts…');
+  const tr = getFeeTransactions();
+  const ids = new Set(all.map(x => String(x.id)));
+  let added = 0, dup = 0, miss = 0;
+  patch.feeTransactions.forEach(ft => {
+   if (tr.some(t => t.importKey && t.importKey === ft.importKey && !t._deleted)) { dup++; return; }
+   if (!ids.has(String(ft.studentId))) { miss++; return; }
+   tr.push(Object.assign({ createdAt: new Date().toISOString(), createdBy: (currentUser && currentUser.name) || 'Import', createdByRole: (currentUser && currentUser.role) || '' }, ft));
+   added++;
+  });
+  saveFeeTransactions(tr);
+  report.applied.push(`${added} fee receipt(s) recorded` + (dup ? ` (${dup} already recorded — skipped)` : '') + (miss ? ` (${miss} skipped: student not found)` : ''));
+ }
 
  // 3) Staff: field changes on existing staff, and new staff records.
  if (Array.isArray(patch.newTeachers) || Array.isArray(patch.teachers)) {
@@ -4579,7 +4605,7 @@ async function applyStudentPatch(patch, progressCb){
     amount: Number(sp.amount) || 0, mode: sp.mode || 'Cheque', chequeNo: sp.chequeNo || undefined,
     bankName: sp.payeeBank || undefined,
     salaryStaffName: sp.teacherName, salaryMonth: sp.forMonth || undefined, academicYear: sp.academicYear || undefined,
-    importKey: sp.importKey, importedFrom: sp.source || 'Salary sheet', dateAssumed: sp.dateAssumed || undefined,
+    importKey: sp.importKey, importedFrom: sp.source || 'Salary sheet', dateAssumed: sp.dateAssumed || undefined, historical: sp.historical || undefined,
     createdAt: new Date().toISOString(), createdBy: (currentUser && currentUser.name) || 'Import',
     salaryPaymentId: salId
    });
@@ -4588,7 +4614,7 @@ async function applyStudentPatch(patch, progressCb){
     staffRole: staff ? staff.role : 'Staff', amount: Number(sp.amount) || 0, date: sp.date,
     forMonth: sp.forMonth || '', academicYear: sp.academicYear || '', mode: sp.mode || 'Cheque',
     chequeNo: sp.chequeNo || '', note: (sp.note || '') + (sp.payeeAccount ? ' · paid to A/C ' + sp.payeeAccount : ''),
-    paidBy: (currentUser && currentUser.name) || '', expenseId: expId
+    paidBy: (currentUser && currentUser.name) || '', expenseId: expId, historical: sp.historical || undefined
    });
    added++;
   });
@@ -14287,7 +14313,8 @@ function pt(en, hi){ return parentLang() === 'hi' ? (hi || en) : en; }
 // Find children associated with the parent. Tries multiple matching strategies
 // so that auto-generated parent logins (where parentId may not be cleanly linked) still work.
 function _findChildrenForParent(){
- const all = getStudents();
+ // Former students copied in from last year's fee register are kept only for the school's records.
+ const all = getStudents().filter(s => s.createdFrom !== 'Fee register 2025-26');
  // Strategy 1: explicit parentId match (the original design)
  let kids = all.filter(s => s.parentId === currentUser.id);
  if (kids.length > 0) return kids;
@@ -17541,8 +17568,11 @@ function _calcAccountantStats(){
  const monthIn  = receipts.filter(r => (r.date||'').startsWith(monthStart)).reduce((s,r) => s + (r.amount||0), 0);
  const monthOut = expenses.filter(e => (e.date||'').startsWith(monthStart)).reduce((s,e) => s + (e.amount||0), 0);
  // Cash on hand: cash receipts MINUS cash expenses MINUS cash deposited to bank
- const cashIn   = receipts.filter(r => (r.mode||'').toLowerCase().includes('cash')).reduce((s,r) => s + (r.amount||0), 0);
- const cashOut  = expenses.filter(e => (e.mode||'').toLowerCase().includes('cash')).reduce((s,e) => s + (e.amount||0), 0);
+ // Entries copied in from last year's paper registers describe money that moved long ago —
+ // they must not change today's cash in hand.
+ const _hist = x => x.historical || x.importedFrom === 'Salary register 2025-26';
+ const cashIn   = receipts.filter(r => !r._deleted && !_hist(r) && (r.mode||'').toLowerCase().includes('cash')).reduce((s,r) => s + (r.amount||0), 0);
+ const cashOut  = expenses.filter(e => !_hist(e) && (e.mode||'').toLowerCase().includes('cash')).reduce((s,e) => s + (e.amount||0), 0);
  const cashOnHand = cashIn - cashOut;
  // Bank balance: sum of all account balances
  const bankTotal = banks.reduce((s,b) => s + (b.balance||0), 0);
@@ -17554,8 +17584,10 @@ function _calcAccountantStats(){
 /* ---------- TAB 1: OVERVIEW ---------- */
 function renderAccOverview(){
  const stats = _calcAccountantStats();
- const recentReceipts = getFeeTransactions().filter(t=>!t._deleted).slice(-5).reverse();
- const recentExpenses = get('expenses').filter(e=>!e._deleted).slice(-5).reverse();
+ // Last year's register entries are history, not "recent" activity.
+ const _histR = x => x.historical || x.importedFrom === 'Salary register 2025-26';
+ const recentReceipts = getFeeTransactions().filter(t=>!t._deleted && !_histR(t)).slice(-5).reverse();
+ const recentExpenses = get('expenses').filter(e=>!e._deleted && !_histR(e)).slice(-5).reverse();
  const students = getStudents();
  const fmtINR = n => 'Rs.' + (n||0).toLocaleString('en-IN');
 
@@ -21662,7 +21694,8 @@ function attachOwnerEvents(){
    const nDoc = (obj.students || []).reduce((a, p) => a + ((p.addDocuments || []).length) + (p.photo ? 1 : 0), 0)
               + (obj.teachers || []).reduce((a, p) => a + ((p.addDocuments || []).length), 0);
    const nSal = (obj.salaryPayments||[]).length, nTch = (obj.teachers||[]).length + (obj.newTeachers||[]).length;
-   if (!confirm(`Import updates?\n\n${obj.title || ''}\n${nStu} students · ${nDoc} documents · ${nTch} staff · ${nSal} salary payments\n\nOnly the listed fields and documents are added. If a field was edited on the site after this file was prepared, it is left unchanged and reported.\n\nPlease keep this page open until it finishes.`)) return;
+   const nFee = (obj.feeTransactions||[]).length, nNewStu = (obj.newStudents||[]).length;
+   if (!confirm(`Import updates?\n\n${obj.title || ''}\n${nStu} students · ${nDoc} documents · ${nTch} staff · ${nSal} salary payments${nFee?` · ${nFee} fee receipts`:''}${nNewStu?` · ${nNewStu} former-student records`:''}\n\nOnly the listed fields and documents are added. If a field was edited on the site after this file was prepared, it is left unchanged and reported.\n\nPlease keep this page open until it finishes.`)) return;
    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Importing…'; }
    try {
     const r = await applyStudentPatch(obj, m => { if (status) status.textContent = m; });
