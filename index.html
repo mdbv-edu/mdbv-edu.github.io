@@ -5442,7 +5442,8 @@ function renderStudentsTab(){
     <input type="file" id="bulkImportSRFile" class="hidden" accept=".xlsx,.xls">`:''}
     <input type="file" id="bulkImportStudentsFile" class="hidden" accept=".xlsx,.xls,.csv">
     <button id="exportStudentsBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-file-excel mr-1"></i>Export</button>
-    <button id="promoteStudentsBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-arrow-up mr-1"></i>Promote</button>
+    <button id="promoteStudentsBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Move every current student up one class — only at the start of a new session"><i class="fas fa-arrow-up mr-1"></i>Promote (new session)</button>
+    ${(()=>{try{return localStorage.getItem('mdbv_promotionUndo')}catch(e){return null}})()?`<button id="undoPromotionBtn" class="bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-rotate-left mr-1"></i>Undo promotion</button>`:''}
     <button id="assignRollBtn" class="bg-teal-600 hover:bg-teal-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Auto-number roll numbers alphabetically within each class"><i class="fas fa-sort-alpha-down mr-1"></i>Assign Roll Nos</button>
     <button id="viewArchiveBtn" class="bg-gray-600 hover:bg-gray-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="View students who left (TC issued)"><i class="fas fa-box-archive mr-1"></i>Archive${archivedCount?` (${archivedCount})`:''}</button>
     `}
@@ -5480,8 +5481,8 @@ function renderStudentsTab(){
     <span class="text-rose-600">Average Rs.${Math.round(dueTotal/dueList.length).toLocaleString('en-IN')}</span>
    </div>`:''}
   ${(() => {
-    const noClass = all.filter(s => !s.class || !ALL_CLASSES.includes(s.class));
-    const noAdm = all.filter(s => !s.admissionNo);
+    const noClass = all.filter(s => !s.archived && (!s.class || !ALL_CLASSES.includes(s.class)));
+    const noAdm = all.filter(s => !s.archived && !s.admissionNo);
     if (noClass.length === 0 && noAdm.length === 0) return '';
     return `<div class="bg-amber-50 border border-amber-300 rounded-lg p-3 mb-3 text-sm">
      <div class="font-semibold text-amber-900 mb-1"><i class="fas fa-triangle-exclamation mr-1"></i>Data needs attention</div>
@@ -22010,7 +22011,7 @@ function attachStudentsTabEvents(){
  // Data cleanup: assign admission numbers to students missing one
  document.getElementById('fixAdmNoBtn')?.addEventListener('click',()=>{
   const students=getStudents();
-  const missing=students.filter(s=>!s.admissionNo);
+  const missing=students.filter(s=>!s.archived&&!s.admissionNo);
   if(missing.length===0){showToast('All students already have admission numbers');return;}
   if(!confirm(`Assign new admission numbers to ${missing.length} student(s) who don't have one? Existing admission numbers will NOT be changed.`))return;
   // Compute the running max once, then assign sequentially
@@ -22176,10 +22177,33 @@ function attachStudentsTabEvents(){
   h+='</table>';downloadExcel(h,'Students_'+(sr?'Full_':'Basic_')+new Date().toISOString().slice(0,10));
  });
  document.getElementById('promoteStudentsBtn')?.addEventListener('click',()=>{
-  if(!confirm('Promote ALL students to the next class? Class 12 students stay in Class 12. Continue?'))return;
-  const map={'Nursery':'LKG','LKG':'UKG','UKG':'1','1':'2','2':'3','3':'4','4':'5','5':'6','6':'7','7':'8','8':'9','9':'10','10':'11','11':'12','12':'12'};
-  const s=getStudents().map(x=>({...x,class:map[x.class]||x.class}));
-  saveStudents(s);showToast('All students promoted to next class');
+  // Promotion moves every CURRENT student up one class. It is done once a year, at the start of a new
+  // session, so it asks for the word PROMOTE to be typed and keeps an undo copy of everyone's class.
+  const map={'Pre Nursery':'Nursery','Nursery':'LKG','LKG':'UKG','UKG':'1','1':'2','2':'3','3':'4','4':'5','5':'6','6':'7','7':'8','8':'9','9':'10','10':'11','11':'12','12':'12'};
+  const all=getStudents();
+  const act=all.filter(x=>!x.archived);
+  const mon=new Date().getMonth()+1;
+  const offSeason=!(mon===3||mon===4||mon===5);
+  const warn=offSeason?`\n\n⚠ It is ${new Date().toLocaleString('en-IN',{month:'long'})}, in the middle of session ${currentSession()}. Promotion is normally done only once, at the start of a new session (March–May).`:'';
+  const typed=prompt(`PROMOTE ALL ${act.length} CURRENT STUDENTS to the next class?\n\nPre Nursery → Nursery → LKG → UKG → Class 1 … Class 11 → Class 12. Class 12 students stay in Class 12. Former (archived) students are not changed.${warn}\n\nType PROMOTE to continue:`,'');
+  if(typed===null)return;
+  if(typed.trim().toUpperCase()!=='PROMOTE'){alert('Not promoted — the word PROMOTE was not typed.');return;}
+  const snap={at:new Date().toISOString(),by:(typeof currentUser!=='undefined'&&currentUser?(currentUser.name||currentUser.username||''):''),classes:{}};
+  let moved=0;
+  const s=all.map(x=>{ if(x.archived)return x; const to=map[x.class]||x.class; if(to!==x.class){snap.classes[x.id]=x.class;moved++;} return {...x,class:to}; });
+  try{localStorage.setItem('mdbv_promotionUndo',JSON.stringify(snap));}catch(e){}
+  saveStudents(s);showToast(`${moved} students promoted to the next class · "Undo promotion" is on the Students page`);
+  refresh();
+ });
+ document.getElementById('undoPromotionBtn')?.addEventListener('click',()=>{
+  let snap=null; try{snap=JSON.parse(localStorage.getItem('mdbv_promotionUndo')||'null');}catch(e){}
+  if(!snap||!snap.classes){showToast('No promotion to undo on this device');return;}
+  const n=Object.keys(snap.classes).length;
+  if(!confirm(`Undo the promotion done on ${new Date(snap.at).toLocaleString('en-IN')}?\n\n${n} students go back to the class they were in before.`))return;
+  const s=getStudents().map(x=>snap.classes[x.id]!==undefined?{...x,class:snap.classes[x.id]}:x);
+  saveStudents(s);
+  try{localStorage.removeItem('mdbv_promotionUndo');}catch(e){}
+  showToast(`Promotion undone · ${n} students back in their earlier class`);
   refresh();
  });
 
