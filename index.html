@@ -5436,6 +5436,7 @@ function renderStudentsTab(){
    <div class="flex gap-2 flex-wrap">
     ${inArchiveView ? `<button id="backToActiveBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-arrow-left mr-1"></i>Back to Active (${activeCount})</button>` : `
     <button id="addStudentBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-plus mr-1"></i>Add Student</button>
+    ${isFullOwner()?`
     <button id="downloadStudentTemplateBtn" class="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Download Excel template for bulk entry"><i class="fas fa-file-arrow-down mr-1"></i>Template</button>
     <button id="bulkImportStudentsBtn" class="bg-cyan-600 hover:bg-cyan-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Upload filled template to bulk-add students"><i class="fas fa-file-arrow-up mr-1"></i>Bulk Import</button>
     ${canImportSRNumbers()?`<button id="bulkImportSRBtn" class="bg-rose-700 hover:bg-rose-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Import Scholar Register numbers from a spreadsheet"><i class="fas fa-hashtag mr-1"></i>Import SR Numbers</button>
@@ -5445,6 +5446,7 @@ function renderStudentsTab(){
     <button id="promoteStudentsBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Move every current student up one class — only at the start of a new session"><i class="fas fa-arrow-up mr-1"></i>Promote (new session)</button>
     ${(()=>{try{return localStorage.getItem('mdbv_promotionUndo')}catch(e){return null}})()?`<button id="undoPromotionBtn" class="bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-rotate-left mr-1"></i>Undo promotion</button>`:''}
     <button id="assignRollBtn" class="bg-teal-600 hover:bg-teal-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Auto-number roll numbers alphabetically within each class"><i class="fas fa-sort-alpha-down mr-1"></i>Assign Roll Nos</button>
+    `:''}
     <button id="viewArchiveBtn" class="bg-gray-600 hover:bg-gray-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="View students who left (TC issued)"><i class="fas fa-box-archive mr-1"></i>Archive${archivedCount?` (${archivedCount})`:''}</button>
     `}
    </div>
@@ -5662,7 +5664,7 @@ function renderDataManagementModals(){
     <div><label class="text-xs font-medium">Annual Fees (Rs.)</label><input type="number" id="dmStuAnnual" placeholder="e.g. 24000"></div>
     <div><label class="text-xs font-medium">Composite Fee (Rs.) <i class="fas fa-circle-info text-gray-400" title="Total fee after any discount/concession — the amount actually payable"></i></label><input type="number" id="dmStuDecided" placeholder="total after discount"></div>
     <div><label class="text-xs font-medium">Transport (monthly Rs.)</label><input type="number" id="dmStuTransport" placeholder="0 if not using"></div>
-    <div><label class="text-xs font-medium">Fee Balance (Rs.) <i class="fas fa-circle-info text-gray-400" title="Current year's outstanding — worked out automatically: composite fee minus payments."></i></label><input type="number" id="dmStuFeeBal" value="0" readonly class="bg-gray-100 text-gray-700" title="Worked out automatically from the composite fee and receipts"></div>
+    <div><label class="text-xs font-medium">Fee Balance (Rs.) <i class="fas fa-circle-info text-gray-400" title="This year's amount still to pay. You can type it: the 'Paid before the portal' figure adjusts so that Composite fee − paid = balance."></i></label><input type="number" id="dmStuFeeBal" value="0" title="Type the balance still to pay this year — the 'Paid before the portal' figure below adjusts itself"></div>
     <div><label class="text-xs font-medium text-amber-700">Previous Year Dues (Rs.) <i class="fas fa-circle-info text-gray-400" title="Amount still owed from LAST academic year (carry-forward). Tracked separately so old dues are visible and can be collected."></i></label><input type="number" id="dmStuPrevDues" value="0" placeholder="0"></div>
     <div class="col-span-2 md:col-span-3 flex flex-wrap gap-4 mt-2">
      <label class="text-sm flex items-center gap-1"><input type="checkbox" id="dmStuBpl" class="w-auto"> BPL (Below Poverty Line)</label>
@@ -21230,6 +21232,8 @@ function _formInProgress(){
  try {
   const a = document.activeElement;
   if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.type !== 'button') return true;
+  // an open edit window (student, staff, receipt…) — never repaint underneath it
+  for (const m of document.querySelectorAll('.modal:not(.hidden)')) if (m.getClientRects().length) return true;
   // any marks/attendance grid with something typed but not yet saved
   const grids = document.querySelectorAll('.mkInput, .attCell, .stuRegCell, .staffAttCell');
   for (const g of grids) if (g.value && g.dataset && g.dataset.dirty === '1') return true;
@@ -21951,11 +21955,13 @@ function attachStudentsTabEvents(){
  const srBtn = document.getElementById('bulkImportSRBtn');
  const srFile = document.getElementById('bulkImportSRFile');
  srBtn?.addEventListener('click', () => {
+  if (!isFullOwner()) return;   // Owner login only
   if (!canImportSRNumbers()) { alert('SR numbers are managed by the Principal, the office and the owner.'); return; }
   if (typeof XLSX === 'undefined') { alert('Excel library not loaded. Reload the page and try again.'); return; }
   srFile.value=''; srFile.click();
  });
  srFile?.addEventListener('change', e => {
+  if (!isFullOwner()) return;   // Owner login only
   const f=e.target.files[0]; if(!f) return;
   if (f.size > 15*1024*1024) { alert('File too large (max 15 MB)'); return; }
   const rd=new FileReader(); rd.onload=ev=>_handleSRImportUpload(ev.target.result); rd.readAsArrayBuffer(f);
@@ -21986,6 +21992,7 @@ function attachStudentsTabEvents(){
  document.getElementById('clearFilters')?.addEventListener('click',()=>{studentFilter={search:'',class:'all',section:'all',category:'all',sort:'default',fee:'all'};refresh()});
  // Assign roll numbers alphabetically within each class+section
  document.getElementById('assignRollBtn')?.addEventListener('click',()=>{
+  if (!isFullOwner()) return;   // Owner login only
   if(!confirm('Auto-assign roll numbers alphabetically (by student name) within each class and section? This will renumber all students. Continue?'))return;
   const students=getStudents();
   // Group by class+section
@@ -22165,6 +22172,7 @@ function attachStudentsTabEvents(){
   if(s) generateStudentIDCard(s);
  }));
  document.getElementById('exportStudentsBtn')?.addEventListener('click',()=>{
+  if (!isFullOwner()) return;   // Owner login only
   const s=getStudents();
   const sr = canSeeSRNumber();              // office roles get SR (needed for TC)
   const conf = canSeeConfidentialNumbers();  // only Owner/MD get UDISE
@@ -22177,6 +22185,7 @@ function attachStudentsTabEvents(){
   h+='</table>';downloadExcel(h,'Students_'+(sr?'Full_':'Basic_')+new Date().toISOString().slice(0,10));
  });
  document.getElementById('promoteStudentsBtn')?.addEventListener('click',()=>{
+  if (!isFullOwner()) return;   // Owner login only
   // Promotion moves every CURRENT student up one class. It is done once a year, at the start of a new
   // session, so it asks for the word PROMOTE to be typed and keeps an undo copy of everyone's class.
   const map={'Pre Nursery':'Nursery','Nursery':'LKG','LKG':'UKG','UKG':'1','1':'2','2':'3','3':'4','4':'5','5':'6','6':'7','7':'8','8':'9','9':'10','10':'11','11':'12','12':'12'};
@@ -22196,6 +22205,7 @@ function attachStudentsTabEvents(){
   refresh();
  });
  document.getElementById('undoPromotionBtn')?.addEventListener('click',()=>{
+  if (!isFullOwner()) return;   // Owner login only
   let snap=null; try{snap=JSON.parse(localStorage.getItem('mdbv_promotionUndo')||'null');}catch(e){}
   if(!snap||!snap.classes){showToast('No promotion to undo on this device');return;}
   const n=Object.keys(snap.classes).length;
@@ -22209,6 +22219,7 @@ function attachStudentsTabEvents(){
 
  // ============== TEMPLATE DOWNLOAD ==============
  document.getElementById('downloadStudentTemplateBtn')?.addEventListener('click', () => {
+  if (!isFullOwner()) return;   // Owner login only
   if (typeof XLSX === 'undefined') { alert('Excel library not loaded. Please reload the page and try again.'); return; }
   _generateStudentTemplate();
  });
@@ -22217,11 +22228,13 @@ function attachStudentsTabEvents(){
  const bulkBtn = document.getElementById('bulkImportStudentsBtn');
  const bulkFileInput = document.getElementById('bulkImportStudentsFile');
  bulkBtn?.addEventListener('click', () => {
+  if (!isFullOwner()) return;   // Owner login only
   if (typeof XLSX === 'undefined') { alert('Excel library not loaded. Please reload the page and try again.'); return; }
   bulkFileInput.value = '';
   bulkFileInput.click();
  });
  bulkFileInput?.addEventListener('change', e => {
+  if (!isFullOwner()) return;   // Owner login only
   const f = e.target.files[0];
   if (!f) return;
   if (f.size > 5*1024*1024) { alert('File too large (max 5 MB)'); return; }
@@ -23134,7 +23147,14 @@ function attachDataManagementEvents(){
         const bal = Math.max(0, fee - op - paid); const f = document.getElementById('dmFeeFormula');
         if (f) f.innerHTML = fee ? `Rs.${fee.toLocaleString('en-IN')} − Rs.${op.toLocaleString('en-IN')} − Rs.${paid.toLocaleString('en-IN')} (receipts this year) = <b>Rs.${bal.toLocaleString('en-IN')} balance</b>` : 'Enter the Composite Fee to work out the balance.';
         document.getElementById('dmStuFeeBal').value = fee ? bal : (s.feeBalance||0); };
-      upd(); document.getElementById('dmStuDecided')?.addEventListener('input', upd); opEl?.addEventListener('input', upd); }
+      // Typing the balance works it backwards: paid before the portal = fee − balance − this year's receipts.
+      const balIn = () => { const fee = parseInt(document.getElementById('dmStuDecided')?.value)||0; if (!fee || !opEl) return;
+        const bal = parseInt(document.getElementById('dmStuFeeBal').value)||0; const paid = _paidThisYear(s);
+        opEl.value = fee - bal - paid; const f = document.getElementById('dmFeeFormula');
+        if (f) f.innerHTML = `Rs.${fee.toLocaleString('en-IN')} − Rs.${(fee-bal-paid).toLocaleString('en-IN')} (paid before the portal) − Rs.${paid.toLocaleString('en-IN')} (receipts this year) = <b>Rs.${bal.toLocaleString('en-IN')} balance</b>`; };
+      // oninput (not addEventListener) so opening a second student never leaves the first one's handler behind
+      upd(); const _dEl = document.getElementById('dmStuDecided'); if (_dEl) _dEl.oninput = upd; if (opEl) opEl.oninput = upd;
+      const _bEl = document.getElementById('dmStuFeeBal'); if (_bEl) _bEl.oninput = balIn; }
     document.getElementById('dmStuPrevDues').value = s.previousDues || 0;
     document.getElementById('dmStuBpl').checked = !!s.bpl;
     document.getElementById('dmStuCwsn').checked = !!s.cwsn;
@@ -23146,6 +23166,7 @@ function attachDataManagementEvents(){
    }
   } else {
    document.getElementById('dmStudentModalTitle').innerText = 'Add Student';
+   ['dmStuDecided','dmStuOpening','dmStuFeeBal'].forEach(i => { const e = document.getElementById(i); if (e) e.oninput = null; });
    // Auto-generate the next admission number so new students never end up blank.
    document.getElementById('dmStuAdmNo').value = nextAdmissionNo();
    _stuDocs = [];
