@@ -990,6 +990,10 @@ function exitPortal() {
 }
 function portalLogout() {
   currentUser = null;
+  try { DB.endSession(); } catch (_) {}
+  try { _waInbox = { loaded: false, messages: [], verified: {} }; } catch (_) {}
+  // close any pop-up windows that belonged to the session (sending progress, notify lists…)
+  document.querySelectorAll('body > .modal').forEach(m => { if (m.id !== 'loginModal' && m.id !== 'changePasswordModal') m.remove(); });
   activeAdminTab = 'dashboard';
   activePrincipalTab = 'dashboard';
   chatPanelOpen = false;
@@ -1023,6 +1027,19 @@ async function submitChangePassword() {
   const next = document.getElementById('cpNew').value;
   const confirm = document.getElementById('cpConfirm').value;
 
+  if (DB.mode === 'cloud') {
+   if (!next || next.length < 6) { showErr('New password must be at least 6 characters.'); return; }
+   if (next === current) { showErr('New password must be different from the current one.'); return; }
+   if (next !== confirm) { showErr('New password and confirmation do not match.'); return; }
+   const { data, error } = await DB._supabase().functions.invoke('portal-login', { body: { action: 'change_password', current, next } });
+   let res = data;
+   if (error && error.context && typeof error.context.json === 'function') { try { res = await error.context.json(); } catch (_) {} }
+   if (!res || !res.ok) { showErr((res && res.error) || 'Could not change the password. Try again.'); return; }
+   currentUser.defaultPw = false;
+   const us = getUsers(); const mine = us.find(u => u.id === currentUser.id);
+   if (mine && DB._sessionKind === 'staff') { mine.defaultPw = false; mine.password = ''; set('users', us); }
+   closeChangePasswordModal(); showToast('Your password has been updated'); return;
+  }
   // Re-read the live user record from storage (currentUser may be stale)
   const users = getUsers();
   const me = users.find(u => u.id === currentUser.id);
@@ -2254,6 +2271,7 @@ const DB_SCHEMA = {
  gallery:             { type: 'array', desc: 'Gallery image entries' },
  notices:             { type: 'array', desc: 'Notice board announcements' },
  feeStructures:       { type: 'array', desc: 'Fee plans per class per academic session' },
+ waMessages:          { type: 'array', desc: 'WhatsApp messages (written by the school bot)', readonly: true, noAutoPull: true },
 
  // ---- Singleton objects (one document, not a list) ----
  schoolInfra:         { type: 'object', desc: 'Infrastructure data (toilets, computers, etc.)' },
@@ -2263,6 +2281,7 @@ const DB_SCHEMA = {
  ptmAttendance:       { type: 'object', desc: 'PTM parent attendance + notes keyed by eventId' },
  busTracking:         { type: 'object', desc: 'Live bus location' },
  udiseReport:         { type: 'object', desc: 'UDISE+ submission status' },
+ waConfig:            { type: 'object', desc: 'WhatsApp bot settings (no secrets)' },
 
  // ---- Scalars (single values, not arrays/objects) ----
  schemaVersion:       { type: 'scalar', desc: 'Internal schema version' },
@@ -2385,7 +2404,7 @@ const DB = {
   if (typeof window.supabase === 'undefined') throw new Error('Supabase client library not loaded (check network)');
   // Clean up URL — strip trailing /rest/v1/ or / if present
   const cleanUrl = DB_CONFIG.SUPABASE_URL.replace(/\/+(rest\/v1\/?)?$/, '');
-  this._client = window.supabase.createClient(cleanUrl, DB_CONFIG.SUPABASE_ANON_KEY);
+  this._client = window.supabase.createClient(cleanUrl, DB_CONFIG.SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: true, detectSessionInUrl: false } });
   return this._client;
  },
 
@@ -2395,7 +2414,7 @@ const DB = {
   const t0 = Date.now();
   try {
    const sb = this._supabase();
-   const { error } = await sb.from('students').select('id').limit(1);
+   const { error } = await sb.from('gallery').select('id').limit(1);
    if (error) return { ok: false, error: error.message };
    return { ok: true, latencyMs: Date.now() - t0 };
   } catch (e) {
@@ -2412,9 +2431,13 @@ const DB = {
   if (this.mode !== 'cloud') throw new Error('Cloud storage needs the online connection.');
   const sb = this._supabase();
   const safeName = (file.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
-  const path = (folder ? folder.replace(/[^a-zA-Z0-9._/-]/g, '_') + '/' : '') + Date.now() + '_' + Math.floor(Math.random() * 100000) + '_' + safeName;
-  const { error } = await sb.storage.from(this.STORAGE_BUCKET).upload(path, file, {
-   upsert: true,
+  // a long random part, so a link can never be guessed
+  const rnd = Array.from(crypto.getRandomValues(new Uint8Array(9)), b => b.toString(16).padStart(2, '0')).join('');
+  const path = (folder ? folder.replace(/[^a-zA-Z0-9._/-]/g, '_') + '/' : '') + Date.now() + '_' + rnd + '_' + safeName;
+  const isPrivate = this.isPrivateFolder(folder);
+  const bucket = isPrivate ? this.PRIVATE_BUCKET : this.STORAGE_BUCKET;
+  const { error } = await sb.storage.from(bucket).upload(path, file, {
+   upsert: false,
    contentType: file.type || 'application/octet-stream'
   });
   if (error) {
@@ -2424,13 +2447,34 @@ const DB = {
    }
    throw new Error('Upload failed: ' + msg);
   }
+  if (isPrivate) return { url: 'sbpriv://' + this.PRIVATE_BUCKET + '/' + path, path: this.PRIVATE_BUCKET + '/' + path };
   const { data: pub } = sb.storage.from(this.STORAGE_BUCKET).getPublicUrl(path);
   return { url: pub.publicUrl, path };
+ },
+ // Aadhaar/PAN/marksheets (kyc/, staff/) and receipt scans are kept in a PRIVATE bucket.
+ // They are stored as "sbpriv://private-docs/<path>" and opened through short-lived links.
+ PRIVATE_BUCKET: 'private-docs',
+ PRIVATE_FOLDERS: ['kyc', 'staff', 'receipts'],
+ isPrivateFolder(folder) { return this.PRIVATE_FOLDERS.includes(String(folder || '').split('/')[0]); },
+ _signCache: {},
+ async signedUrl(ref) {
+  const m = String(ref || '').match(/^sbpriv:\/\/([^/]+)\/(.+)$/);
+  if (!m) return ref;
+  const key = m[1] + '/' + m[2];
+  const c = this._signCache[key];
+  if (c && c.exp > Date.now()) return c.url;
+  const { data, error } = await this._supabase().storage.from(m[1]).createSignedUrl(m[2], 3600);
+  if (error || !data) throw new Error(error ? error.message : 'could not open file');
+  this._signCache[key] = { url: data.signedUrl, exp: Date.now() + 50 * 60000 };
+  return data.signedUrl;
  },
  // Delete a stored file by its path (best-effort; ignores errors).
  async deleteFile(path) {
   if (!path || this.mode !== 'cloud') return;
-  try { await this._supabase().storage.from(this.STORAGE_BUCKET).remove([path]); } catch (_) {}
+  try {
+   const priv = String(path).startsWith(this.PRIVATE_BUCKET + '/');
+   await this._supabase().storage.from(priv ? this.PRIVATE_BUCKET : this.STORAGE_BUCKET).remove([priv ? String(path).slice(this.PRIVATE_BUCKET.length + 1) : path]);
+  } catch (_) {}
  },
  // Is cloud storage usable right now?
  storageAvailable() {
@@ -2573,9 +2617,9 @@ const DB = {
   return results;
  },
 
- // Pull ALL tables from cloud (overwrites local)
+ // Pull ALL tables from cloud (overwrites local) — except big server-written logs loaded on demand
  async pullAll(progressCb) {
-  const tables = Object.keys(DB_SCHEMA);
+  const tables = Object.keys(DB_SCHEMA).filter(t => !DB_SCHEMA[t].noAutoPull);
   const results = {};
   let i = 0;
   for (const t of tables) {
@@ -2616,8 +2660,9 @@ const DB = {
   if (this._pendingTables && this._pendingTables.size) return;  // we have unpushed work
   if (!force && typeof document !== 'undefined' && document.hidden) return;   // tab not in use
   if (!force && typeof _formInProgress === 'function' && _formInProgress()) return;
+  if (this._sessionKind === 'public') return;
   try {
-   await this.pullAll();
+   if (this._sessionKind === 'family') await this.loadFamily(); else await this.pullAll();
    this._lastSyncAt = new Date();
    this._notifySyncUI('idle');
    if (typeof _afterAutoRefresh === 'function') _afterAutoRefresh();
@@ -2635,6 +2680,7 @@ const DB = {
   if (this.mode !== 'cloud' || !this._syncEnabled) return;
   if (!DB_SCHEMA[table]) return;          // ignore non-schema keys
   if (DB_SCHEMA[table].type === 'scalar') return; // scalars don't sync
+  if (DB_SCHEMA[table].readonly) return;          // written by the server only
   this._pendingTables.add(table);
   // Debounce: reset the timer on each new write
   if (this._syncTimer) clearTimeout(this._syncTimer);
@@ -2648,6 +2694,7 @@ const DB = {
   // This is the last line of defense against pushing seed placeholders over cloud data.
   if (this.mode !== 'cloud' || !this._syncEnabled || !this._startupDone) return;
   if (this._pendingTables.size === 0) return;
+  if (this._sessionKind !== 'staff') return this._flushLimited();
   const tables = [...this._pendingTables];
   this._pendingTables.clear();
   this._syncState = 'syncing';
@@ -2708,47 +2755,209 @@ const DB = {
   }
  },
 
- // Pull latest from cloud on startup, with safe fallback to local
+ // ──────────────────────────────────────────────────────────────
+ // SESSIONS (security upgrade)
+ //   public — a website visitor: only calendar, gallery and disclosure documents are loaded
+ //   staff  — owner/admin/principal/teachers/accountant…: everything, as before
+ //   family — a parent or student: only their own children, via portal_my_data()
+ // The database itself enforces this (Row Level Security), not just this code.
+ // ──────────────────────────────────────────────────────────────
+ PUBLIC_TABLES: ['calendar', 'gallery', 'disclosureDocs'],
+ FAMILY_WRITABLE: ['complaints', 'homeworkSubmissions'],
+ _sessionKind: 'public',
+ // Remove every private table from this browser (used at startup and on logout), so a shared
+ // or public computer never keeps school records after the session ends.
+ _purgePrivateLocal() {
+  Object.keys(DB_SCHEMA).forEach(t => {
+   if (DB_SCHEMA[t].type === 'scalar') return;
+   if (this.PUBLIC_TABLES.includes(t)) return;
+   try { localStorage.removeItem(t); } catch (_) {}
+  });
+  ['_lastReceiptId'].forEach(k => { try { localStorage.removeItem(k); } catch (_) {} });
+  this._seenIds = {};
+  this._signCache = {};
+ },
+ // Page load: behave as a public visitor.
  async syncOnStartup() {
-  if (this.mode !== 'cloud') { this._syncEnabled = true; this._startupDone = true; return { ok: false, reason: 'local mode' }; }
+  if (this.mode !== 'cloud') { this._syncEnabled = true; this._startupDone = true; this._sessionKind = 'staff'; return { ok: false, reason: 'local mode' }; }
+  if (this._sessionKind === 'public') this._purgePrivateLocal();
   try {
    const ping = await this.pingCloud();
    if (!ping.ok) {
-    // Offline: do NOT enable sync push yet (we have no cloud truth to compare against).
-    // Local data stays as-is; we'll sync when back online without clobbering cloud.
-    this._syncState = 'offline';
-    this._notifySyncUI('offline');
-    this._startupDone = true;
+    this._syncState = 'offline'; this._notifySyncUI('offline'); this._startupDone = true;
     return { ok: false, reason: ping.error };
    }
-   // CLOUD IS SOURCE OF TRUTH ON STARTUP.
-   // Pull everything down FIRST (sync still disabled, so the pulls don't re-queue pushes).
-   await this.pullAll();
-   // Re-seed ONLY tables that are still empty after the pull (first-ever run / brand-new tables).
-   // This is the critical fix: if cloud already had users/data, they are now loaded and
-   // seedIfEmpty() will NOT overwrite them with CHANGE_ME placeholders.
-   if (typeof seedIfEmpty === 'function') seedIfEmpty();
-   // Now it is safe to turn auto-sync ON. Clear any stray queue from the pull/seed.
+   if (this._sessionKind === 'public') {
+    for (const t of this.PUBLIC_TABLES) { try { await this.pullTable(t); } catch (_) {} }
+   }
    this._pendingTables.clear();
    this._syncEnabled = true;
    this._startupDone = true;
    this._syncState = 'idle';
    this._lastSyncAt = new Date();
    this._notifySyncUI('idle');
-   this.startAutoRefresh();
-   try { migrateReceiptNumbers(); } catch(e){}   // now that the real data is here
    return { ok: true };
   } catch (e) {
-   // On error, leave sync OFF so we never push local placeholders over cloud data.
-   this._syncState = 'error';
-   this._lastSyncError = e.message;
-   this._notifySyncUI('error');
-   this._startupDone = true;
+   this._syncState = 'error'; this._lastSyncError = e.message; this._notifySyncUI('error'); this._startupDone = true;
    return { ok: false, reason: e.message };
   }
+ },
+ // After a staff login: load all school data, then switch on two-way sync.
+ async startStaffSession() {
+  this._sessionKind = 'staff';
+  this._syncEnabled = false;
+  this._pendingTables.clear();
+  await this.pullAll();
+  if (typeof seedIfEmpty === 'function') seedIfEmpty();
+  this._pendingTables.clear();
+  this._syncEnabled = true;
+  this._startupDone = true;
+  this._syncState = 'idle';
+  this._lastSyncAt = new Date();
+  this._notifySyncUI('idle');
+  this.startAutoRefresh();
+  try { migrateReceiptNumbers(); } catch (e) {}
+  if (typeof _autoMigrateFilesToCloud === 'function') _autoMigrateFilesToCloud();
+ },
+ // After a parent/student login: load only that family's records.
+ async startFamilySession() {
+  this._sessionKind = 'family';
+  await this.loadFamily();
+  this._startupDone = true;
+  this.startAutoRefresh();
+ },
+ async loadFamily() {
+  const { data, error } = await this._supabase().rpc('portal_my_data');
+  if (error) throw new Error(error.message);
+  const was = this._syncEnabled; this._syncEnabled = false;
+  Object.keys(DB_SCHEMA).forEach(t => {
+   const meta = DB_SCHEMA[t];
+   if (meta.type === 'scalar' || this.PUBLIC_TABLES.includes(t)) return;
+   if (meta.type === 'array') this.setAll(t, Array.isArray(data[t]) ? data[t] : []);
+   else this.setObject(t, (data[t] && typeof data[t] === 'object') ? data[t] : {});
+  });
+  this.FAMILY_WRITABLE.forEach(t => { this._seenIds[t] = new Set((data[t] || []).map(r => String(r && r.id))); });
+  this._familyStudentIds = (data.familyStudentIds || []).map(String);
+  this._pendingTables.clear();
+  this._syncEnabled = was || true;
+  this._syncState = 'idle';
+  return data;
+ },
+ // Visitors may add an admission enquiry; families a complaint or a homework submission.
+ async _flushLimited() {
+  const tables = [...this._pendingTables];
+  this._pendingTables.clear();
+  const allowed = this._sessionKind === 'family' ? this.FAMILY_WRITABLE : ['enquiries'];
+  for (const t of tables) {
+   if (!allowed.includes(t)) continue;
+   const seen = this._seenIds[t] || (this._seenIds[t] = new Set());
+   for (const r of this.getAll(t)) {
+    if (!r || r.id == null || seen.has(String(r.id))) continue;
+    try {
+     const call = this._sessionKind === 'family'
+      ? this._supabase().rpc('portal_family_add', { p_table: t, p_rec: r })
+      : this._supabase().rpc('public_submit_enquiry', { p_rec: r });
+     const { error } = await call;
+     if (error) throw new Error(error.message);
+     seen.add(String(r.id));
+    } catch (e) { this._lastSyncError = e.message; this._notifySyncUI('error'); }
+   }
+  }
+ },
+ // Logout: sign out and wipe this browser's copy of school data.
+ async endSession() {
+  if (this._autoPullTimer) { clearInterval(this._autoPullTimer); this._autoPullTimer = null; }
+  if (this.mode !== 'cloud') return;
+  if (this._sessionKind === 'staff' && this._pendingTables.size) { try { await this._flushSync(); } catch (_) {} }
+  this._sessionKind = 'public';
+  this._pendingTables.clear();
+  this._purgePrivateLocal();
+  try { await this._supabase().auth.signOut(); } catch (_) {}
  }
 };
 
+
+// ===== Private documents (Aadhaar, PAN, marksheets, receipt scans) =====
+// They are saved as "sbpriv://private-docs/<path>". Any <a href> or <img src> using that form is
+// swapped for a short-lived signed link as soon as it appears on screen. Only signed-in staff can
+// get such a link — the database rules refuse everyone else.
+(function(){
+ if (typeof document === 'undefined') return;
+ const fix = el => {
+  const attr = el.tagName === 'IMG' ? 'src' : 'href';
+  const ref = el.getAttribute(attr);
+  if (!ref || !ref.startsWith('sbpriv://') || el.dataset.privBusy) return;
+  el.dataset.privBusy = '1'; el.dataset.privRef = ref;
+  if (attr === 'src') el.removeAttribute('src');
+  DB.signedUrl(ref).then(u => { el.setAttribute(attr, u); }).catch(() => {
+   if (attr === 'src') el.alt = 'Private file — log in as staff to view';
+   else { el.removeAttribute('href'); el.title = 'Private file — log in as staff to view'; }
+  }).finally(() => { delete el.dataset.privBusy; });
+ };
+ const scan = root => { if (root && root.querySelectorAll) root.querySelectorAll('img[src^="sbpriv://"],a[href^="sbpriv://"]').forEach(fix); };
+ const start = () => {
+  scan(document.body);
+  new MutationObserver(list => list.forEach(m => {
+   if (m.type === 'attributes') { if (m.target.nodeType === 1) fix(m.target); return; }
+   m.addedNodes.forEach(n => { if (n.nodeType === 1) { if (n.matches && n.matches('img[src^="sbpriv://"],a[href^="sbpriv://"]')) fix(n); scan(n); } });
+  })).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['src', 'href'] });
+ };
+ if (document.body) start(); else document.addEventListener('DOMContentLoaded', start);
+ // A click that arrives before the signed link is ready still opens the file.
+ document.addEventListener('click', e => {
+  const a = e.target.closest && e.target.closest('a[href^="sbpriv://"],a[data-priv-busy]');
+  if (!a) return;
+  const ref = a.getAttribute('href') && a.getAttribute('href').startsWith('sbpriv://') ? a.getAttribute('href') : a.dataset.privRef;
+  if (!ref) return;
+  e.preventDefault();
+  const w = window.open('', '_blank');
+  DB.signedUrl(ref).then(u => { if (w) w.location.href = u; else window.open(u, '_blank'); })
+   .catch(err => { if (w) w.close(); alert('This file is private. ' + err.message); });
+ }, true);
+})();
+
+
+// Move ID documents (students' KYC, staff documents) and receipt scans out of the public bucket
+// (or out of the browser, if still inline) into the private bucket. Safe to run again.
+async function _moveDocsToPrivate(say){
+ const sb = DB._supabase();
+ const PUB = '/storage/v1/object/public/' + DB.STORAGE_BUCKET + '/';
+ let moved = 0, failed = 0, seen = 0;
+ const toPrivate = async (ref, folder, name) => {
+  if (!ref || String(ref).startsWith('sbpriv://')) return null;
+  let blob, path;
+  if (String(ref).startsWith('data:')) {
+   blob = _dataURLtoBlob(ref); if (!blob) return null;
+   const up = await DB.uploadFile(new File([blob], name || 'document', { type: blob.type }), folder);
+   return up.url;
+  }
+  const i = String(ref).indexOf(PUB);
+  if (i < 0) return null;                         // not one of ours
+  path = decodeURIComponent(String(ref).slice(i + PUB.length).split('?')[0]);
+  const resp = await fetch(ref); if (!resp.ok) throw new Error('download ' + resp.status);
+  blob = await resp.blob();
+  const { error } = await sb.storage.from(DB.PRIVATE_BUCKET).upload(path, blob, { upsert: true, contentType: blob.type || 'application/octet-stream' });
+  if (error) throw new Error(error.message);
+  try { await sb.storage.from(DB.STORAGE_BUCKET).remove([path]); } catch (_) {}
+  return 'sbpriv://' + DB.PRIVATE_BUCKET + '/' + path;
+ };
+ const run = async (ref, folder, name, apply) => {
+  seen++;
+  try { const u = await toPrivate(ref, folder, name); if (u) { apply(u); moved++; } }
+  catch (e) { failed++; console.warn('private move', e); }
+  if (say && seen % 5 === 0) say(`Working… ${moved} moved so far`);
+ };
+ const students = getStudents();
+ for (const s of students) for (const d of (s.documents || [])) await run(d.data, 'kyc/' + s.id, d.name, u => { d.data = u; d.path = u.replace('sbpriv://', ''); });
+ const teachers = getTeachers();
+ for (const t of teachers) for (const key of ['qualificationDocs', 'documents']) for (const d of (t[key] || [])) await run(d.data, 'staff/' + t.id, d.name, u => { d.data = u; d.path = u.replace('sbpriv://', ''); });
+ const fees = getFeeTransactions();
+ for (const t of fees) if (t.receiptImageUrl) await run(t.receiptImageUrl, 'receipts', 'receipt_' + t.id + '.jpg', u => { t.receiptImageUrl = u; t.receiptImagePath = u.replace('sbpriv://', ''); });
+ const exps = DB.getAll('expenses');
+ for (const t of exps) if (t.receiptImageUrl) await run(t.receiptImageUrl, 'receipts', 'bill_' + t.id + '.jpg', u => { t.receiptImageUrl = u; t.receiptImagePath = u.replace('sbpriv://', ''); });
+ if (moved) { saveStudents(students); DB.setAll('teachers', teachers); DB.setAll('feeTransactions', fees); DB.setAll('expenses', exps); await DB.flushNow(); }
+ return { moved, failed };
+}
 // ── Backward-compatible facade functions (every caller still works) ──
 function get(k){ return DB.getAll(k); }
 function set(k, d){ DB.setAll(k, d); }
@@ -4662,9 +4871,42 @@ function exportUdisCSV(){
 }
 
 /* Login handler — wired to my existing #loginSubmitBtn */
+// Cloud mode: the password is checked by the "portal-login" server function, which returns a
+// Supabase session. The browser then loads only what that login is allowed to see.
+async function _cloudLogin(u, p){
+ const errBox = document.getElementById('loginError');
+ const btn = document.getElementById('loginSubmitBtn');
+ const setBusy = (on, label) => { if (btn) { btn.disabled = on; if (label) btn.innerHTML = label; } };
+ const origLabel = btn ? btn.innerHTML : '';
+ if (!u || !p) { if (errBox) { errBox.textContent = 'Enter your username and password.'; errBox.classList.remove('hidden'); } return; }
+ setBusy(true, '<i class="fas fa-spinner fa-spin mr-1"></i>Checking…');
+ try {
+  const sb = DB._supabase();
+  const { data, error } = await sb.functions.invoke('portal-login', { body: { action: 'login', username: u, password: p } });
+  let res = data;
+  if (error && error.context && typeof error.context.json === 'function') { try { res = await error.context.json(); } catch (_) {} }
+  if (!res || !res.ok) {
+   if (errBox) { errBox.textContent = (res && res.error) || 'Could not reach the login service. Check the internet connection and try again.'; errBox.classList.remove('hidden'); }
+   setBusy(false, origLabel); return;
+  }
+  const { error: sErr } = await sb.auth.setSession({ access_token: res.session.access_token, refresh_token: res.session.refresh_token });
+  if (sErr) throw new Error(sErr.message);
+  setBusy(true, '<i class="fas fa-spinner fa-spin mr-1"></i>Loading school data…');
+  const user = res.user;
+  if (['parent','student'].includes(user.role)) await DB.startFamilySession(); else await DB.startStaffSession();
+  currentUser = user;
+  setBusy(false, origLabel);
+  closeLoginModal(); enterPortal(); showToast('Welcome, ' + user.name);
+ } catch (e) {
+  setBusy(false, origLabel);
+  try { await DB.endSession(); } catch (_) {}
+  if (errBox) { errBox.textContent = 'Login problem: ' + e.message; errBox.classList.remove('hidden'); }
+ }
+}
 async function loginUser(){
  const u=document.getElementById('loginUsername').value.trim();
  const p=document.getElementById('loginPassword').value;
+ if (DB.mode === 'cloud') return _cloudLogin(u, p);
  const user=getUsers().find(x=>x.username===u);
  const ok = user ? await verifyPassword(p, user.password) : false;
  if(ok){
@@ -4844,6 +5086,19 @@ function renderOwnerDashboard(){
   </div>`;
  }
 
+ if (ownerView === 'whatsapp') {
+  return `<div class="p-4 md:p-6 mx-auto portal-wide">
+   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+    <div>
+     <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
+     <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-crown text-amber-500 mr-2"></i>${currentUser.role==='managing_director'?'Managing Director':currentUser.role==='trustee'?'Trustee':'Owner'} · WhatsApp</h1>
+     <p class="text-gray-600 text-xs">${currentUser.name} · school WhatsApp number</p>
+    </div>
+    <button id="logoutBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
+   </div>
+   ${renderWhatsAppCentre()}
+  </div>`;
+ }
  if (ownerView === 'ptm') {
   return `<div class="p-4 md:p-6 mx-auto portal-wide">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
@@ -5142,6 +5397,15 @@ function renderOwnerDashboard(){
    </div>
   </div>
 
+  ${isFullOwner() && DB.mode === 'cloud' ? `
+  <!-- SECURITY: move ID documents into private storage (Owner only, run once) -->
+  <div class="bg-indigo-50 border-2 border-indigo-300 rounded-xl p-5 mt-6">
+   <h2 class="font-semibold mb-1 text-indigo-900"><i class="fas fa-lock text-indigo-600 mr-2"></i>Private documents</h2>
+   <p class="text-sm text-indigo-900 mb-3">New Aadhaar/PAN cards, marksheets, staff documents and receipt scans are saved in <b>private storage</b> automatically — only staff who are logged in can open them. Press this once to move the ones uploaded <b>before</b> the security upgrade.</p>
+   <button id="movePrivateDocsBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-shield-halved mr-1"></i>Move existing documents to private storage</button>
+   <div id="movePrivateDocsStatus" class="text-xs text-indigo-900 mt-2"></div>
+  </div>` : ''}
+
   ${isFullOwner() ? `
   <!-- DANGER ZONE: data reset for production setup (Owner only) -->
   <div class="bg-rose-50 border-2 border-rose-300 rounded-xl p-5 mt-6">
@@ -5169,7 +5433,7 @@ var ADMIN_CATEGORIES = [
  {key:'academics',  label:'Academics',        icon:'graduation-cap', tabs:['homework','marks','ptm','resources','reportcards','activities','gallery','calendar']},
  {key:'attendance', label:'Attendance',       icon:'calendar-check', tabs:['attendance','staffattendance']},
  {key:'finance',    label:'Finance & Assets', icon:'sack-dollar',    tabs:['feestructure','bank','vehicles','maintenance','inventory']},
- {key:'comms',      label:'Communication',    icon:'bullhorn',       tabs:['notices','broadcast','enquiries']},
+ {key:'comms',      label:'Communication',    icon:'bullhorn',       tabs:['whatsapp','notices','broadcast','enquiries']},
  {key:'compliance', label:'Compliance & Docs',icon:'shield-halved',  tabs:['compliance','disclosureDocs','documents','datamanagement','reports','tchaudit','backup']}
 ];
 var PRINCIPAL_CATEGORIES = [
@@ -5178,7 +5442,7 @@ var PRINCIPAL_CATEGORIES = [
  {key:'academics',  label:'Academics',   icon:'graduation-cap', tabs:['homework','marks','reportcards','resources','ptm','activities','gallery','calendar']},
  {key:'attendance', label:'Attendance',  icon:'calendar-check', tabs:['studentattendance','staffattendance','attendance']},
  {key:'finance',    label:'Fees',        icon:'chart-column',   tabs:['feedashboard','feereminders']},
- {key:'comms',      label:'Communication',icon:'bullhorn',      tabs:['notices','broadcast','enquiries']},
+ {key:'comms',      label:'Communication',icon:'bullhorn',      tabs:['whatsapp','notices','broadcast','enquiries']},
  {key:'records',    label:'Compliance & Records', icon:'shield-halved', tabs:['compliance','documents','reports']}
 ];
 var ACC_CATEGORIES = [
@@ -5218,6 +5482,7 @@ function renderAdminPanel(){
   {id:'reportcards',label:'Report Cards',icon:'file-lines'},
   {id:'enquiries',label:'Admissions',icon:'user-plus'},
   {id:'broadcast',label:'Broadcast',icon:'bullhorn'},
+  {id:'whatsapp',label:'WhatsApp',icon:'comments'},
   {id:'gallery',label:'Gallery',icon:'images'},
   {id:'activities',label:'Activities',icon:'photo-film'},
   {id:'disclosureDocs',label:'Disclosure PDFs',icon:'file-pdf'},
@@ -5270,6 +5535,7 @@ function renderAdminTabContent(){
   case 'feestructure':return renderFeeStructureTab();
   case 'reportcards':return renderReportCardsTab();
   case 'enquiries':return renderEnquiriesTab();
+  case 'whatsapp':return renderWhatsAppCentre();
   case 'broadcast':return renderBroadcastTab();
   case 'gallery':return renderGalleryAdminTab();
   case 'activities':return renderActivitiesPage();
@@ -7247,7 +7513,7 @@ function renderDataManagement(){
 
   <div class="mt-6"><h3 class="font-semibold mb-2">Anonymous Complaints</h3>
   <div class="overflow-x-auto"><table class="border text-sm"><thead><tr><th>Complaint</th><th>Status</th><th>Actions</th></tr></thead>
-  <tbody>${comps.map(c=>`<tr><td>${c.text}</td><td><span class="pill pill-${c.status==='resolved'?'green':'amber'}">${c.status}</span></td><td><button class="resolveCompBtn bg-green-500 hover:bg-green-600 text-white px-2 py-1 rounded text-xs" data-id="${c.id}">Resolve</button> <button class="deleteCompBtn text-red-600 ml-1" data-id="${c.id}">Delete</button></td></tr>`).join('')||'<tr><td colspan="3" class="text-center text-gray-500 py-3">No complaints</td></tr>'}</tbody></table></div></div>
+  <tbody>${comps.map(c=>`<tr><td>${escapeHTML(String(c.text||''))}</td><td><span class="pill pill-${c.status==='resolved'?'green':'amber'}">${escapeHTML(String(c.status||'open'))}</span></td><td><button class="resolveCompBtn bg-green-500 hover:bg-green-600 text-white px-2 py-1 rounded text-xs" data-id="${c.id}">Resolve</button> <button class="deleteCompBtn text-red-600 ml-1" data-id="${c.id}">Delete</button></td></tr>`).join('')||'<tr><td colspan="3" class="text-center text-gray-500 py-3">No complaints</td></tr>'}</tbody></table></div></div>
 
   <!-- Modals -->
   <div id="hwModal" class="hidden modal"><div class="modal-content"><h3 class="font-bold mb-3">Homework</h3><div class="space-y-2"><input id="dmHwClass" placeholder="Class"><input id="dmHwSubject" placeholder="Subject"><textarea id="dmHwDesc" placeholder="Description"></textarea><input type="date" id="dmHwDue"></div><div class="flex justify-end gap-2 mt-3"><button class="closeModal bg-gray-300 px-3 py-1.5 rounded">Cancel</button><button id="saveHwModal" class="bg-indigo-600 text-white px-3 py-1.5 rounded">Save</button></div></div></div>
@@ -8194,7 +8460,8 @@ function attachEnquiriesTabEvents(){
  document.getElementById('enqExportBtn')?.addEventListener('click', () => {
   const all = getEnquiries().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   let h = '<table border="1"><tr><th>Date</th><th>Name</th><th>Phone</th><th>Email</th><th>Class</th><th>Stage</th><th>Message</th><th>Follow-up</th></tr>';
-  all.forEach(e => h += `<tr><td>${e.date?new Date(e.date).toLocaleDateString('en-IN'):''}</td><td>${e.name||''}</td><td>${e.phone||''}</td><td>${e.email||''}</td><td>${e.childClass||''}</td><td>${e.stage||'new'}</td><td>${(e.message||e.subject||'').replace(/</g,'')}</td><td>${e.followup||''}</td></tr>`);
+  const x = v => escapeHTML(String(v == null ? '' : v));
+  all.forEach(e => h += `<tr><td>${e.date?new Date(e.date).toLocaleDateString('en-IN'):''}</td><td>${x(e.name)}</td><td>${x(e.phone)}</td><td>${x(e.email)}</td><td>${x(e.childClass)}</td><td>${x(e.stage||'new')}</td><td>${x(e.message||e.subject)}</td><td>${x(e.followup)}</td></tr>`);
   h += '</table>';
   downloadExcel(h, 'Enquiries_' + new Date().toISOString().slice(0,10));
  });
@@ -8945,6 +9212,7 @@ const PRINCIPAL_TAB_INFO = {
  feereminders:{label:'Fee Reminders', icon:'bell', color:'#dc2626', action:'Open Fee Reminders', desc:'Everyone with fees due, class by class — send a WhatsApp reminder to one parent or all of them, print or export the list.'},
  notices:{label:'Notice Board', icon:'thumbtack', color:'#ea580c', action:'Manage Notices', desc:'Post announcements to students, parents, teachers or the whole school.'},
  broadcast:{label:'Broadcast', icon:'bullhorn', color:'#d97706', action:'Send Broadcast', desc:'Send a message to a whole class or the entire school at once.'},
+ whatsapp:{label:'WhatsApp Centre', icon:'comments', color:'#059669', action:'Open WhatsApp', desc:'Parents\' messages to the school number, the bot\'s replies, and sending fee reminders, absence alerts, results and notices.'},
  enquiries:{label:'Admissions', icon:'inbox', color:'#4f46e5', action:'View Enquiries', desc:'Admission enquiries received from the website.'},
  compliance:{label:'Compliance', icon:'shield-halved', color:'#059669', action:'Manage Compliance', desc:'Licences, certificates and statutory documents with expiry alerts.'},
  documents:{label:'Documents', icon:'folder-open', color:'#7c3aed', action:'Open Documents', desc:'School document store — policies, circulars and records.'},
@@ -9005,6 +9273,7 @@ function renderPrincipalPanel(){
   {id:'notices',label:'Notice Board',icon:'thumbtack'},
   {id:'broadcast',label:'Broadcast',icon:'bullhorn'},
   {id:'enquiries',label:'Admissions',icon:'inbox'},
+  {id:'whatsapp',label:'WhatsApp',icon:'comments'},
   {id:'compliance',label:'Compliance',icon:'shield-halved'},
   {id:'documents',label:'Documents',icon:'folder-open'},
   {id:'reports',label:'Reports',icon:'chart-bar'}
@@ -9078,6 +9347,7 @@ function renderPrincipalTabContent(){
  else if(activePrincipalTab==='feereminders')return renderFeeRemindersTab();
  else if(activePrincipalTab==='broadcast')return renderBroadcastTab();
  else if(activePrincipalTab==='enquiries')return renderEnquiriesTab();
+ else if(activePrincipalTab==='whatsapp')return renderWhatsAppCentre();
  else if(activePrincipalTab==='documents')return renderDocuments();
  else if(activePrincipalTab==='studentattendance')return renderAdminAttendance();
  else if(activePrincipalTab==='teachers')return renderTeachersTab();
@@ -12561,8 +12831,9 @@ function _notifyParentAboutMarks(studentId, band){
 
 
 // Opens a modal listing the recipient(s) with a pre-filled message and WhatsApp + SMS buttons.
-function showParentNotifyModal(recipients, message, title){
+function showParentNotifyModal(recipients, message, title, waSpec){
  // recipients: [{name, studentName, phone}]
+ // waSpec (optional): { kind, items } — what to send through the school WhatsApp number
  const existing = document.getElementById('notifyParentModal'); if (existing) existing.remove();
  const el = document.createElement('div'); el.id='notifyParentModal'; el.className='modal';
  const rows = recipients.filter(r=>r.phone).map(r => {
@@ -12584,9 +12855,22 @@ function showParentNotifyModal(recipients, message, title){
    <div class="text-xs text-gray-400 mb-1">Recipients</div>
    <div class="max-h-64 overflow-y-auto border rounded-lg px-3">${rows || '<div class="text-sm text-gray-500 py-3">No parent phone numbers on file.</div>'}</div>
    ${noPhone.length?`<div class="text-xs text-amber-600 mt-2">${noPhone.length} student(s) have no parent phone number saved.</div>`:''}
-   <div class="flex justify-end gap-2 mt-4"><button class="closeModal bg-gray-700 text-white px-4 py-2 rounded-lg text-sm">Close</button></div>
+   <div class="flex justify-end gap-2 mt-4">${WA.ready() ? `<button id="notifyAutoBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm"><i class="fab fa-whatsapp mr-1"></i>Send to all automatically</button>` : ''}<button class="closeModal bg-gray-700 text-white px-4 py-2 rounded-lg text-sm">Close</button></div>
   </div>`;
  document.body.appendChild(el);
+ el.querySelector('#notifyAutoBtn')?.addEventListener('click', () => {
+  let kind = waSpec && waSpec.kind, items = waSpec && waSpec.items;
+  if (!items) {           // a free message → the "general notice" template, one per family
+   const msg = (el.querySelector('#notifyMsgBox')?.value || message || '').replace(/\s*\n+\s*/g, ' · ').slice(0, 600);
+   const seen = {};
+   items = recipients.filter(r => r.phone).filter(r => { const k = WA.phoneKey(r.phone); if (seen[k]) return false; seen[k] = 1; return k.length === 10; })
+     .map(r => ({ phone: r.phone, params: [msg], studentName: r.studentName || '', text: msg }));
+   kind = 'general';
+  }
+  if (!items.length) { alert('No parent phone numbers.'); return; }
+  if (!confirm(WA.confirmText(kind, items.length))) return;
+  el.remove(); WA.send(kind, items);
+ });
  // Live-edit: update links when the message is edited
  const box = el.querySelector('#notifyMsgBox');
  box?.addEventListener('input', () => {
@@ -14319,6 +14603,8 @@ function pt(en, hi){ return parentLang() === 'hi' ? (hi || en) : en; }
 function _findChildrenForParent(){
  // Former students copied in from last year's fee register are kept only for the school's records.
  const all = getStudents().filter(s => s.createdFrom !== 'Fee register 2025-26');
+ // Cloud: the database sent only this family's children (linked child + brothers/sisters on the same phone).
+ if (DB._sessionKind === 'family') return all;
  // Strategy 1: explicit parentId match (the original design)
  let kids = all.filter(s => s.parentId === currentUser.id);
  if (kids.length > 0) return kids;
@@ -14797,7 +15083,7 @@ function _attachPtmManagementEvents(){
   const school=(SCHOOL_INFO&&SCHOOL_INFO.shortName)||'School';
   const msg=`Dear Parent, a Parent-Teacher Meeting (${ev.title||'PTM'}) is scheduled on ${fmtDate(ev.date)}${ev.time?' at '+ev.time:''}. Your presence is requested to discuss your child's progress. — ${school}`;
   const recips=roster.map(s=>({name:s.parentName||s.fatherName||'Parent', studentName:s.name, phone:s.parentPhone||s.phone}));
-  showParentNotifyModal(recips, _ptmMsgWithNotice(msg, ev), 'Notify Parents — PTM');
+  showParentNotifyModal(recips, _ptmMsgWithNotice(msg, ev), 'Notify Parents — PTM', { kind: 'ptm', items: (WA.ready() ? WA.build('ptm', { ptmId: ev.id }).filter(it => recips.some(r => WA.phoneKey(r.phone) === WA.phoneKey(it.phone))) : []) });
  }));
 }
 // Events for the teacher PTM portal (tracking only — scheduling is done by management).
@@ -14842,7 +15128,7 @@ function _attachTchPtmEvents(){
   const school=(SCHOOL_INFO&&SCHOOL_INFO.shortName)||'School';
   const msg=`Dear Parent, a Parent-Teacher Meeting (${ev.title||'PTM'}) is scheduled on ${fmtDate(ev.date)}${ev.time?' at '+ev.time:''}. Your presence is requested to discuss your child's progress. — ${school}`;
   const recips=roster.map(s=>({name:s.parentName||s.fatherName||'Parent', studentName:s.name, phone:s.parentPhone||s.phone}));
-  showParentNotifyModal(recips, _ptmMsgWithNotice(msg, ev), 'Notify Parents — PTM');
+  showParentNotifyModal(recips, _ptmMsgWithNotice(msg, ev), 'Notify Parents — PTM', { kind: 'ptm', items: (WA.ready() ? WA.build('ptm', { ptmId: ev.id }).filter(it => recips.some(r => WA.phoneKey(r.phone) === WA.phoneKey(it.phone))) : []) });
  }));
 }
 function renderTchPTM(){
@@ -15868,7 +16154,8 @@ function _ownerQuickLinks(){
   {id:'ownerQuickStaffAtt',  view:'staffattendance',   icon:'user-clock',      label:'Staff Attendance', color:'#059669'},
   {id:'ownerQuickStudAtt',   view:'studentattendance', icon:'calendar-check',  label:'Student Attendance', color:'#2563eb'},
   {id:'ownerQuickFeeDash',   view:'feedashboard',      icon:'chart-column',    label:'Fee Dashboard', color:'#7a1e2e'},
-  {id:'ownerQuickLedger',    view:'ledger',            icon:'book',            label:'Ledger', color:'#334155'}
+  {id:'ownerQuickLedger',    view:'ledger',            icon:'book',            label:'Ledger', color:'#334155'},
+  {id:'ownerQuickWhatsApp',  view:'whatsapp',          icon:'comments',        label:'WhatsApp', color:'#059669'}
  ];
  return `<div class="mt-6">
    <h2 class="font-semibold text-gray-800 mb-2"><i class="fas fa-bolt text-amber-500 mr-2"></i>Quick access</h2>
@@ -15878,7 +16165,7 @@ function _ownerQuickLinks(){
    </div></div>`;
 }
 function _ownerCategoryTiles(){
- const counts = { finance:6, academics:4, people:3, attendance:3, admin:3 };
+ const counts = { finance:6, academics:4, people:3, attendance:3, admin:4 };
  const tile = (key) => { const s=OWNER_SECTIONS[key];
   return `<button class="ownerSecTile text-left bg-white border-2 rounded-2xl p-5 hover:shadow-md transition group" style="border-color:${s.color}33" data-sec="${key}">
     <div class="flex items-center gap-3">
@@ -15935,6 +16222,7 @@ function _ownerSectionCards(section){
    {btn:'ownerOpenAttendanceBtn', title:'Attendance Insights', icon:'chart-pie', color:'#0891b2', action:'Attendance Insights', desc:'Overall %, monthly trend, and students needing attention.'},
   ],
   admin: [
+   {btn:'ownerOpenWhatsAppBtn', title:'WhatsApp Centre', icon:'comments', color:'#059669', action:'Open WhatsApp', desc:'Parents\' messages to the school number, the bot\'s answers, and automatic fee reminders, absence alerts, results and notices.'},
    {btn:'ownerOpenUsersBtn', title:'User Accounts', icon:'user-shield', color:'#4f46e5', action:'Manage Users', desc:'Add staff, parents, students; change passwords; print login slips.', meta:`${users.length} logins${defPw>0?` · <span class="pill pill-red">${defPw} default password${defPw===1?'':'s'}</span>`:''}`},
    {btn:'ownerOpenComplianceBtn', title:'Compliance', icon:'shield-halved', color:'#059669', action:'Manage Compliance', desc:'Track licences, certificates and statutory documents with expiry alerts.'},
    {btn:'ownerOpenNoticesBtn', title:'Notice Board', icon:'thumbtack', color:'#ea580c', action:'Manage Notices', desc:'Post announcements to students, parents, teachers or the whole school.', meta:`${getNotices().filter(n=>!n.expiry||n.expiry>=new Date().toISOString().slice(0,10)).length} active notices`},
@@ -17579,6 +17867,10 @@ function attachFeeRemindersEvents(){
  document.querySelectorAll('.frRemindBtn').forEach(b => b.addEventListener('click', () => {
   const s = getStudents().find(x => x.id === parseInt(b.dataset.id));
   if (!s || !s.parentPhone) return;
+  if (WA.ready()) {
+   const items = WA.build('fee', { minDue: 0 }).filter(it => WA.phoneKey(it.phone) === WA.phoneKey(s.parentPhone));
+   if (items.length && confirm(`Send the fee reminder automatically from the school WhatsApp number?\n\n${items[0].text}\n\n(Cancel = open WhatsApp on this phone instead)`)) { WA.send('fee', items); return; }
+  }
   const url = `https://wa.me/${_cleanPhone(s.parentPhone)}?text=${encodeURIComponent(_feeReminderMessage(s))}`;
   window.open(url, '_blank');
   // Log the reminder
@@ -17592,6 +17884,10 @@ function attachFeeRemindersEvents(){
   const cls = document.getElementById('frClassFilter')?.value || '';
   const targets = getStudents().filter(s => (s.feeBalance||0) > 0 && s.parentPhone && (!cls || s.class === cls));
   if (targets.length === 0) { alert('No reminders to send (no students with dues and a phone number in this filter).'); return; }
+  if (WA.ready()) {
+   const items = WA.build('fee', { cls, minDue: 1 });
+   if (items.length && confirm(WA.confirmText('fee', items.length) + '\n\n(Cancel = open them one by one on this phone instead)')) { WA.send('fee', items); return; }
+  }
   if (!confirm(`Open ${targets.length} WhatsApp reminder${targets.length===1?'':'s'}? Each opens in a new tab — please allow popups, then tap Send in each WhatsApp window.`)) return;
   targets.forEach((s, i) => setTimeout(() => {
    const url = `https://wa.me/${_cleanPhone(s.parentPhone)}?text=${encodeURIComponent(_feeReminderMessage(s))}`;
@@ -21196,9 +21492,316 @@ function _attachLedgerEvents(){
  });
 }
 
+
+/* ============================================================
+   WHATSAPP CENTRE — school WhatsApp number (Meta Cloud API)
+   Inbox (parents' messages + bot replies), Send (fee reminders,
+   absence alerts, results, PTM, notices) and Settings.
+   Messages go out through the "whatsapp-send" server function;
+   the access token never touches this page.
+============================================================ */
+const WA_DEFAULT_TEMPLATES = { fee: 'fee_reminder', absence: 'absence_alert', result: 'result_ready', ptm: 'ptm_reminder', general: 'school_notice' };
+const WA_KINDS = {
+ fee:     { label: 'Fee reminder',     icon: 'indian-rupee-sign', cost: 0.14 },
+ absence: { label: 'Absence alert',    icon: 'user-xmark',        cost: 0.14 },
+ result:  { label: 'Result ready',     icon: 'file-lines',        cost: 0.14 },
+ ptm:     { label: 'PTM reminder',     icon: 'people-arrows',     cost: 0.14 },
+ general: { label: 'General notice',   icon: 'bullhorn',          cost: 1.02 }
+};
+let _waTab = 'inbox', _waOpenPhone = null, _waSendKind = 'fee';
+const WA = {
+ cfg(){
+  const c = DB.getObject('waConfig') || {};
+  return { enabled: false, botEnabled: true, lang: 'hi', officePhone: SCHOOL_INFO.phone || '', schoolName: SCHOOL_INFO.name || '', ...c,
+           templates: { ...WA_DEFAULT_TEMPLATES, ...(c.templates || {}) } };
+ },
+ ready(){ return DB.mode === 'cloud' && DB._sessionKind === 'staff' && !!this.cfg().enabled; },
+ canManage(){ return currentUser && ['owner','managing_director','trustee','admin','admin_teacher','principal'].includes(currentUser.role); },
+ async call(body){
+  const { data, error } = await DB._supabase().functions.invoke('whatsapp-send', { body });
+  let r = data;
+  if (error && error.context && typeof error.context.json === 'function') { try { r = await error.context.json(); } catch (_) {} }
+  if (!r) throw new Error(error ? error.message : 'No answer from the WhatsApp service');
+  return r;
+ },
+ phoneKey(p){ return String(p || '').replace(/\D/g, '').slice(-10); },
+ clsLabel(c){ return /^\d+$/.test(String(c)) ? String(c) : String(c); },
+ // one message per family (same phone): "Diya, Vedanshu" · "Nursery, 1"
+ group(students, extra){
+  const by = {};
+  students.forEach(s => { const k = this.phoneKey(s.parentPhone); if (k.length !== 10) return; (by[k] = by[k] || []).push(s); });
+  return Object.entries(by).map(([k, kids]) => ({ phone: k, kids, names: kids.map(s => s.name).join(', '), classes: [...new Set(kids.map(s => this.clsLabel(s.class)))].join(', '), ...(extra ? extra(kids) : {}) }));
+ },
+ dueOf(s){
+  let bal = Number(s.feeBalance) || 0;
+  try { const c = JSON.parse(JSON.stringify(s)); recalcFeeBalance(c); bal = Number(c.feeBalance) || 0; } catch (_) {}
+  return Math.max(0, bal) + Math.max(0, Number(s.previousDues) || 0);
+ },
+ // Build the messages for one kind. Returns [{phone, params, studentId, studentName, text}]
+ build(kind, opt){
+  const all = getStudents().filter(s => !s.archived && s.createdFrom !== 'Fee register 2025-26' && (!opt.cls || s.class === opt.cls));
+  const L = this.cfg().lang === 'en';
+  const inr = n => Number(n || 0).toLocaleString('en-IN');
+  if (kind === 'fee') {
+   const min = Number(opt.minDue) || 1;
+   return this.group(all.filter(s => this.dueOf(s) >= min), kids => ({ amount: kids.reduce((a, s) => a + this.dueOf(s), 0) }))
+    .map(g => ({ phone: g.phone, params: [g.names, g.classes, inr(g.amount)], studentId: g.kids[0].id, studentName: g.names,
+      text: L ? `Fees of Rs.${inr(g.amount)} are due for ${g.names} (Class ${g.classes}).` : `${g.names} (कक्षा ${g.classes}) की फीस ₹${inr(g.amount)} बकाया है।` }));
+  }
+  if (kind === 'absence') {
+   const d = opt.date || new Date().toISOString().slice(0, 10);
+   const att = getAttendanceRecords();
+   const dl = fmtDate(d);
+   return this.group(all.filter(s => att[s.id] && att[s.id][d] === 'A'))
+    .map(g => ({ phone: g.phone, params: [g.names, g.classes, dl], studentId: g.kids[0].id, studentName: g.names,
+      text: L ? `${g.names} (Class ${g.classes}) was absent on ${dl}.` : `${g.names} (कक्षा ${g.classes}) ${dl} को अनुपस्थित।` }));
+  }
+  if (kind === 'result') {
+   const exam = opt.exam || '';
+   const has = new Set(getExamMarks().filter(m => m.examName === exam).map(m => m.studentId));
+   return this.group(all.filter(s => has.has(s.id)))
+    .map(g => ({ phone: g.phone, params: [g.names, g.classes, exam], studentId: g.kids[0].id, studentName: g.names,
+      text: L ? `${exam} result of ${g.names} (Class ${g.classes}) is ready.` : `${g.names} (कक्षा ${g.classes}) का ${exam} परिणाम तैयार है।` }));
+  }
+  if (kind === 'ptm') {
+   const ev = DB.getAll('ptmEvents').find(e => String(e.id) === String(opt.ptmId));
+   if (!ev) return [];
+   const inEv = s => !ev.classes || !ev.classes.length || ev.classes.includes(s.class);
+   const dl = fmtDate(ev.date);
+   return this.group(all.filter(inEv))
+    .map(g => ({ phone: g.phone, params: [g.names, dl, ev.time || '-'], studentId: g.kids[0].id, studentName: g.names,
+      text: L ? `PTM for ${g.names} on ${dl}${ev.time ? ' at ' + ev.time : ''}.` : `${g.names} की अभिभावक-शिक्षक बैठक ${dl}${ev.time ? ', ' + ev.time : ''}।` }));
+  }
+  if (kind === 'general') {
+   const msg = String(opt.message || '').trim();
+   if (!msg) return [];
+   return this.group(all).map(g => ({ phone: g.phone, params: [msg], studentId: g.kids[0].id, studentName: g.names, text: msg }));
+  }
+  return [];
+ },
+ // Send (with a progress window). Returns the server's result.
+ async send(kind, items, opts){
+  opts = opts || {};
+  const cfg = this.cfg();
+  const template = cfg.templates[kind];
+  const old = document.getElementById('waSendModal'); if (old) old.remove();
+  const m = document.createElement('div'); m.id = 'waSendModal'; m.className = 'modal';
+  m.innerHTML = `<div class="modal-content" style="max-width:520px"><h3 class="text-lg font-bold mb-2"><i class="fab fa-whatsapp text-emerald-600 mr-1"></i>Sending ${items.length} WhatsApp message${items.length === 1 ? '' : 's'}…</h3>
+   <div class="text-sm text-gray-600" id="waSendStatus"><i class="fas fa-spinner fa-spin mr-1"></i>Please keep this page open.</div>
+   <div class="flex justify-end mt-4"><button class="closeModal bg-gray-700 text-white px-4 py-2 rounded-lg text-sm">Close</button></div></div>`;
+  document.body.appendChild(m);
+  const st = m.querySelector('#waSendStatus');
+  let sent = 0, failed = 0; const fails = [];
+  try {
+   for (let i = 0; i < items.length; i += 200) {          // in batches, so a big send never times out
+    const r = await this.call({ action: 'template', template, lang: cfg.lang, items: items.slice(i, i + 200) });
+    if (!r.ok) throw new Error(r.error || 'failed');
+    sent += r.sent; failed += r.failed;
+    (r.results || []).filter(x => !x.ok).forEach(x => fails.push(x));
+    st.innerHTML = `<i class="fas fa-spinner fa-spin mr-1"></i>${sent + failed} of ${items.length} done…`;
+   }
+   const reasons = {};
+   fails.forEach(f => { reasons[f.error] = (reasons[f.error] || 0) + 1; });
+   st.innerHTML = `<div class="text-emerald-700 font-semibold"><i class="fas fa-circle-check mr-1"></i>${sent} sent</div>` +
+    (failed ? `<div class="text-rose-700 mt-1">${failed} not sent:</div><ul class="text-xs text-rose-700 list-disc ml-5">${Object.entries(reasons).map(([k, v]) => `<li>${escapeHTML(k)} (${v})</li>`).join('')}</ul>` : '') +
+    `<div class="text-xs text-gray-500 mt-2">Delivery and "read" ticks appear in WhatsApp Centre → Inbox.</div>`;
+   if (sent) {
+    items.forEach((it, i) => { if (!fails.some(f => WA.phoneKey(f.phone) === WA.phoneKey(it.phone))) {
+     DB.insert('messageLog', { id: Date.now() + i, channel: 'whatsapp', type: kind, auto: true, studentId: it.studentId, studentName: it.studentName, parentPhone: it.phone, message: it.text, sentBy: currentUser?.name || '', sentByRole: currentUser?.role || '', sentAt: new Date().toISOString() });
+    } });
+   }
+   return { sent, failed };
+  } catch (e) {
+   st.innerHTML = `<div class="text-rose-700"><i class="fas fa-triangle-exclamation mr-1"></i>${escapeHTML(e.message)}</div>${sent ? `<div class="text-xs mt-1">${sent} were sent before the problem.</div>` : ''}`;
+   return { sent, failed: items.length - sent, error: e.message };
+  }
+ },
+ confirmText(kind, n){
+  const k = WA_KINDS[kind]; const cost = Math.ceil(n * k.cost);
+  return `Send ${n} ${k.label.toLowerCase()} message${n === 1 ? '' : 's'} from the school WhatsApp number?\n\nThey go out automatically — you don't have to press send for each one. Approximate cost: ₹${cost} (Meta's charge incl. GST).`;
+ }
+};
+
+let _waInbox = { loaded: false, messages: [], verified: {} };
+async function _waLoadInbox(){
+ try { const r = await WA.call({ action: 'inbox', limit: 1500 }); if (r.ok) _waInbox = { loaded: true, messages: r.messages || [], verified: r.verified || {} }; else showToast(r.error || 'Could not load the inbox'); }
+ catch (e) { showToast('Could not load the inbox: ' + e.message); }
+}
+function _waConversations(){
+ const msgs = (_waInbox.messages || []).slice().sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')));
+ const by = {};
+ msgs.forEach(m => {
+  const k = String(m.phone || '');
+  const c = by[k] = by[k] || { phone: k, msgs: [], name: '', names: '', last: '', lastIn: '', pending: 0, unknown: false };
+  c.msgs.push(m); c.last = m.at || c.last;
+  if (m.dir === 'in') { c.lastIn = m.at || c.lastIn; if (m.name) c.name = m.name; if (m.unknownNumber) c.unknown = true; if (m.needsReply && !m.handled) c.pending++; }
+  if (m.studentNames && (m.dir === 'in' || !c.namesFromIn)) { c.names = m.studentNames; if (m.dir === 'in') c.namesFromIn = true; }
+ });
+ return Object.values(by).sort((a, b) => (b.pending > 0) - (a.pending > 0) || String(b.last).localeCompare(String(a.last)));
+}
+function _waAgo(iso){
+ if (!iso) return '';
+ const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+ if (m < 1) return 'just now'; if (m < 60) return m + ' min ago';
+ const h = Math.round(m / 60); if (h < 24) return h + ' h ago';
+ return fmtDate(String(iso).slice(0, 10));
+}
+function renderWhatsAppCentre(){
+ const cfg = WA.cfg();
+ const tabs = [['inbox', 'Inbox', 'inbox'], ['send', 'Send messages', 'paper-plane']].concat(WA.canManage() ? [['settings', 'Settings', 'gear']] : []);
+ if (!tabs.some(t => t[0] === _waTab)) _waTab = 'inbox';
+ const pendingTotal = _waConversations().reduce((a, c) => a + c.pending, 0);
+ const head = `<div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+   <div><h2 class="text-lg font-bold"><i class="fab fa-whatsapp text-emerald-600 mr-1"></i>WhatsApp Centre</h2>
+    <p class="text-xs text-gray-500">Parents write to the school number and the bot answers fees, attendance, results, homework and PTM by itself. Anything for the office appears here.</p></div>
+   <div class="flex items-center gap-2">${cfg.enabled ? '<span class="pill pill-green">Automatic sending ON</span>' : '<span class="pill pill-gray">Automatic sending OFF</span>'}
+    <button id="waRefreshBtn" class="bg-white border px-3 py-1.5 rounded-lg text-sm"><i class="fas fa-rotate mr-1"></i>Refresh</button></div>
+  </div>
+  <div class="flex gap-1 border-b mb-4">${tabs.map(([id, label, icon]) => `<button class="waTabBtn px-3 py-2 text-sm font-medium rounded-t-lg ${_waTab === id ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-700'}" data-tab="${id}"><i class="fas fa-${icon} mr-1"></i>${label}${id === 'inbox' && pendingTotal ? ` <span class="bg-rose-600 text-white rounded-full px-1.5 text-[11px]">${pendingTotal}</span>` : ''}</button>`).join('')}</div>`;
+ let body = '';
+ if (_waTab === 'inbox') body = _renderWaInbox();
+ else if (_waTab === 'send') body = _renderWaSend();
+ else body = _renderWaSettings();
+ return `<div>${head}${body}</div>`;
+}
+function _renderWaInbox(){
+ if (!_waInbox.loaded) { setTimeout(async () => { await _waLoadInbox(); if (_waInbox.loaded) renderApp(); }, 0); return '<div class="text-sm text-gray-500 p-6"><i class="fas fa-spinner fa-spin mr-1"></i>Loading WhatsApp messages…</div>'; }
+ const convs = _waConversations();
+ if (!convs.length) return `<div class="bg-gray-50 border rounded-lg p-6 text-center text-gray-500"><i class="fab fa-whatsapp text-3xl mb-2"></i><div>No WhatsApp messages yet. When parents write to the school number, the conversations appear here.</div></div>`;
+ const open = convs.find(c => c.phone === _waOpenPhone) || null;
+ const list = convs.map(c => `<button class="waConvBtn w-full text-left p-3 border-b hover:bg-emerald-50 ${open && open.phone === c.phone ? 'bg-emerald-50' : ''}" data-phone="${escapeHTML(c.phone)}">
+   <div class="flex justify-between gap-2"><span class="font-medium text-sm truncate">${escapeHTML(c.names || c.name || c.phone)}</span><span class="text-[11px] text-gray-400 whitespace-nowrap">${_waAgo(c.last)}</span></div>
+   <div class="text-xs text-gray-500 truncate">${escapeHTML(c.name ? c.name + ' · ' : '')}+${escapeHTML(c.phone)}${c.unknown ? ' · <span class="text-amber-700">number not in records</span>' : ''}</div>
+   ${c.pending ? `<span class="inline-block mt-1 bg-rose-600 text-white rounded-full px-2 text-[11px]">${c.pending} for the office</span>` : ''}
+  </button>`).join('');
+ let thread = '<div class="text-sm text-gray-500 p-6">Choose a conversation.</div>';
+ if (open) {
+  const within24 = open.lastIn && (Date.now() - new Date(open.lastIn).getTime()) < 23.5 * 3600000;
+  thread = `<div class="p-3 border-b flex flex-wrap justify-between gap-2 items-center">
+    <div><div class="font-semibold">${escapeHTML(open.names || 'Unknown number')}</div><div class="text-xs text-gray-500">${escapeHTML(open.name || '')} · +${escapeHTML(open.phone)}</div></div>
+    <div class="flex gap-1">${!open.unknown && _waInbox.verified[open.phone] === false && WA.canManage() ? `<button id="waVerifyBtn" class="bg-amber-100 hover:bg-amber-200 text-amber-900 px-3 py-1.5 rounded text-xs" title="The parent has not confirmed this number with the child's date of birth yet"><i class="fas fa-user-check mr-1"></i>Confirm this parent</button>` : ''}
+    ${open.pending ? `<button id="waMarkDoneBtn" class="bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded text-xs"><i class="fas fa-check mr-1"></i>Mark as done</button>` : ''}</div>
+   </div>
+   <div class="p-3 space-y-2 overflow-y-auto" style="max-height:420px" id="waThread">${open.msgs.map(m => `<div class="flex ${m.dir === 'in' ? '' : 'justify-end'}">
+     <div class="max-w-[80%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${m.dir === 'in' ? 'bg-white border' : m.bot ? 'bg-emerald-50 border border-emerald-100' : 'bg-emerald-600 text-white'}">${escapeHTML(String(m.text || '').slice(0, 1500))}
+      <div class="text-[10px] mt-1 ${m.dir === 'in' || m.bot ? 'text-gray-400' : 'text-emerald-100'}">${m.dir === 'in' ? (m.needsReply && !m.handled ? '⚠ for the office · ' : '') : (m.bot ? 'bot · ' : (m.by ? escapeHTML(m.by) + ' · ' : ''))}${_waAgo(m.at)}${m.status ? ' · ' + escapeHTML(m.status) : ''}${m.error ? ' · <b>' + escapeHTML(m.error) + '</b>' : ''}</div></div></div>`).join('')}</div>
+   <div class="p-3 border-t">${within24 ? `<textarea id="waReplyBox" rows="2" class="w-full text-sm" placeholder="Type a reply… (it goes from the school number)"></textarea>
+     <div class="flex justify-between items-center mt-2"><span class="text-[11px] text-gray-500">Free replies are possible for 24 hours after the parent's last message.</span><button id="waReplyBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm"><i class="fas fa-paper-plane mr-1"></i>Send</button></div>`
+     : `<div class="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded p-2">More than 24 hours since this parent last wrote, so WhatsApp only allows an approved template message now (Send messages tab), or call them${open.phone ? ` on <a class="underline" href="tel:+${escapeHTML(open.phone)}">+${escapeHTML(open.phone)}</a>` : ''}.</div>`}</div>`;
+ }
+ return `<div class="grid md:grid-cols-3 border rounded-lg overflow-hidden bg-white" style="min-height:420px">
+   <div class="border-r overflow-y-auto" style="max-height:560px">${list}</div>
+   <div class="md:col-span-2 flex flex-col">${thread}</div></div>`;
+}
+function _renderWaSend(){
+ const cfg = WA.cfg();
+ const classes = ALL_CLASSES.filter(c => getStudents().some(s => !s.archived && s.class === c));
+ const exams = [...new Set(getExamMarks().map(m => m.examName).filter(Boolean))];
+ const today = new Date().toISOString().slice(0, 10);
+ const ptms = DB.getAll('ptmEvents').filter(e => (e.date || '') >= today).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+ const k = _waSendKind;
+ const off = !cfg.enabled ? `<div class="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-900 mb-3"><i class="fas fa-circle-info mr-1"></i>Automatic sending is switched off. ${WA.canManage() ? 'Turn it on in <b>Settings</b> once the school WhatsApp number and templates are approved by Meta.' : 'Ask the owner to switch it on.'}</div>` : '';
+ return `${off}<div class="grid md:grid-cols-5 gap-2 mb-4">${Object.entries(WA_KINDS).map(([id, x]) => `<button class="waKindBtn border-2 rounded-lg p-3 text-left text-sm ${k === id ? 'border-emerald-600 bg-emerald-50' : 'bg-white'}" data-kind="${id}"><i class="fas fa-${x.icon} text-emerald-700 mr-1"></i><b>${x.label}</b><div class="text-[11px] text-gray-500 mt-1">about ₹${x.cost.toFixed(2)} per family</div></button>`).join('')}</div>
+  <div class="bg-white border rounded-lg p-4">
+   <div class="grid md:grid-cols-3 gap-3">
+    <div><label class="text-xs font-medium">Class</label><select id="waOptCls"><option value="">All classes</option>${classes.map(c => `<option value="${c}">${/^\d+$/.test(c) ? 'Class ' + c : c}</option>`).join('')}</select></div>
+    ${k === 'fee' ? `<div><label class="text-xs font-medium">Only if due is at least (₹)</label><input id="waOptMinDue" type="number" value="1"></div>` : ''}
+    ${k === 'absence' ? `<div><label class="text-xs font-medium">Date</label><input id="waOptDate" type="date" value="${today}"></div>` : ''}
+    ${k === 'result' ? `<div><label class="text-xs font-medium">Exam</label><select id="waOptExam">${exams.map(e => `<option>${escapeHTML(e)}</option>`).join('') || '<option value="">No marks yet</option>'}</select></div>` : ''}
+    ${k === 'ptm' ? `<div><label class="text-xs font-medium">Meeting</label><select id="waOptPtm">${ptms.map(e => `<option value="${e.id}">${escapeHTML(e.title || 'PTM')} — ${fmtDate(e.date)}</option>`).join('') || '<option value="">No upcoming PTM</option>'}</select></div>` : ''}
+    ${k === 'general' ? `<div class="md:col-span-2"><label class="text-xs font-medium">Message (one line)</label><input id="waOptMsg" maxlength="600" placeholder="e.g. School will remain closed on 2 November for Diwali."></div>` : ''}
+   </div>
+   ${k === 'general' ? `<div class="text-[11px] text-amber-700 mt-2">Meta may treat general notices as "marketing" (about ₹1 each). Fee, absence, result and PTM messages cost about ₹0.14.</div>` : ''}
+   <div class="flex flex-wrap items-center gap-2 mt-4">
+    <button id="waPreviewBtn" class="bg-white border px-4 py-2 rounded-lg text-sm"><i class="fas fa-eye mr-1"></i>Preview recipients</button>
+    <button id="waSendBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium" ${cfg.enabled ? '' : 'disabled style="opacity:.5"'}><i class="fab fa-whatsapp mr-1"></i>Send from school WhatsApp</button>
+    <span class="text-xs text-gray-500">Template: <code>${escapeHTML(cfg.templates[k])}</code> (${cfg.lang === 'en' ? 'English' : 'Hindi'}) · one message per family</span>
+   </div>
+   <div id="waPreview" class="mt-3"></div>
+  </div>`;
+}
+function _renderWaSettings(){
+ const c = WA.cfg();
+ const tpl = Object.entries(WA_KINDS).map(([id, x]) => `<div><label class="text-xs font-medium">${x.label} template</label><input class="waTplInput" data-kind="${id}" value="${escapeHTML(c.templates[id])}"></div>`).join('');
+ return `<div class="bg-white border rounded-lg p-4 space-y-3 max-w-3xl">
+   <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="waCfgEnabled" class="w-auto" ${c.enabled ? 'checked' : ''}> <b>Automatic sending</b> — staff can send fee reminders, absence alerts, results and notices from the school number</label>
+   <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="waCfgVerify" class="w-auto" ${c.verifyParents !== false ? 'checked' : ''}> <b>Parents confirm their number once</b> with the child's date of birth or admission number before the bot shares anything (recommended — numbers get reassigned)</label>
+   <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="waCfgBot" class="w-auto" ${c.botEnabled !== false ? 'checked' : ''}> <b>Bot answers parents by itself</b> (fees, attendance, results, homework, PTM, notices). Turn off to answer every message by hand.</label>
+   <div class="grid md:grid-cols-3 gap-3">
+    <div><label class="text-xs font-medium">School name (shown by the bot)</label><input id="waCfgSchool" value="${escapeHTML(c.schoolName)}"></div>
+    <div><label class="text-xs font-medium">Office phone (for urgent calls)</label><input id="waCfgOffice" value="${escapeHTML(c.officePhone)}"></div>
+    <div><label class="text-xs font-medium">Language</label><select id="waCfgLang"><option value="hi" ${c.lang !== 'en' ? 'selected' : ''}>Hindi (parents can switch)</option><option value="en" ${c.lang === 'en' ? 'selected' : ''}>English</option></select></div>
+   </div>
+   <div class="text-xs text-gray-600 font-semibold pt-2">Template names — exactly as approved in Meta (WhatsApp Manager → Message templates)</div>
+   <div class="grid md:grid-cols-3 gap-3">${tpl}</div>
+   <div class="flex flex-wrap gap-2 pt-2">
+    <button id="waCfgSaveBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm"><i class="fas fa-save mr-1"></i>Save settings</button>
+    <button id="waTestBtn" class="bg-white border px-4 py-2 rounded-lg text-sm"><i class="fas fa-plug mr-1"></i>Test connection</button>
+    <span id="waTestResult" class="text-sm"></span>
+   </div>
+   <div class="text-[11px] text-gray-500">The WhatsApp access token is kept only in Supabase (Edge Function secrets), never in this page.</div>
+  </div>`;
+}
+function attachWhatsAppCentreEvents(){
+ document.querySelectorAll('.waTabBtn').forEach(b => b.addEventListener('click', () => { _waTab = b.dataset.tab; renderApp(); }));
+ document.getElementById('waRefreshBtn')?.addEventListener('click', async () => {
+  try { await DB.pullTable('waConfig'); } catch (e) {}
+  await _waLoadInbox(); renderApp();
+ });
+ document.querySelectorAll('.waConvBtn').forEach(b => b.addEventListener('click', () => { _waOpenPhone = b.dataset.phone; renderApp(); setTimeout(() => { const t = document.getElementById('waThread'); if (t) t.scrollTop = t.scrollHeight; }, 50); }));
+ document.getElementById('waReplyBtn')?.addEventListener('click', async () => {
+  const box = document.getElementById('waReplyBox'); const text = (box?.value || '').trim();
+  if (!text || !_waOpenPhone) return;
+  const btn = document.getElementById('waReplyBtn'); btn.disabled = true;
+  try {
+   const r = await WA.call({ action: 'text', phone: _waOpenPhone, text });
+   if (!r.ok) throw new Error(r.error);
+   showToast('Reply sent'); await _waLoadInbox(); renderApp();
+  } catch (e) { alert('Not sent: ' + e.message); btn.disabled = false; }
+ });
+ document.getElementById('waMarkDoneBtn')?.addEventListener('click', async () => {
+  try { await WA.call({ action: 'mark_handled', phones: [_waOpenPhone] }); await _waLoadInbox(); renderApp(); } catch (e) { alert(e.message); }
+ });
+ document.getElementById('waVerifyBtn')?.addEventListener('click', async () => {
+  if (!confirm('Confirm that +' + _waOpenPhone + ' really belongs to this family? The bot will then share the children\'s fees, attendance and results with this number.')) return;
+  try { const r = await WA.call({ action: 'verify_phone', phone: _waOpenPhone }); if (!r.ok) throw new Error(r.error); showToast('Number confirmed'); await _waLoadInbox(); renderApp(); } catch (e) { alert(e.message); }
+ });
+ document.querySelectorAll('.waKindBtn').forEach(b => b.addEventListener('click', () => { _waSendKind = b.dataset.kind; renderApp(); }));
+ const opts = () => ({ cls: document.getElementById('waOptCls')?.value || '', minDue: document.getElementById('waOptMinDue')?.value, date: document.getElementById('waOptDate')?.value,
+   exam: document.getElementById('waOptExam')?.value, ptmId: document.getElementById('waOptPtm')?.value, message: document.getElementById('waOptMsg')?.value });
+ document.getElementById('waPreviewBtn')?.addEventListener('click', () => {
+  const items = WA.build(_waSendKind, opts());
+  const box = document.getElementById('waPreview');
+  box.innerHTML = items.length ? `<div class="text-sm font-medium mb-1">${items.length} famil${items.length === 1 ? 'y' : 'ies'} will get a message</div>
+   <div class="max-h-64 overflow-y-auto border rounded">${items.slice(0, 300).map(it => `<div class="text-xs px-2 py-1 border-b"><b>${escapeHTML(it.studentName)}</b> · ${escapeHTML(it.phone)} — ${escapeHTML(it.text)}</div>`).join('')}</div>`
+   : '<div class="text-sm text-gray-500">Nobody matches — nothing to send.</div>';
+ });
+ document.getElementById('waSendBtn')?.addEventListener('click', async () => {
+  const items = WA.build(_waSendKind, opts());
+  if (!items.length) { alert('Nobody matches — nothing to send.'); return; }
+  if (!confirm(WA.confirmText(_waSendKind, items.length))) return;
+  await WA.send(_waSendKind, items);
+ });
+ document.getElementById('waCfgSaveBtn')?.addEventListener('click', () => {
+  if (!WA.canManage()) return;
+  const c = WA.cfg();
+  const templates = {}; document.querySelectorAll('.waTplInput').forEach(i => { templates[i.dataset.kind] = i.value.trim() || WA_DEFAULT_TEMPLATES[i.dataset.kind]; });
+  DB.setObject('waConfig', { ...c, enabled: document.getElementById('waCfgEnabled').checked, botEnabled: document.getElementById('waCfgBot').checked, verifyParents: document.getElementById('waCfgVerify').checked,
+   schoolName: document.getElementById('waCfgSchool').value.trim(), officePhone: document.getElementById('waCfgOffice').value.trim(), lang: document.getElementById('waCfgLang').value, templates,
+   updatedBy: currentUser?.name || '', updatedAt: new Date().toISOString() });
+  showToast('WhatsApp settings saved'); renderApp();
+ });
+ document.getElementById('waTestBtn')?.addEventListener('click', async () => {
+  const out = document.getElementById('waTestResult'); out.textContent = 'Checking…';
+  try { const r = await WA.call({ action: 'test' }); out.innerHTML = r.ok ? `<span class="text-emerald-700"><i class="fas fa-circle-check mr-1"></i>Connected: ${escapeHTML(r.name || '')} ${escapeHTML(r.number || '')}${r.quality ? ' · quality ' + escapeHTML(r.quality) : ''}</span>` : `<span class="text-rose-700">${escapeHTML(r.error)}</span>`; }
+  catch (e) { out.innerHTML = `<span class="text-rose-700">${escapeHTML(e.message)}</span>`; }
+ });
+}
+
 /* ---------- CHAT WIDGET ---------- */
 function renderChatWidget(){
  if(!currentUser)return '';
+ if(DB._sessionKind==='family')return '';
  const msgs=getChatMessages();
  const unread=msgs.filter(m=>m.to===currentUser.id&&!m.read).length;
  return `<div id="chatFab" title="Open chat"><i class="fas fa-comments"></i>${unread>0?`<span class="badge">${unread}</span>`:''}</div>
@@ -21527,6 +22130,7 @@ function attachOwnerEvents(){
   ownerView = 'ptm';
   renderApp();
  });
+ document.getElementById('ownerOpenWhatsAppBtn')?.addEventListener('click', () => { ownerView = 'whatsapp'; renderApp(); });
  // Report cards navigation
  document.getElementById('ownerOpenReportCardsBtn')?.addEventListener('click', () => {
   ownerView = 'reportcards';
@@ -21634,6 +22238,7 @@ function attachOwnerEvents(){
   _attachAdminAttendanceEvents();
   return;
  }
+ if (ownerView === 'whatsapp') { attachWhatsAppCentreEvents(); }
  // When on the PTM view, attach PTM management handlers
  if (ownerView === 'ptm') {
   _attachPtmManagementEvents();
@@ -21812,6 +22417,17 @@ function attachOwnerEvents(){
   reader.readAsText(f);
  });
 
+ document.getElementById('movePrivateDocsBtn')?.addEventListener('click', async () => {
+  if (!isFullOwner()) return;
+  if (!confirm('Move every existing ID document, staff document and receipt scan into private storage?\n\nThey stay fully usable for staff. It takes a minute or two — keep this page open.')) return;
+  const btn = document.getElementById('movePrivateDocsBtn'); const st = document.getElementById('movePrivateDocsStatus');
+  btn.disabled = true;
+  try {
+   const r = await _moveDocsToPrivate(msg => { if (st) st.textContent = msg; });
+   if (st) st.innerHTML = `<b>Done.</b> ${r.moved} file(s) moved to private storage${r.failed ? `, ${r.failed} could not be moved (try again later)` : ''}.`;
+  } catch (e) { if (st) st.textContent = 'Stopped: ' + e.message; }
+  btn.disabled = false;
+ });
  document.getElementById('cloudPushBtn')?.addEventListener('click', async () => {
   if (!confirm('PUSH all local data to the cloud database?\n\nThis will UPSERT every record from this browser into Supabase. Existing cloud records with the same ID will be overwritten.\n\nUse this once you have data ready to share across devices, or to back up to the cloud.\n\nContinue?')) return;
   clearLog();
@@ -21903,6 +22519,7 @@ function attachActiveAdminTabEvents(){
  else if(activeAdminTab==='feestructure')attachFeeStructureEvents();
  else if(activeAdminTab==='reportcards')attachReportCardsEvents();
  else if(activeAdminTab==='enquiries')attachEnquiriesTabEvents();
+ else if(activeAdminTab==='whatsapp')attachWhatsAppCentreEvents();
  else if(activeAdminTab==='datamanagement')attachDataManagementEvents();
  else if(activeAdminTab==='gallery')attachGalleryAdminEvents();
  else if(activeAdminTab==='activities')attachActivitiesEvents();
@@ -22002,6 +22619,7 @@ function attachActivePrincipalTabEvents(){
  else if(activePrincipalTab==='feereminders')attachFeeRemindersEvents();
  else if(activePrincipalTab==='broadcast')attachBroadcastEvents();
  else if(activePrincipalTab==='enquiries')attachEnquiriesTabEvents();
+ else if(activePrincipalTab==='whatsapp')attachWhatsAppCentreEvents();
  else if(activePrincipalTab==='documents')attachGenericModuleEvents();
  else if(activePrincipalTab==='studentattendance')_attachAdminAttendanceEvents();
  else if(activePrincipalTab==='teachers')attachTeachersTabEvents();
@@ -24572,13 +25190,24 @@ function attachUsersTabEvents(){
    if (i > -1) users[i] = { ...users[i], ...data };
    showToast('User updated');
   } else {
-   data.id = Math.max(0, ...users.map(u => u.id)) + 1;
+   data.id = Math.max(Date.now(), Math.max(0, ...users.map(u => u.id)) + 1);   // never reuse a deleted login's id
    users.push(data);
    showToast('User added');
   }
   set('users', users);
   document.getElementById('userModal').classList.add('hidden');
   refresh();
+  // Cloud: the password is kept only on the login server (never in the users list).
+  if (DB.mode === 'cloud' && password) {
+   try {
+    await DB.flushNow();
+    const uid = id ? String(parseInt(id)) : String(data.id);
+    const { data: r, error: e2 } = await DB._supabase().functions.invoke('portal-login', { body: { action: 'admin_set_password', userId: uid, password } });
+    let res = r; if (e2 && e2.context && typeof e2.context.json === 'function') { try { res = await e2.context.json(); } catch (_) {} }
+    if (!res || !res.ok) alert('The password was NOT changed: ' + ((res && res.error) || 'the login service did not answer') + '\n\nPlease try again.');
+    else showToast('Password set for ' + name);
+   } catch (e) { alert('The password was NOT changed: ' + e.message); }
+  }
  });
 
  // === Bulk Generate Logins button ===
@@ -24938,6 +25567,9 @@ function renderBroadcastTab(){
 
     <h3 class="font-semibold mb-2 text-sm uppercase tracking-wider text-gray-600 mt-5">4. Send</h3>
     <div class="border rounded-lg p-4 bg-white space-y-2">
+     ${WA.ready() ? `<button id="bcSendAuto" class="w-full bg-emerald-700 hover:bg-emerald-800 text-white px-4 py-2.5 rounded-lg text-sm font-medium">
+      <i class="fab fa-whatsapp mr-1"></i>Send automatically from the school WhatsApp number
+     </button>` : ''}
      <button id="bcSendWhatsapp" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium">
       <i class="fab fa-whatsapp mr-1"></i>Open WhatsApp Links (one per parent)
      </button>
@@ -25073,6 +25705,19 @@ function attachBroadcastEvents(){
   DB.setAll('broadcastLog', log);
  };
 
+ // === Send automatically (school WhatsApp number, "general notice" template) ===
+ document.getElementById('bcSendAuto')?.addEventListener('click', () => {
+  const recipients = getRecipients();
+  const message = document.getElementById('bcMessage').value.trim();
+  if (!message) { alert('Please type a message or pick a template'); return; }
+  const seen = {};
+  const items = recipients.filter(s => { const k = WA.phoneKey(s.parentPhone); if (k.length !== 10 || seen[k]) return false; seen[k] = 1; return true; })
+   .map(s => { const t = renderTemplate(message, s).replace(/\s*\n+\s*/g, ' · ').slice(0, 600); return { phone: s.parentPhone, params: [t], studentId: s.id, studentName: s.name, text: t }; });
+  if (!items.length) { alert('No recipients with a phone number match the filter'); return; }
+  if (!confirm(WA.confirmText('general', items.length))) return;
+  logBroadcast(document.getElementById('bcTemplate').value, items.length);
+  WA.send('general', items);
+ });
  // === Generate WhatsApp links ===
  document.getElementById('bcSendWhatsapp').addEventListener('click', () => {
   const recipients = getRecipients();
@@ -25418,15 +26063,12 @@ if (DB.mode === 'cloud') {
   if (r.ok) {
    updateSyncBadge('idle', DB._lastSyncAt);
    if (typeof renderApp === 'function' && currentUser) renderApp();
-   // Cloud is reachable — quietly move any files still sitting in the browser up to
-   // cloud storage, so teachers never have to manage storage themselves.
-   if (typeof _autoMigrateFilesToCloud === 'function') _autoMigrateFilesToCloud();
+   // (files still inside a staff browser are moved to cloud storage after a staff login)
   } else {
    // Cloud unreachable or errored. We did NOT seed before (cloud mode), so if local
    // is also empty (brand-new device, offline), seed now so the app is usable.
    // Sync stays OFF in this state so we never push placeholders over cloud data;
    // it re-enables on a successful pull (reconnect / manual Pull).
-   if (getUsers().length === 0) { seedIfEmpty(); }
    updateSyncBadge(DB._syncState, null, r.reason);
   }
  });
@@ -25436,6 +26078,7 @@ if (DB.mode === 'cloud') {
 // Only if sync is enabled (startup pull succeeded) — never push placeholders over cloud.
 window.addEventListener('beforeunload', () => {
  if (DB.mode === 'cloud' && DB._syncEnabled && DB._startupDone && DB._pendingTables.size > 0) {
+  // (staff edits are pushed; a visitor/family only ever adds an enquiry, complaint or submission)
   DB._flushSync();
  }
 });
