@@ -4886,7 +4886,15 @@ async function _cloudLogin(u, p){
   let res = data;
   if (error && error.context && typeof error.context.json === 'function') { try { res = await error.context.json(); } catch (_) {} }
   if (!res || !res.ok) {
-   if (errBox) { errBox.textContent = (res && res.error) || 'Could not reach the login service. Check the internet connection and try again.'; errBox.classList.remove('hidden'); }
+   let why = res && res.error;
+   if (!why) {
+    const st = error && error.context && error.context.status;
+    const raw = res && (res.message || res.msg);
+    if (st === 404) why = 'The login service "portal-login" is not installed in Supabase (Edge Functions), or its name is different.';
+    else if (st) why = 'Login service error ' + st + (raw ? ': ' + raw : '') + '. Please send this message to the office.';
+    else why = 'Could not reach the login service. Check the internet connection and try again.';
+   }
+   if (errBox) { errBox.textContent = why; errBox.classList.remove('hidden'); }
    setBusy(false, origLabel); return;
   }
   const { error: sErr } = await sb.auth.setSession({ access_token: res.session.access_token, refresh_token: res.session.refresh_token });
