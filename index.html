@@ -13147,9 +13147,12 @@ function showParentNotifyModal(recipients, message, title, waSpec){
  // waSpec (optional): { kind, items } — what to send through the school WhatsApp number
  const existing = document.getElementById('notifyParentModal'); if (existing) existing.remove();
  const el = document.createElement('div'); el.id='notifyParentModal'; el.className='modal';
+ // {child} / {class} in the message are filled in for each parent
+ const fill = (m, r) => String(m || '').split('{child}').join(r.studentName || '').split('{class}').join(r.cls || '');
+ const personal = /\{child\}|\{class\}/.test(message || '');
  const rows = recipients.filter(r=>r.phone).map(r => {
-  const wa = 'https://wa.me/' + _cleanPhone(r.phone) + '?text=' + encodeURIComponent(message);
-  const sms = 'sms:' + (r.phone||'').replace(/[^\d+]/g,'') + '?&body=' + encodeURIComponent(message);
+  const wa = 'https://wa.me/' + _cleanPhone(r.phone) + '?text=' + encodeURIComponent(fill(message, r));
+  const sms = 'sms:' + (r.phone||'').replace(/[^\d+]/g,'') + '?&body=' + encodeURIComponent(fill(message, r));
   return `<div class="flex items-center justify-between gap-2 py-2 border-b last:border-0">
     <div class="text-sm min-w-0"><div class="font-medium">${escapeHTML(r.studentName||'')}</div><div class="text-xs text-gray-500">${escapeHTML(r.name||'Parent')} · ${escapeHTML(r.phone)}</div></div>
     <div class="flex gap-1 flex-shrink-0">
@@ -13162,7 +13165,8 @@ function showParentNotifyModal(recipients, message, title, waSpec){
  el.innerHTML = `<div class="modal-content" style="max-width:560px">
    <h3 class="text-lg font-bold mb-1"><i class="fab fa-whatsapp text-emerald-600 mr-1"></i>${escapeHTML(title||'Notify Parent')}</h3>
    <p class="text-xs text-gray-500 mb-2">The message below is ready to send. Tap WhatsApp or SMS for each parent — it opens with the message pre-filled; just press send.</p>
-   <textarea id="notifyMsgBox" rows="4" class="text-sm w-full mb-3">${escapeHTML(message)}</textarea>
+   <textarea id="notifyMsgBox" rows="${personal ? 9 : 4}" class="text-sm w-full ${personal ? 'mb-1' : 'mb-3'}">${escapeHTML(message)}</textarea>
+   ${personal ? '<div class="text-[11px] text-gray-500 mb-3"><b>{child}</b> and <b>{class}</b> are replaced with each student\'s name and class when you tap WhatsApp or SMS.</div>' : ''}
    <div class="text-xs text-gray-400 mb-1">Recipients</div>
    <div class="max-h-64 overflow-y-auto border rounded-lg px-3">${rows || '<div class="text-sm text-gray-500 py-3">No parent phone numbers on file.</div>'}</div>
    ${noPhone.length?`<div class="text-xs text-amber-600 mt-2">${noPhone.length} student(s) have no parent phone number saved.</div>`:''}
@@ -13186,8 +13190,8 @@ function showParentNotifyModal(recipients, message, title, waSpec){
  const box = el.querySelector('#notifyMsgBox');
  box?.addEventListener('input', () => {
   const m = box.value;
-  el.querySelectorAll('a[href^="https://wa.me"]').forEach((a,i)=>{ const r=recipients.filter(x=>x.phone)[i]; if(r) a.href='https://wa.me/'+_cleanPhone(r.phone)+'?text='+encodeURIComponent(m); });
-  el.querySelectorAll('a[href^="sms:"]').forEach((a,i)=>{ const r=recipients.filter(x=>x.phone)[i]; if(r) a.href='sms:'+(r.phone||'').replace(/[^\d+]/g,'')+'?&body='+encodeURIComponent(m); });
+  el.querySelectorAll('a[href^="https://wa.me"]').forEach((a,i)=>{ const r=recipients.filter(x=>x.phone)[i]; if(r) a.href='https://wa.me/'+_cleanPhone(r.phone)+'?text='+encodeURIComponent(fill(m, r)); });
+  el.querySelectorAll('a[href^="sms:"]').forEach((a,i)=>{ const r=recipients.filter(x=>x.phone)[i]; if(r) a.href='sms:'+(r.phone||'').replace(/[^\d+]/g,'')+'?&body='+encodeURIComponent(fill(m, r)); });
  });
  el.querySelectorAll('.closeModal').forEach(b=>b.addEventListener('click',()=>el.remove()));
 }
@@ -15294,6 +15298,30 @@ function _ptmMsgWithNotice(msg, ev){
  if (hi) return msg + `\n\nसूचना: ${ev.noticeHiUrl}`;
  return msg;
 }
+// Pre-filled PTM message for parents: Hindi, then English, each starting with the child's name and
+// class. {child} and {class} are filled in separately for every parent in the send window.
+function _ptmBilingualMsg(ev){
+ const web = u => !!u && /^https?:/i.test(u);
+ const dl = fmtDate(ev.date);
+ const hiTime = ev.time ? `, समय ${ev.time}` : '';
+ const enTime = ev.time ? ` at ${ev.time}` : '';
+ const note = ev.description ? String(ev.description).trim() : '';
+ const hiLink = web(ev.noticeHiUrl) ? ev.noticeHiUrl : (web(ev.noticeUrl) ? ev.noticeUrl : '');
+ const enLink = web(ev.noticeUrl) ? ev.noticeUrl : (web(ev.noticeHiUrl) ? ev.noticeHiUrl : '');
+ return `*{child}* (कक्षा {class}) — अभिभावक-शिक्षक बैठक\n`
+  + `मूर्ति देवी बालिका विद्यापीठ में ${dl}${hiTime} अभिभावक-शिक्षक बैठक होगी। बच्चे की प्रगति पर बात करने के लिए आपकी उपस्थिति आवश्यक है।`
+  + (hiLink ? `\nसूचना (हिंदी): ${hiLink}` : '')
+  + `\n\n*{child}* (Class {class}) — Parent-Teacher Meeting\n`
+  + `A Parent-Teacher Meeting${ev.title && ev.title !== 'Parent-Teacher Meeting' ? ' (' + ev.title + ')' : ''} is on ${dl}${enTime} at ${SCHOOL_INFO.name}. Your presence is requested to discuss your child's progress.`
+  + (note ? `\n${note}` : '')
+  + (enLink && enLink !== hiLink ? `\nNotice (English): ${enLink}` : (enLink && !hiLink ? `\nNotice: ${enLink}` : ''))
+  + `\n\nधन्यवाद / Thank you\n${SCHOOL_INFO.name}${SCHOOL_INFO.phone ? '\n' + SCHOOL_INFO.phone : ''}`;
+}
+// One entry per student for the send window (father's name by default).
+function _ptmRecipients(roster){
+ return roster.map(s => ({ name: s.fatherName || s.parentName || 'Parent', studentName: s.name,
+   cls: String(s.class || '') + (s.section ? '-' + s.section : ''), phone: s.parentPhone || s.phone }));
+}
 function renderPtmManagement(){
  const today = new Date().toISOString().slice(0,10);
  const events = DB.getAll('ptmEvents').sort((a,b)=>(b.date||'').localeCompare(a.date||''));
@@ -15438,10 +15466,8 @@ function _attachPtmManagementEvents(){
  document.querySelectorAll('.pmPtmNotifyBtn').forEach(b=>b.addEventListener('click',()=>{
   const ev=DB.getAll('ptmEvents').find(x=>x.id===parseInt(b.dataset.id)); if(!ev) return;
   const roster=getStudents().filter(s=>(!ev.classes||!ev.classes.length||ev.classes.includes(s.class))&&!s.archived);
-  const school=(SCHOOL_INFO&&SCHOOL_INFO.shortName)||'School';
-  const msg=`Dear Parent, a Parent-Teacher Meeting (${ev.title||'PTM'}) is scheduled on ${fmtDate(ev.date)}${ev.time?' at '+ev.time:''}. Your presence is requested to discuss your child's progress. — ${school}`;
-  const recips=roster.map(s=>({name:s.parentName||s.fatherName||'Parent', studentName:s.name, phone:s.parentPhone||s.phone}));
-  showParentNotifyModal(recips, _ptmMsgWithNotice(msg, ev), 'Notify Parents — PTM', { kind: 'ptm', items: (WA.ready() ? WA.build('ptm', { ptmId: ev.id }).filter(it => recips.some(r => WA.phoneKey(r.phone) === WA.phoneKey(it.phone))) : []) });
+  const recips=_ptmRecipients(roster);
+  showParentNotifyModal(recips, _ptmBilingualMsg(ev), 'Notify Parents — PTM', { kind: 'ptm', items: (WA.ready() ? WA.build('ptm', { ptmId: ev.id }).filter(it => recips.some(r => WA.phoneKey(r.phone) === WA.phoneKey(it.phone))) : []) });
  }));
 }
 // Events for the teacher PTM portal (tracking only — scheduling is done by management).
@@ -15483,10 +15509,8 @@ function _attachTchPtmEvents(){
   const classes=_teacherAssignedClasses();
   const evClasses=(ev.classes&&ev.classes.length)?ev.classes.filter(c=>classes.includes(c)):classes;
   const roster=getStudents().filter(s=>evClasses.includes(s.class)&&!s.archived);
-  const school=(SCHOOL_INFO&&SCHOOL_INFO.shortName)||'School';
-  const msg=`Dear Parent, a Parent-Teacher Meeting (${ev.title||'PTM'}) is scheduled on ${fmtDate(ev.date)}${ev.time?' at '+ev.time:''}. Your presence is requested to discuss your child's progress. — ${school}`;
-  const recips=roster.map(s=>({name:s.parentName||s.fatherName||'Parent', studentName:s.name, phone:s.parentPhone||s.phone}));
-  showParentNotifyModal(recips, _ptmMsgWithNotice(msg, ev), 'Notify Parents — PTM', { kind: 'ptm', items: (WA.ready() ? WA.build('ptm', { ptmId: ev.id }).filter(it => recips.some(r => WA.phoneKey(r.phone) === WA.phoneKey(it.phone))) : []) });
+  const recips=_ptmRecipients(roster);
+  showParentNotifyModal(recips, _ptmBilingualMsg(ev), 'Notify Parents — PTM', { kind: 'ptm', items: (WA.ready() ? WA.build('ptm', { ptmId: ev.id }).filter(it => recips.some(r => WA.phoneKey(r.phone) === WA.phoneKey(it.phone))) : []) });
  }));
 }
 function renderTchPTM(){
@@ -21874,6 +21898,8 @@ function _attachLedgerEvents(){
    the access token never touches this page.
 ============================================================ */
 const WA_DEFAULT_TEMPLATES = { fee: 'fee_reminder', absence: 'absence_alert', result: 'result_ready', ptm: 'ptm_reminder', general: 'school_notice' };
+// Templates written in both languages at once are created in Meta under Hindi only.
+const WA_TEMPLATE_LANG = { ptm: 'hi' };
 const WA_KINDS = {
  fee:     { label: 'Fee reminder',     icon: 'indian-rupee-sign', cost: 0.14 },
  absence: { label: 'Absence alert',    icon: 'user-xmark',        cost: 0.14 },
@@ -21898,6 +21924,9 @@ const WA = {
   return r;
  },
  phoneKey(p){ return String(p || '').replace(/\D/g, '').slice(-10); },
+ // picture used on PTM messages when the meeting has no notice photo — the school logo on the website
+ defaultImage(){ const c = this.cfg(); if (c.defaultImage && /^https?:/i.test(c.defaultImage)) return c.defaultImage;
+  try { return (location.origin && /^https?:/.test(location.origin) ? location.origin : 'https://mdbv-edu.in') + '/assets/img/logo.png'; } catch (_) { return 'https://mdbv-edu.in/assets/img/logo.png'; } },
  clsLabel(c){ return /^\d+$/.test(String(c)) ? String(c) : String(c); },
  // one message per family (same phone): "Diya, Vedanshu" · "Nursery, 1"
  group(students, extra){
@@ -21940,10 +21969,15 @@ const WA = {
    const ev = DB.getAll('ptmEvents').find(e => String(e.id) === String(opt.ptmId));
    if (!ev) return [];
    const inEv = s => !ev.classes || !ev.classes.length || ev.classes.includes(s.class);
-   const dl = fmtDate(ev.date);
+   const dl = fmtDate(ev.date), tm = ev.time || '-';
+   // the message carries the notice as its picture: Hindi notice first, else English, else the school logo
+   const pic = (u, t) => (u && /^https?:/i.test(u) && t !== 'application/pdf') ? u : '';
+   const header = pic(ev.noticeHiUrl, ev.noticeHiType) || pic(ev.noticeUrl, ev.noticeType) || this.defaultImage();
    return this.group(all.filter(inEv))
-    .map(g => ({ phone: g.phone, params: [g.names, dl, ev.time || '-'], studentId: g.kids[0].id, studentName: g.names,
-      text: L ? `PTM for ${g.names} on ${dl}${ev.time ? ' at ' + ev.time : ''}.` : `${g.names} की अभिभावक-शिक्षक बैठक ${dl}${ev.time ? ', ' + ev.time : ''}।` }));
+    .map(g => ({ phone: g.phone, headerImage: header,
+      // Hindi part ({{1}}–{{4}}) and English part ({{5}}–{{8}}) of the bilingual template
+      params: [g.names, g.classes, dl, tm, g.names, g.classes, dl, tm], studentId: g.kids[0].id, studentName: g.names,
+      text: `${g.names} (कक्षा ${g.classes}) — अभिभावक-शिक्षक बैठक ${dl}${ev.time ? ', ' + ev.time : ''} · ${g.names} (Class ${g.classes}) — PTM on ${dl}${ev.time ? ' at ' + ev.time : ''}` }));
   }
   if (kind === 'general') {
    const msg = String(opt.message || '').trim();
@@ -21967,7 +22001,7 @@ const WA = {
   let sent = 0, failed = 0; const fails = [];
   try {
    for (let i = 0; i < items.length; i += 200) {          // in batches, so a big send never times out
-    const r = await this.call({ action: 'template', template, lang: cfg.lang, items: items.slice(i, i + 200) });
+    const r = await this.call({ action: 'template', template, lang: WA_TEMPLATE_LANG[kind] || cfg.lang, items: items.slice(i, i + 200) });
     if (!r.ok) throw new Error(r.error || 'failed');
     sent += r.sent; failed += r.failed;
     (r.results || []).filter(x => !x.ok).forEach(x => fails.push(x));
