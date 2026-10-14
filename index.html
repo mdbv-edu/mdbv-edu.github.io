@@ -2288,6 +2288,60 @@ const DB_SCHEMA = {
  _lastReceiptId:      { type: 'scalar', desc: 'Last receipt ID for post-save print prompt' }
 };
 
+// ── Change tracking for shared documents (attendance, staff attendance, PTM notes…) ──
+// Many teachers write to the same document at the same time. Sending the WHOLE document would let
+// the last save wipe everyone else's, so a save sends only what changed (a "patch"), and the server
+// merges it in. Patch format, per top-level key (e.g. a student id):
+//   null              → remove the key
+//   {__set: value}    → replace the whole value
+//   {k2: v2 | null}   → change / remove single entries inside it (e.g. one date)
+function _isPlainObj(x){ return !!x && typeof x === 'object' && !Array.isArray(x); }
+function _objDiff(oldO, newO){
+ const patch = {};
+ oldO = _isPlainObj(oldO) ? oldO : {}; newO = _isPlainObj(newO) ? newO : {};
+ for (const k of Object.keys(oldO)) if (!(k in newO)) patch[k] = null;
+ for (const k of Object.keys(newO)) {
+  const a = oldO[k], b = newO[k];
+  if (_isPlainObj(b) && (a === undefined || _isPlainObj(a))) {
+   const aa = a || {}, inner = {};
+   for (const k2 of Object.keys(aa)) if (!(k2 in b)) inner[k2] = null;
+   for (const k2 of Object.keys(b)) if (JSON.stringify(aa[k2]) !== JSON.stringify(b[k2])) inner[k2] = (b[k2] === undefined ? null : b[k2]);
+   if (Object.keys(inner).length || a === undefined) patch[k] = inner;
+  } else if (JSON.stringify(a) !== JSON.stringify(b)) {
+   patch[k] = { __set: b };
+  }
+ }
+ return patch;
+}
+function _objApplyPatch(obj, patch){
+ const out = Object.assign({}, _isPlainObj(obj) ? obj : {});
+ for (const k of Object.keys(patch || {})) {
+  const v = patch[k];
+  if (v === null) delete out[k];
+  else if (_isPlainObj(v) && ('__set' in v)) out[k] = v.__set;
+  else if (_isPlainObj(v)) {
+   const inner = Object.assign({}, _isPlainObj(out[k]) ? out[k] : {});
+   for (const k2 of Object.keys(v)) { if (v[k2] === null) delete inner[k2]; else inner[k2] = v[k2]; }
+   out[k] = inner;
+  }
+ }
+ return out;
+}
+// Combine an older pending patch with a newer one into a single patch.
+function _objComposePatch(older, newer){
+ const out = Object.assign({}, older || {});
+ for (const k of Object.keys(newer || {})) {
+  const n = newer[k], o = out[k];
+  if (n === null || (_isPlainObj(n) && ('__set' in n))) { out[k] = n; continue; }
+  if (o === undefined) { out[k] = Object.assign({}, n); continue; }
+  if (o === null) { out[k] = { __set: _objApplyPatch({ x: {} }, { x: n }).x }; continue; }
+  if ('__set' in o) { out[k] = { __set: _objApplyPatch({ x: o.__set }, { x: n }).x }; continue; }
+  out[k] = Object.assign({}, o, n);
+ }
+ return out;
+}
+const _MANAGER_ROLES = ['owner', 'managing_director', 'trustee', 'admin', 'admin_teacher'];
+
 const DB = {
  // ── Mode detection ──
  get mode() {
@@ -2304,9 +2358,13 @@ const DB = {
   } catch { return []; }
  },
  setAll(table, data) {
+  const rows = Array.isArray(data) ? data : [];
+  const track = this._tracking(table);
+  const before = track ? this.getAll(table) : null;
   try {
-   localStorage.setItem(table, JSON.stringify(Array.isArray(data) ? data : []));
+   localStorage.setItem(table, JSON.stringify(rows));
   } catch (e) { this._handleStorageError(e); throw e; }
+  if (track) this._noteRowChanges(table, before, rows);
   this._queueSync(table);
  },
  insert(table, record) {
@@ -2344,10 +2402,46 @@ const DB = {
   } catch { return {}; }
  },
  setObject(table, obj) {
+  const track = this._tracking(table);
+  const before = track ? this.getObject(table) : null;
   try {
    localStorage.setItem(table, JSON.stringify(obj || {}));
   } catch (e) { this._handleStorageError(e); throw e; }
+  if (track) {
+   const p = _objDiff(before, obj || {});
+   if (Object.keys(p).length) this._objPatches[table] = _objComposePatch(this._objPatches[table], p);
+   this._bumpEpoch(table);
+  }
   this._queueSync(table);
+ },
+
+ // ── What this browser changed and has not yet saved to the cloud ──
+ _applyingRemote: false,   // true while writing data that came FROM the cloud (never echo it back)
+ _rowChanges: {},          // array tables: { up: Set(ids changed/added), del: Set(ids removed) }
+ _objPatches: {},          // object tables: pending patch (see _objDiff)
+ _epoch: {},               // bumps on every local change, so a slow refresh never overwrites newer work
+ _bumpEpoch(t) { this._epoch[t] = (this._epoch[t] || 0) + 1; },
+ _tracking(table) {
+  return this.mode === 'cloud' && this._syncEnabled && !this._applyingRemote && this._sessionKind === 'staff'
+   && !!DB_SCHEMA[table] && DB_SCHEMA[table].type !== 'scalar' && !DB_SCHEMA[table].readonly;
+ },
+ _noteRowChanges(table, before, after) {
+  const ch = this._rowChanges[table] || (this._rowChanges[table] = { up: new Set(), del: new Set() });
+  const old = new Map();
+  (before || []).forEach(r => { if (r && r.id != null) old.set(String(r.id), JSON.stringify(r)); });
+  const now = new Set();
+  (after || []).forEach(r => {
+   if (!r || r.id == null) return;
+   const id = String(r.id); now.add(id);
+   if (old.get(id) !== JSON.stringify(r)) { ch.up.add(id); ch.del.delete(id); }
+  });
+  old.forEach((_, id) => { if (!now.has(id)) { ch.del.add(id); ch.up.delete(id); } });
+  this._bumpEpoch(table);
+ },
+ // Write data that came from the cloud, without treating it as a local change.
+ _writeRemote(fn) {
+  const was = this._applyingRemote; this._applyingRemote = true;
+  try { return fn(); } finally { this._applyingRemote = was; }
  },
 
  // ── Scalar operations ──
@@ -2481,12 +2575,85 @@ const DB = {
   return this.mode === 'cloud' && typeof window.supabase !== 'undefined';
  },
 
+ // Used only until the server merge function is installed: read the latest copy, apply our
+ // change, write it back straight away (a much smaller window than sending an old copy).
+ async _mergeObjectFallback(sqlTable, patch) {
+  const sb = this._supabase();
+  const { data: rows, error } = await sb.from(sqlTable).select('data').eq('id', 1).limit(1);
+  if (error) throw new Error(`${sqlTable}: ${error.message}`);
+  const merged = _objApplyPatch(rows && rows[0] ? rows[0].data : {}, patch);
+  const { error: e2 } = await sb.from(sqlTable).upsert([{ id: 1, data: merged }], { onConflict: 'id' });
+  if (e2) throw new Error(`${sqlTable}: ${e2.message}`);
+  return merged;
+ },
+
  // Push a single table's local data to cloud
- async pushTable(jsTable) {
+ async pushTable(jsTable, opts) {
   const meta = DB_SCHEMA[jsTable];
   if (!meta) throw new Error(`Unknown table: ${jsTable}`);
   const sb = this._supabase();
   const sqlTable = this._sqlTable(jsTable);
+  const full = !!(opts && opts.full);
+
+  // Normal saves: send only the rows this browser changed, so two people working at the same
+  // time never overwrite each other's rows with an older copy.
+  if (meta.type === 'array' && !full && this._rowChanges[jsTable]) {
+   const ch = this._rowChanges[jsTable];
+   let rows = this.getAll(jsTable);
+   const fixed = _dedupeRowIds(rows);
+   if (!fixed.changed) {
+    const up = [...ch.up], del = [...ch.del];
+    ch.up = new Set(); ch.del = new Set();
+    try {
+     const byId = new Map(rows.filter(r => r && r.id != null).map(r => [String(r.id), r]));
+     const payload = up.map(id => byId.get(id)).filter(Boolean).map(r => ({ id: r.id, data: r }));
+     const BATCH = 500;
+     for (let i = 0; i < payload.length; i += BATCH) {
+      const { error } = await sb.from(sqlTable).upsert(payload.slice(i, i + BATCH), { onConflict: 'id' });
+      if (error) throw new Error(`${sqlTable}: ${error.message}`);
+     }
+     for (let i = 0; i < del.length; i += BATCH) {
+      const { error } = await sb.from(sqlTable).delete().in('id', del.slice(i, i + BATCH));
+      if (error) throw new Error(`${sqlTable} (delete): ${error.message}`);
+     }
+     const seen = this._seenIds[jsTable] || (this._seenIds[jsTable] = new Set());
+     payload.forEach(p => seen.add(String(p.id))); del.forEach(id => seen.delete(id));
+     return { count: payload.length, deleted: del.length, table: sqlTable };
+    } catch (e) {
+     up.forEach(id => { if (!ch.del.has(id)) ch.up.add(id); });
+     del.forEach(id => { if (!ch.up.has(id)) ch.del.add(id); });
+     throw e;
+    }
+   }
+   // duplicate ids had to be repaired → fall through to a full save of this table
+   this._rowChanges[jsTable] = { up: new Set(), del: new Set() };
+  }
+
+  // Shared documents (attendance etc.): send the change only; the server merges it in one step.
+  // (never send a whole shared document on a normal save — an old copy would wipe newer work)
+  if (meta.type === 'object' && !full && ((jsTable in this._objPatches) || this._sessionKind === 'staff')) {
+   const patch = this._objPatches[jsTable];
+   delete this._objPatches[jsTable];
+   if (!patch || !Object.keys(patch).length) return { count: 0, table: sqlTable };
+   try {
+    let merged;
+    const { data, error } = await sb.rpc('mdbv_merge_object', { p_table: sqlTable, p_patch: patch });
+    if (error) {
+     const m = (error.message || '') + ' ' + (error.code || '');
+     if (/mdbv_merge_object|PGRST202|could not find the function|does not exist/i.test(m)) merged = await this._mergeObjectFallback(sqlTable, patch);
+     else throw new Error(`${sqlTable}: ${error.message}`);
+    } else merged = data;
+    // show everyone else's latest marks too — plus anything typed here in the meantime
+    const newer = this._objPatches[jsTable];
+    const finalObj = newer ? _objApplyPatch(merged, newer) : merged;
+    this._writeRemote(() => this.setObject(jsTable, finalObj || {}));
+    return { count: 1, table: sqlTable };
+   } catch (e) {
+    const newer = this._objPatches[jsTable];
+    this._objPatches[jsTable] = newer ? _objComposePatch(patch, newer) : patch;
+    throw e;
+   }
+  }
 
   if (meta.type === 'array') {
    let rows = this.getAll(jsTable);
@@ -2558,6 +2725,7 @@ const DB = {
   if (!meta) throw new Error(`Unknown table: ${jsTable}`);
   const sb = this._supabase();
   const sqlTable = this._sqlTable(jsTable);
+  const epoch0 = this._epoch[jsTable] || 0;
 
   if (meta.type === 'array') {
    // Supabase returns at most 1000 rows per request. Without paging, a table larger than that
@@ -2572,16 +2740,31 @@ const DB = {
     if (batch.length < PAGE) break;
     if (from > 200000) break;               // hard stop, should never be reached
    }
-   this.setAll(jsTable, arr);
-   this._seenIds[jsTable] = new Set(arr.map(r => String(r && r.id)));
+   // Something was changed here while we were downloading — keep it; the next refresh catches up.
+   if ((this._epoch[jsTable] || 0) !== epoch0) return { count: arr.length, table: sqlTable, skipped: true };
+   const cloudIds = arr.map(r => String(r && r.id));
+   // Changes made here that are not saved to the cloud yet stay on top of what came down.
+   const ch = this._rowChanges[jsTable];
+   let merged = arr;
+   if (ch && (ch.up.size || ch.del.size)) {
+    const mine = new Map(this.getAll(jsTable).filter(r => r && r.id != null).map(r => [String(r.id), r]));
+    merged = arr.filter(r => !(r && ch.del.has(String(r.id)))).map(r => (r && ch.up.has(String(r.id)) && mine.has(String(r.id))) ? mine.get(String(r.id)) : r);
+    const have = new Set(merged.map(r => String(r && r.id)));
+    ch.up.forEach(id => { if (!have.has(id) && mine.has(id)) merged.push(mine.get(id)); });
+   }
+   this._writeRemote(() => this.setAll(jsTable, merged));
+   this._seenIds[jsTable] = new Set(cloudIds);
    return { count: arr.length, table: sqlTable };
   }
 
   if (meta.type === 'object') {
    const { data: rows, error } = await sb.from(sqlTable).select('data').eq('id', 1).limit(1);
    if (error) throw new Error(`${sqlTable}: ${error.message}`);
+   if ((this._epoch[jsTable] || 0) !== epoch0) return { count: 1, table: sqlTable, skipped: true };
    if (rows && rows[0]) {
-    this.setObject(jsTable, rows[0].data);
+    const pending = this._objPatches[jsTable];
+    const obj = pending ? _objApplyPatch(rows[0].data, pending) : rows[0].data;
+    this._writeRemote(() => this.setObject(jsTable, obj));
     return { count: 1, table: sqlTable };
    }
    return { count: 0, table: sqlTable };
@@ -2607,7 +2790,8 @@ const DB = {
    i++;
    try {
     if (progressCb) progressCb({ table: t, step: i, total: tables.length, status: 'syncing' });
-    results[t] = await this.pushTable(t);
+    results[t] = await this.pushTable(t, { full: true });   // an explicit "upload everything"
+    delete this._objPatches[t]; if (this._rowChanges[t]) this._rowChanges[t] = { up: new Set(), del: new Set() };
     if (progressCb) progressCb({ table: t, step: i, total: tables.length, status: 'done', count: results[t].count });
    } catch (e) {
     results[t] = { error: e.message };
@@ -2678,7 +2862,10 @@ const DB = {
  // Called by setAll/setObject after every write
  _queueSync(table) {
   if (this.mode !== 'cloud' || !this._syncEnabled) return;
+  if (this._applyingRemote) return;       // data that just came from the cloud — nothing to send back
   if (!DB_SCHEMA[table]) return;          // ignore non-schema keys
+  // only the owner/admin may change the WhatsApp settings; others' copies are read-only
+  if (table === 'waConfig' && !(typeof currentUser !== 'undefined' && currentUser && _MANAGER_ROLES.includes(currentUser.role))) return;
   if (DB_SCHEMA[table].type === 'scalar') return; // scalars don't sync
   if (DB_SCHEMA[table].readonly) return;          // written by the server only
   this._pendingTables.add(table);
@@ -2709,7 +2896,13 @@ const DB = {
     // A missing table (schema not created in Supabase) will never succeed by
     // retrying — record it but DON'T re-queue, so it can't block everything.
     const isMissingTable = /does not exist|could not find the table|relation .* does not exist|schema cache/i.test(msg);
-    if (isMissingTable) {
+    const isDenied = /row-level security|permission denied|not allowed|42501/i.test(msg);
+    if (isDenied) {
+     // This login may not change this table — retrying forever would only block the refresh.
+     this._lastSyncError = `Not allowed to save ${t} with this login.`;
+     delete this._objPatches[t]; if (this._rowChanges[t]) this._rowChanges[t] = { up: new Set(), del: new Set() };
+     console.warn('[MDBV Sync] not allowed:', t, msg);
+    } else if (isMissingTable) {
      missingTables.push(this._sqlTable(t));
      this._lastSyncError = `Table "${this._sqlTable(t)}" not found in Supabase. Run the matching SQL file once in the Supabase SQL Editor.`;
      // do not re-queue — avoids endless error loop
@@ -13382,6 +13575,7 @@ function _attachAttendanceEvents(){
   const renderRoster = () => {
    const cls = classSel.value;
    const date = dateSel.value;
+   if (roster) roster.dataset.dirty = '';
    if (!cls) {
     roster.innerHTML = '<div class="text-sm text-gray-500 py-3 text-center">Select a class to load roster</div>';
     saveBtn.disabled = true;
@@ -13412,6 +13606,8 @@ function _attachAttendanceEvents(){
 
   classSel?.addEventListener('change', () => { teacherClassFilter = classSel.value; renderRoster(); });
   dateSel?.addEventListener('change', renderRoster);
+  // remember that marks were tapped but not saved, so the quiet refresh never repaints over them
+  document.getElementById('attMarkRoster')?.addEventListener('change', e => { if (e.target && e.target.type === 'radio') e.currentTarget.dataset.dirty = '1'; });
 
   document.getElementById('attMarkAllPresent')?.addEventListener('click', () => {
    document.querySelectorAll('#attMarkRoster input[value="P"]').forEach(r => r.checked = true);
@@ -13432,6 +13628,7 @@ function _attachAttendanceEvents(){
     count++;
    });
    saveAttendanceRecords(ar);
+   const rosterEl = document.getElementById('attMarkRoster'); if (rosterEl) rosterEl.dataset.dirty = '';
    showToast('Attendance saved (' + count + ' students for ' + date + ')');
   });
 
@@ -21931,6 +22128,7 @@ function _formInProgress(){
   // an open edit window (student, staff, receipt…) — never repaint underneath it
   for (const m of document.querySelectorAll('.modal:not(.hidden)')) if (m.getClientRects().length) return true;
   // any marks/attendance grid with something typed but not yet saved
+  if (document.querySelector('#attMarkRoster[data-dirty="1"]')) return true;
   const grids = document.querySelectorAll('.mkInput, .attCell, .stuRegCell, .staffAttCell');
   for (const g of grids) if (g.value && g.dataset && g.dataset.dirty === '1') return true;
   return false;
