@@ -18159,7 +18159,7 @@ function renderFeeRemindersTab(){
     <table class="text-sm w-full border">
      <thead class="bg-gray-100"><tr>
       <th class="text-left p-2">Roll</th><th class="text-left p-2">Student</th><th class="text-left p-2">Class</th>
-      <th class="text-left p-2">Parent</th><th class="text-right p-2">Composite Fee</th><th class="text-right p-2">Balance Due</th><th class="text-center p-2">% Paid</th><th class="text-center p-2">Overdue</th><th class="text-center p-2">Reminder</th>
+      <th class="text-left p-2">Father</th><th class="text-right p-2">Composite Fee</th><th class="text-right p-2">Balance Due</th><th class="text-center p-2">% Paid</th><th class="text-center p-2">Overdue</th><th class="text-center p-2">Reminder</th>
      </tr></thead>
      <tbody id="frTableBody">
       ${overdue.map(s => {
@@ -18175,7 +18175,7 @@ function renderFeeRemindersTab(){
        <td class="p-2">${s.rollNo||'-'}</td>
        <td class="p-2 font-medium">${escapeHTML(s.name)}</td>
        <td class="p-2">${s.class}-${s.section||''}</td>
-       <td class="p-2 text-xs">${escapeHTML(s.parentName||'-')}<br><span class="text-gray-500 font-mono">${s.parentPhone||'<span class="text-rose-500">no phone</span>'}</span></td>
+       <td class="p-2 text-xs">${escapeHTML(s.fatherName||s.parentName||'-')}<br><span class="text-gray-500 font-mono">${s.parentPhone||'<span class="text-rose-500">no phone</span>'}</span></td>
        <td class="p-2 text-right text-gray-600">Rs.${composite.toLocaleString('en-IN')}</td>
        <td class="p-2 text-right font-semibold text-rose-700">Rs.${bal.toLocaleString('en-IN')}</td>
        <td class="p-2 text-center"><div class="flex items-center gap-1 justify-center"><div class="w-10 bg-gray-200 rounded-full h-1.5 overflow-hidden"><div class="bg-${pctColor}-500 h-1.5" style="width:${pctPaid}%"></div></div><span class="text-xs">${pctPaid}%</span></div></td>
@@ -18195,8 +18195,16 @@ function renderFeeRemindersTab(){
 }
 
 // Build the polite reminder message for a student
+// Pre-filled WhatsApp reminder: starts with the child's name and class, in Hindi and then English.
 function _feeReminderMessage(s){
- return `Dear ${s.parentName || 'Parent'},\n\nThis is a gentle reminder from ${SCHOOL_INFO.name} regarding the pending school fee for ${s.name} (Class ${s.class}${s.section?'-'+s.section:''}).\n\nOutstanding balance: Rs.${(s.feeBalance||0).toLocaleString('en-IN')}\n\nKindly arrange to clear the dues at your earliest convenience. Please ignore this message if payment has already been made.\n\nThank you,\n${SCHOOL_INFO.name}\n${SCHOOL_INFO.phone}`;
+ const due = (Number(s.feeBalance) || 0).toLocaleString('en-IN');
+ const cls = String(s.class || '') + (s.section ? '-' + s.section : '');
+ const enCls = /^\d/.test(cls) ? 'Class ' + cls : cls;
+ return `*${s.name}* (कक्षा ${cls}) — फीस सूचना\n`
+  + `मूर्ति देवी बालिका विद्यापीठ की ओर से विनम्र सूचना: ${s.name} की ₹${due} फीस बकाया है। कृपया शीघ्र विद्यालय कार्यालय में जमा करें। यदि भुगतान हो चुका है, तो कृपया इस संदेश को अनदेखा करें।\n\n`
+  + `*${s.name}* (${enCls}) — Fee reminder\n`
+  + `This is a gentle reminder from ${SCHOOL_INFO.name}: Rs.${due} is pending for ${s.name}. Kindly clear the dues at the school office at your earliest convenience. Please ignore this message if payment has already been made.\n\n`
+  + `धन्यवाद / Thank you\n${SCHOOL_INFO.name}${SCHOOL_INFO.phone ? '\n' + SCHOOL_INFO.phone : ''}`;
 }
 
 function attachFeeRemindersEvents(){
@@ -18237,7 +18245,6 @@ function attachFeeRemindersEvents(){
   const url = `https://wa.me/${_cleanPhone(s.parentPhone)}?text=${encodeURIComponent(_feeReminderMessage(s))}`;
   window.open(url, '_blank');
   // Log the reminder
-  const log = getMessageLog ? getMessageLog() : DB.getAll('messageLog');
   DB.insert('messageLog', { id: Date.now(), type: 'fee-reminder', studentId: s.id, to: s.parentPhone, amount: s.feeBalance, by: currentUser?.name || '', at: new Date().toISOString() });
   showToast(`Reminder opened for ${s.name}`);
  }));
@@ -18271,7 +18278,7 @@ function attachFeeRemindersEvents(){
   const scope = _feeReminderScope();
   const overdue = getStudents().filter(s => !s.archived && (s.feeBalance||0) > 0 && (!scope || scope.includes(String(s.class)))).sort((a,b) => (b.feeBalance||0)-(a.feeBalance||0));
   const today = new Date().toISOString().slice(0,10);
-  let h = '<table border="1"><tr><th>Roll</th><th>Student</th><th>Class</th><th>Section</th><th>Parent</th><th>Phone</th><th>Composite Fee</th><th>Paid</th><th>Balance Due</th><th>% Paid</th><th>Overdue Installments</th></tr>';
+  let h = '<table border="1"><tr><th>Roll</th><th>Student</th><th>Class</th><th>Section</th><th>Father</th><th>Phone</th><th>Composite Fee</th><th>Paid</th><th>Balance Due</th><th>% Paid</th><th>Overdue Installments</th></tr>';
   overdue.forEach(s => {
    const composite = Number(s.decidedFees)||Number(s.annualFees)||0;
    const bal = Number(s.feeBalance)||0;
@@ -18279,7 +18286,7 @@ function attachFeeRemindersEvents(){
    const pct = composite>0?Math.round((paid/composite)*100):0;
    const inst = Array.isArray(s.installments)?s.installments:[];
    const overdueInst = 0;
-   h += `<tr><td>${s.rollNo||''}</td><td>${s.name}</td><td>${s.class}</td><td>${s.section||''}</td><td>${s.parentName||''}</td><td>${s.parentPhone||''}</td><td>${composite}</td><td>${paid}</td><td>${bal}</td><td>${pct}%</td><td>${overdueInst}</td></tr>`;
+   h += `<tr><td>${s.rollNo||''}</td><td>${s.name}</td><td>${s.class}</td><td>${s.section||''}</td><td>${escapeHTML(s.fatherName||s.parentName||'')}</td><td>${s.parentPhone||''}</td><td>${composite}</td><td>${paid}</td><td>${bal}</td><td>${pct}%</td><td>${overdueInst}</td></tr>`;
   });
   h += '</table>';
   downloadExcel(h, 'MDBV_Fee_Defaulters_' + new Date().toISOString().slice(0,10));
