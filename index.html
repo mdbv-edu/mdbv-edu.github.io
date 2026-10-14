@@ -7468,6 +7468,64 @@ function renderComplianceTab(){
 }
 
 /* ---------- TEACHERS TAB ---------- */
+// ── Class Teachers window (owner / admin / principal) ──
+function _suggestedClassTeacher(cls, staff){
+ const want = CLASS_TEACHER_SUGGESTIONS[cls] || [];
+ const norm = x => String(x || '').trim().toLowerCase().replace(/\s+/g, ' ');
+ for (const w of want) { const t = staff.find(x => norm(x.name) === w); if (t) return t; }
+ return null;
+}
+function openClassTeachersModal(){
+ if (!_isSchoolLeader()) return;
+ const staff = sortStaffByName(getActiveTeachers().filter(t => staffTypeOf(t) === 'Teaching'));
+ const anySaved = getActiveTeachers().some(t => Array.isArray(t.classTeacherOf));
+ const counts = {}; getActiveStudents().forEach(s => { counts[s.class] = (counts[s.class] || 0) + 1; });
+ const rows = ALL_CLASSES.map(c => {
+  const cur = _classTeacherOfClass(c);
+  const pick = cur || (anySaved ? null : _suggestedClassTeacher(c, staff));
+  const check = !anySaved && CLASS_TEACHER_CHECK[c];
+  return `<tr class="border-t ${check ? 'bg-amber-50' : ''}">
+   <td class="p-2 font-semibold whitespace-nowrap">${escapeHTML(_classLabel(c))}</td>
+   <td class="p-2 text-xs text-gray-500 text-right">${counts[c] || 0}</td>
+   <td class="p-2"><select class="ctSel w-full" data-class="${escapeHTML(c)}">
+    <option value="">— none —</option>
+    ${staff.map(t => `<option value="${t.id}" ${pick && pick.id === t.id ? 'selected' : ''}>${escapeHTML(t.name)}</option>`).join('')}
+   </select>${check ? `<div class="text-[11px] text-amber-800 mt-1"><i class="fas fa-triangle-exclamation mr-1"></i>${escapeHTML(check)}</div>` : ''}</td></tr>`;
+ }).join('');
+ const old = document.getElementById('classTeachersModal'); if (old) old.remove();
+ const m = document.createElement('div'); m.id = 'classTeachersModal'; m.className = 'modal';
+ m.innerHTML = `<div class="modal-content" style="max-width:560px">
+  <h3 class="text-lg font-bold mb-1"><i class="fas fa-user-check text-purple-600 mr-1"></i>Class Teachers</h3>
+  <p class="text-xs text-gray-600 mb-3">The class teacher marks attendance for the class and sends its fee reminders. Other teachers of the class can still see its attendance. Owner, admin and principal can do both for every class.</p>
+  ${anySaved ? '' : '<div class="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-900 mb-3"><i class="fas fa-lightbulb mr-1"></i>Filled in from your list of 14 Oct. Check each class, then press <b>Save</b>.</div>'}
+  <div class="overflow-y-auto" style="max-height:60vh"><table class="w-full text-sm">
+   <thead class="bg-gray-100 sticky top-0"><tr><th class="text-left p-2">Class</th><th class="text-right p-2 text-xs">Students</th><th class="text-left p-2">Class teacher</th></tr></thead>
+   <tbody>${rows}</tbody></table></div>
+  <div class="flex justify-end gap-2 mt-4">
+   <button class="closeModal bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg text-sm">Cancel</button>
+   <button id="ctSaveBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fas fa-save mr-1"></i>Save</button>
+  </div></div>`;
+ document.body.appendChild(m);
+ m.querySelectorAll('.closeModal').forEach(b => b.addEventListener('click', () => m.remove()));
+ m.querySelector('#ctSaveBtn').addEventListener('click', () => {
+  const byTeacher = {};
+  m.querySelectorAll('.ctSel').forEach(sel => { if (sel.value) (byTeacher[sel.value] = byTeacher[sel.value] || []).push(sel.dataset.class); });
+  const all = getTeachers();
+  let changed = 0;
+  all.forEach(t => {
+   if (t.archived && !Array.isArray(t.classTeacherOf)) return;
+   const next = t.archived ? [] : ALL_CLASSES.filter(c => (byTeacher[String(t.id)] || []).includes(c));
+   const prev = Array.isArray(t.classTeacherOf) ? t.classTeacherOf : null;
+   if (prev && prev.length === next.length && prev.every((c, i) => c === next[i])) return;
+   t.classTeacherOf = next; changed++;
+  });
+  saveTeachers(all);
+  m.remove();
+  showToast(`Class teachers saved${changed ? '' : ' (no changes)'}`);
+  renderApp();
+ });
+}
+
 function renderTeachersTab(){
  const allStaff = getTeachers();
  const ts = allStaff.filter(t => !t.archived);
@@ -7505,6 +7563,7 @@ function renderTeachersTab(){
     <button id="printStaffKycBtn" class="bg-slate-600 hover:bg-slate-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="One full record per staff member"><i class="fas fa-print mr-1"></i>Print Records</button>
     <button id="printQualChartBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Every teacher's 10th, 12th, degree, B.Ed/D.El.Ed and TET in one table"><i class="fas fa-graduation-cap mr-1"></i>Qualification Chart</button>
     <button id="xlsStaffBtn" class="bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Export staff records to Excel"><i class="fas fa-file-excel mr-1"></i>XLSX</button>
+    ${_isSchoolLeader() ? `<button id="classTeachersBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Who is the class teacher of each class"><i class="fas fa-user-check mr-1"></i>Class Teachers</button>` : ''}
     <button id="addTeacherBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-plus mr-1"></i>Add Staff</button>
    </div>
   </div>
@@ -9594,9 +9653,47 @@ function _currentTeacherRecord(){
 function _teacherAssignedClasses(){
  const t = _currentTeacherRecord();
  const list = (t && Array.isArray(t.assignedClasses)) ? t.assignedClasses : [];
+ const ct = (t && Array.isArray(t.classTeacherOf)) ? t.classTeacherOf : [];
  // Keep only classes that actually exist in ALL_CLASSES, preserve school order
+ return ALL_CLASSES.filter(c => list.includes(c) || ct.includes(c));
+}
+
+// ── Class teachers ──
+// Each class has one class teacher, saved on that staff member's record as classTeacherOf: ['3'].
+// The class teacher marks the class's attendance and sends its fee reminders. Owner, admin and
+// principal can still do both for every class (e.g. when the class teacher is on leave).
+function _classTeacherOfClass(cls){
+ return getActiveTeachers().find(t => Array.isArray(t.classTeacherOf) && t.classTeacherOf.includes(cls)) || null;
+}
+function _myClassTeacherClasses(){
+ const t = _currentTeacherRecord();
+ const list = (t && Array.isArray(t.classTeacherOf)) ? t.classTeacherOf : [];
  return ALL_CLASSES.filter(c => list.includes(c));
 }
+function _isSchoolLeader(){ return isPrincipalLevel() || isAdminLevel() || isOwnerLevel(); }
+function _canMarkAttendance(cls){
+ if (_isSchoolLeader()) return true;
+ if (_myClassTeacherClasses().includes(cls)) return true;
+ // a class that has no class teacher yet: its subject teachers may still mark it, as before
+ const t = _currentTeacherRecord();
+ return !_classTeacherOfClass(cls) && !!t && Array.isArray(t.assignedClasses) && t.assignedClasses.includes(cls);
+}
+function _classLabel(c){ return /^\d+$/.test(String(c)) ? 'Class ' + c : String(c); }
+// Is the teacher screen showing (a plain teacher, or a combo login switched to its teacher view)?
+function _inTeacherView(){
+ if (!currentUser) return false;
+ if (currentUser.role === 'teacher') return true;
+ return ['admin_teacher', 'accountant_teacher', 'teacher_activityincharge'].includes(currentUser.role) && typeof comboView !== 'undefined' && comboView === 'teacher';
+}
+// The list the owner gave on 14 Oct 2026 — offered as the starting suggestion until class teachers are saved.
+const CLASS_TEACHER_SUGGESTIONS = {
+ 'Pre Nursery': ['kajal tomar', 'kajal'], 'Nursery': ['vidushi'], 'LKG': ['smita sharma', 'smita'],
+ 'UKG': ['shivani meghlan', 'shivani'], '1': ['sanjana ujjawal', 'sanjana'], '2': ['tanu'], '3': ['rohit antal'],
+ '4': ['aneeta rani', 'aneeta'], '5': ['payal saini'], '6': ['shivani gautam'], '7': ['varsha tomar'],
+ '8': ['manisha solanki', 'manisha'], '9': ['dinesh kumar', 'dinesh'], '10': ['aayushi jain', 'ayushi jain'],
+ '11': ['avantika solanki', 'avantika'], '12': ['avantika solanki', 'avantika']
+};
+const CLASS_TEACHER_CHECK = { '6': 'Your list says only “Shivani” — please check this is the right Shivani.' };
 // Which classes the CURRENT USER may enter/view exam marks for.
 // Regular teachers: only their assigned classes, as before.
 // Principal / Admin / Owner-level (and combo roles like "admin_teacher"): every class in the
@@ -10342,6 +10439,8 @@ function renderStudentAttendanceRegister(classList){
  const sts = getActiveStudents().filter(s => String(s.class).trim() === String(cls).trim())
               .sort((a,b) => (Number(a.rollNo)||9999)-(Number(b.rollNo)||9999) || String(a.name||'').localeCompare(String(b.name||'')));
  const ar = getAttendanceRecords() || {};
+ const canEdit = _canMarkAttendance(cls);
+ const ctName = (_classTeacherOfClass(cls) || {}).name || '';
  const dayHead = workDays.map(d => {
   const dow = _dayOfWeek(ym,d);
   const future = _ymd(ym,d) > today;
@@ -10354,7 +10453,7 @@ function renderStudentAttendanceRegister(classList){
    const key = _ymd(ym,d), cur = recs[key] || '', future = key > today;
    if (cur==='P') p++; else if (cur==='A') a++; else if (cur==='L') l++;
    return `<td class="p-0.5 border ${future?'bg-gray-50':''}" style="min-width:50px">
-     <select class="stuRegCell w-full text-center cursor-pointer rounded" data-id="${s.id}" data-date="${key}"
+     <select class="stuRegCell w-full text-center ${canEdit?'cursor-pointer':'cursor-not-allowed'} rounded" data-id="${s.id}" data-date="${key}" ${canEdit?'':'disabled'}
       style="font-size:14px;font-weight:800;padding:8px 0;border:1px solid ${cur?STUDENT_ATT_COLOR[cur]+'55':'#e5e7eb'};
              color:${cur?STUDENT_ATT_COLOR[cur]:'#c8c8c8'};background:${cur?STUDENT_ATT_BG[cur]:'#fff'};appearance:none;-webkit-appearance:none">
       <option value="" ${!cur?'selected':''}>·</option>
@@ -10381,14 +10480,14 @@ function renderStudentAttendanceRegister(classList){
   <div class="flex flex-wrap justify-between items-end gap-2">
    <div>
     <div class="font-bold text-gray-800"><i class="fas fa-table-list text-emerald-600 mr-1"></i>Month Register — ${/^\d+$/.test(cls)?'Class '+cls:escapeHTML(cls)}</div>
-    <div class="text-xs text-gray-600">${monthName} · ${sts.length} students · ${workDays.length} non-Sunday days${wd?` · register shows <b>${wd.workingDays} working days</b>`:''} · click any cell to set or correct it</div>
+    <div class="text-xs text-gray-600">${monthName} · ${sts.length} students · ${workDays.length} non-Sunday days${wd?` · register shows <b>${wd.workingDays} working days</b>`:''} · ${canEdit?'click any cell to set or correct it':`<b>view only</b> — marked by the class teacher${ctName?', '+escapeHTML(ctName):''}`}</div>
    </div>
    <div class="flex gap-2 flex-wrap items-end">
     <select id="stuRegClass" class="border rounded-lg px-2 py-1.5 text-sm" style="width:auto">
      ${classes.map(c=>`<option value="${c}" ${c===cls?'selected':''}>${/^\d+$/.test(c)?'Class '+c:c}</option>`).join('')}
     </select>
     <input type="month" id="stuRegMonth" value="${ym}" class="border rounded-lg px-2 py-1.5 text-sm" style="width:auto">
-    <button id="stuRegFillPresent" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium" title="Mark every blank day up to today as Present"><i class="fas fa-check-double mr-1"></i>Fill Present</button>
+    ${canEdit?`<button id="stuRegFillPresent" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium" title="Mark every blank day up to today as Present"><i class="fas fa-check-double mr-1"></i>Fill Present</button>`:''}
     <button id="stuRegPrint" class="bg-slate-700 hover:bg-slate-800 text-white px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-print mr-1"></i>Print</button>
     <button id="stuRegXls" class="bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-file-excel mr-1"></i>XLSX</button>
    </div>
@@ -10419,6 +10518,7 @@ function _attachStudentRegisterEvents(){
  document.getElementById('stuRegMonth')?.addEventListener('change', e => { _stuRegMonth = e.target.value || _monthKey(); renderApp(); });
  // Write straight through on change, so correcting a past day is one click.
  document.querySelectorAll('.stuRegCell').forEach(sel => sel.addEventListener('change', () => {
+  if (!_canMarkAttendance(_stuRegClass)) { alert('This class is marked by its class teacher.'); renderApp(); return; }
   const ar = getAttendanceRecords() || {};
   const id = parseInt(sel.dataset.id);
   if (!ar[id]) ar[id] = {};
@@ -10431,6 +10531,7 @@ function _attachStudentRegisterEvents(){
   _refreshStudentRegister();
  }));
  document.getElementById('stuRegFillPresent')?.addEventListener('click', () => {
+  if (!_canMarkAttendance(_stuRegClass)) return;
   if (!confirm('Mark every blank day this month (up to today) as Present for this class?')) return;
   const ym=_stuRegMonth, days=_daysInMonth(ym), today=new Date().toISOString().slice(0,10);
   const ar = getAttendanceRecords() || {};
@@ -12258,15 +12359,17 @@ function renderTeacherPanel(){
   {id:'resources',  label:'Resources',  icon:'book-open-reader'},
   {id:'ptm',        label:'PTM',        icon:'people-arrows'},
   {id:'class',      label:'My Class',   icon:'users'},
+  ..._myClassTeacherClasses().length ? [{id:'fees', label:'Fee Reminders', icon:'bell'}] : [],
   {id:'audit',      label:'Audit Log',  icon:'clipboard-list'}
  ];
+ if (activeTeacherTab === 'fees' && !_myClassTeacherClasses().length) activeTeacherTab = 'dashboard';
  return `<div class="p-4 md:p-6 mx-auto portal-wide">
   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
    <div class="flex items-center gap-3">
     ${(() => { const me = getTeachers().find(t => t.id === currentUser.teacherId); const photo = me?.photo; return photo ? `<img src="${photo}" class="w-12 h-12 rounded-full object-cover border-2 border-purple-200">` : `<div class="w-12 h-12 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center font-bold">${initials(currentUser.name)}</div>`; })()}
     <div>
      <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-chalkboard-teacher text-purple-600 mr-2"></i>Teacher Panel</h1>
-     <div class="text-xs text-gray-600 mt-0.5">${currentUser.name} · ${new Date().toLocaleDateString('en-IN', {weekday:'long', day:'numeric', month:'long', year:'numeric'})}</div>
+     <div class="text-xs text-gray-600 mt-0.5">${currentUser.name} · ${new Date().toLocaleDateString('en-IN', {weekday:'long', day:'numeric', month:'long', year:'numeric'})}${_myClassTeacherClasses().length ? ` · <span class="pill pill-green">Class teacher: ${_myClassTeacherClasses().map(c => escapeHTML(_classLabel(c))).join(', ')}</span>` : ''}</div>
     </div>
    </div>
    <button id="logoutTeacherBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
@@ -12288,6 +12391,7 @@ function renderTeacherTabContent(){
   case 'resources':  return renderResourceCatalog();
   case 'ptm':        return renderTchPTM();
   case 'class':      return renderTchClass();
+  case 'fees':       return renderFeeRemindersTab();
   case 'audit':      return renderTchAudit();
   default: return renderTchDashboard();
  }
@@ -12533,8 +12637,14 @@ function _renderAttendanceGlance(){
 }
 
 function renderTchAttendanceMark(){
- const myClasses = _teacherAssignedClasses();
- return `<div class="bg-white border rounded-lg p-4">
+ const taught = _teacherAssignedClasses();
+ const myClasses = taught.filter(_canMarkAttendance);
+ const others = taught.filter(c => !_canMarkAttendance(c));
+ const myCT = _myClassTeacherClasses();
+ if (!teacherClassFilter || !myClasses.includes(teacherClassFilter)) teacherClassFilter = myCT.find(c => myClasses.includes(c)) || '';
+ const note = others.length ? `<div class="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-xs text-blue-900 mb-3"><i class="fas fa-circle-info mr-1"></i>Attendance is marked by the class teacher: ${others.map(c => { const t = _classTeacherOfClass(c); return `<b>${escapeHTML(_classLabel(c))}</b> — ${escapeHTML(t ? t.name : '')}`; }).join(' · ')}. You can still see these classes in Month Register and Reports.</div>` : '';
+ if (!myClasses.length) return note + `<div class="bg-white border rounded-lg p-6 text-center text-sm text-gray-500"><i class="fas fa-user-check text-2xl text-gray-300 mb-2 block"></i>You are not the class teacher of any class, so there is no attendance for you to mark.</div>`;
+ return `${note}<div class="bg-white border rounded-lg p-4">
   <div class="grid md:grid-cols-3 gap-3 mb-4">
    <div>
     <label class="text-xs font-medium">Class *</label>
@@ -13438,6 +13548,7 @@ function attachTeacherEvents(){
  else if (activeTeacherTab === 'resources') attachResourceCatalogEvents();
  else if (activeTeacherTab === 'ptm') _attachTchPtmEvents();
  else if (activeTeacherTab === 'class') _attachClassEvents();
+ else if (activeTeacherTab === 'fees') attachFeeRemindersEvents();
 }
 
 function _attachCurriculumEvents(){
@@ -13619,6 +13730,7 @@ function _attachAttendanceEvents(){
   saveBtn?.addEventListener('click', () => {
    const date = dateSel.value;
    if (!date) { alert('Pick a date'); return; }
+   if (!_canMarkAttendance(classSel.value)) { const t = _classTeacherOfClass(classSel.value); alert('Attendance for ' + _classLabel(classSel.value) + ' is marked by its class teacher' + (t ? ', ' + t.name : '') + '.'); return; }
    const ar = getAttendanceRecords();
    let count = 0;
    document.querySelectorAll('#attMarkRoster input[type="radio"]:checked').forEach(r => {
@@ -15157,16 +15269,29 @@ async function _ptmPrepareNotice(file){
 }
 // Thumbnail / link for a PTM's notice. Images open full size in a new tab; PDFs open as a document.
 function _ptmNoticeHTML(e, size){
- if (!e || !e.noticeUrl) return '';
- const isPdf = e.noticeType === 'application/pdf';
- const label = pt('Notice', 'सूचना');
- if (isPdf) return `<a href="${escapeHTML(e.noticeUrl)}" target="_blank" rel="noopener" class="docLink inline-flex items-center gap-1 text-xs bg-rose-50 text-rose-700 border border-rose-200 rounded px-2 py-1 mt-2"><i class="fas fa-file-pdf"></i>${label} (PDF)</a>`;
- const w = size === 'big' ? 'max-width:100%;max-height:520px' : 'width:120px;height:120px;object-fit:cover;object-position:top';
- return `<a href="${escapeHTML(e.noticeUrl)}" target="_blank" rel="noopener" class="docLink block mt-2" title="${pt('Open the notice','सूचना खोलें')}"><img src="${escapeHTML(e.noticeUrl)}" alt="${label}" style="${w};border:1px solid #ddd;border-radius:8px;background:#fff"></a>`;
+ if (!e || (!e.noticeUrl && !e.noticeHiUrl)) return '';
+ const both = !!(e.noticeUrl && e.noticeHiUrl);
+ const one = (url, type, tag) => {
+  if (!url) return '';
+  const label = pt('Notice', 'सूचना') + (tag ? ' · ' + tag : '');
+  if (type === 'application/pdf') return `<a href="${escapeHTML(url)}" target="_blank" rel="noopener" class="docLink inline-flex items-center gap-1 text-xs bg-rose-50 text-rose-700 border border-rose-200 rounded px-2 py-1 mt-2"><i class="fas fa-file-pdf"></i>${label} (PDF)</a>`;
+  const w = size === 'big' ? `max-width:100%;max-height:520px` : 'width:120px;height:120px;object-fit:cover;object-position:top';
+  return `<a href="${escapeHTML(url)}" target="_blank" rel="noopener" class="docLink block mt-2" title="${pt('Open the notice','सूचना खोलें')}">${both ? `<div class="text-[11px] font-semibold text-gray-600 mb-0.5">${tag}</div>` : ''}<img src="${escapeHTML(url)}" alt="${label}" style="${w};border:1px solid #ddd;border-radius:8px;background:#fff"></a>`;
+ };
+ const parts = [one(e.noticeUrl, e.noticeType, both ? 'English' : ''), one(e.noticeHiUrl, e.noticeHiType, both ? 'हिंदी' : (e.noticeUrl ? '' : 'हिंदी'))];
+ // in Hindi view show the Hindi notice first
+ if (typeof pt === 'function' && pt('en', 'hi') === 'hi') parts.reverse();
+ return both ? `<div class="flex flex-wrap gap-3 items-start">${parts.join('')}</div>` : parts.join('');
 }
+// The Hindi notice is stored next to the English one with the same three fields, prefixed "noticeHi".
+function _ptmAsHindi(n){ return n ? { noticeHiUrl: n.noticeUrl, noticeHiName: n.noticeName, noticeHiType: n.noticeType } : null; }
 // WhatsApp text: add the notice link when it lives in the cloud (an inline photo can't be linked).
 function _ptmMsgWithNotice(msg, ev){
- if (ev && ev.noticeUrl && /^https?:/i.test(ev.noticeUrl)) return msg + `\n\nNotice: ${ev.noticeUrl}`;
+ if (!ev) return msg;
+ const en = ev.noticeUrl && /^https?:/i.test(ev.noticeUrl), hi = ev.noticeHiUrl && /^https?:/i.test(ev.noticeHiUrl);
+ if (en && hi) return msg + `\n\nNotice (English): ${ev.noticeUrl}\nसूचना (हिंदी): ${ev.noticeHiUrl}`;
+ if (en) return msg + `\n\nNotice: ${ev.noticeUrl}`;
+ if (hi) return msg + `\n\nसूचना: ${ev.noticeHiUrl}`;
  return msg;
 }
 function renderPtmManagement(){
@@ -15190,8 +15315,10 @@ function renderPtmManagement(){
        ${e.description?`<div class="text-xs text-gray-500 mt-0.5 italic">${escapeHTML(e.description)}</div>`:''}
        ${_ptmNoticeHTML(e)}
        <div class="flex flex-wrap gap-2 mt-1">
-        <label class="text-[11px] text-indigo-700 hover:underline cursor-pointer"><i class="fas fa-image mr-1"></i>${e.noticeUrl?'Change notice image':'Add notice image'}<input type="file" class="pmPtmNoticeAdd hidden" data-id="${e.id}" accept="image/*,application/pdf"></label>
-        ${e.noticeUrl?`<button class="pmPtmNoticeDel text-[11px] text-rose-600 hover:underline" data-id="${e.id}"><i class="fas fa-xmark mr-1"></i>Remove notice</button>`:''}
+        <label class="text-[11px] text-indigo-700 hover:underline cursor-pointer"><i class="fas fa-image mr-1"></i>${e.noticeUrl?'Change English notice':'Add English notice'}<input type="file" class="pmPtmNoticeAdd hidden" data-id="${e.id}" accept="image/*,application/pdf"></label>
+        ${e.noticeUrl?`<button class="pmPtmNoticeDel text-[11px] text-rose-600 hover:underline" data-id="${e.id}"><i class="fas fa-xmark mr-1"></i>Remove English</button>`:''}
+        <label class="text-[11px] text-indigo-700 hover:underline cursor-pointer"><i class="fas fa-image mr-1"></i>${e.noticeHiUrl?'हिंदी सूचना बदलें (Change Hindi)':'हिंदी सूचना जोड़ें (Add Hindi notice)'}<input type="file" class="pmPtmNoticeHiAdd hidden" data-id="${e.id}" accept="image/*,application/pdf"></label>
+        ${e.noticeHiUrl?`<button class="pmPtmNoticeHiDel text-[11px] text-rose-600 hover:underline" data-id="${e.id}"><i class="fas fa-xmark mr-1"></i>Remove Hindi</button>`:''}
        </div>
        <div class="text-xs text-indigo-700 mt-1"><i class="fas fa-user-check mr-1"></i>${came}/${roster.length} families attended</div>
       </div>
@@ -15219,10 +15346,13 @@ function renderPtmManagement(){
       <div class="flex flex-wrap gap-1 max-h-32 overflow-y-auto border rounded p-2">${classChecks}</div>
      </div>
      <div><label class="text-xs font-medium">Note for parents (optional)</label><textarea id="pmPtmDesc" rows="2" placeholder="agenda / instructions"></textarea></div>
-     <div><label class="text-xs font-medium"><i class="fas fa-image text-indigo-600 mr-1"></i>Notice image (optional)</label>
+     <div><label class="text-xs font-medium"><i class="fas fa-image text-indigo-600 mr-1"></i>Notice image — English (optional)</label>
       <input type="file" id="pmPtmNotice" accept="image/*,application/pdf" class="text-xs">
-      <div class="text-[11px] text-gray-500">Photo or scan of the printed PTM notice (or a PDF). Parents see it in their portal, and the WhatsApp message carries a link to it.</div>
       <div id="pmPtmNoticePrev"></div></div>
+     <div><label class="text-xs font-medium"><i class="fas fa-image text-indigo-600 mr-1"></i>सूचना — हिंदी / Notice image — Hindi (optional)</label>
+      <input type="file" id="pmPtmNoticeHi" accept="image/*,application/pdf" class="text-xs">
+      <div id="pmPtmNoticeHiPrev"></div>
+      <div class="text-[11px] text-gray-500">Photo or scan of the printed PTM notice (or a PDF), in English, Hindi or both. Parents see them in their portal, the WhatsApp message carries a link to each, and the school bot sends each parent the notice in their language.</div></div>
     </div>
     <button id="pmPtmSaveBtn" class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm mt-3 w-full"><i class="fas fa-plus mr-1"></i>Schedule Meeting</button>
    </div>
@@ -15242,23 +15372,29 @@ function _attachPtmManagementEvents(){
   const classes=Array.from(document.querySelectorAll('.pmPtmClassChk')).filter(c=>c.checked).map(c=>c.value);
   const btn=document.getElementById('pmPtmSaveBtn');
   const nf=document.getElementById('pmPtmNotice')?.files?.[0];
+  const nfHi=document.getElementById('pmPtmNoticeHi')?.files?.[0];
   const finish = (notice) => {
    const evs=DB.getAll('ptmEvents');
    evs.push({ id:Date.now(), title:document.getElementById('pmPtmTitle').value.trim()||'Parent-Teacher Meeting', date, time:document.getElementById('pmPtmTime').value.trim(), description:document.getElementById('pmPtmDesc').value.trim(), classes, createdBy:currentUser?.name||'', ...(notice||{}) });
    try { DB.setAll('ptmEvents', evs); } catch(e){ if(btn){btn.disabled=false;} return; }
    showToast(notice?'PTM scheduled with notice image':'PTM scheduled'); renderApp();
   };
-  if (!nf) { finish(null); return; }
+  if (!nf && !nfHi) { finish(null); return; }
   if (btn) { btn.disabled=true; btn.innerHTML='<i class="fas fa-spinner fa-spin mr-1"></i>Uploading notice…'; }
-  _ptmPrepareNotice(nf).then(n => { if (!n) { if(btn){btn.disabled=false; btn.innerHTML='<i class="fas fa-plus mr-1"></i>Schedule Meeting';} return; } finish(n); });
+  const stop = () => { if(btn){btn.disabled=false; btn.innerHTML='<i class="fas fa-plus mr-1"></i>Schedule Meeting';} };
+  (async () => {
+   const en = nf ? await _ptmPrepareNotice(nf) : null; if (nf && !en) return stop();
+   const hi = nfHi ? _ptmAsHindi(await _ptmPrepareNotice(nfHi)) : null; if (nfHi && !hi) return stop();
+   finish(Object.assign({}, en || {}, hi || {}));
+  })();
  });
  // preview of the chosen notice before saving
- document.getElementById('pmPtmNotice')?.addEventListener('change', e => {
-  const f=e.target.files[0]; const box=document.getElementById('pmPtmNoticePrev'); if(!box) return;
+ ['pmPtmNotice','pmPtmNoticeHi'].forEach(inpId => document.getElementById(inpId)?.addEventListener('change', e => {
+  const f=e.target.files[0]; const box=document.getElementById(inpId+'Prev'); if(!box) return;
   if(!f){ box.innerHTML=''; return; }
   if(f.type==='application/pdf'){ box.innerHTML=`<div class="text-xs text-rose-700 mt-1"><i class="fas fa-file-pdf mr-1"></i>${escapeHTML(f.name)}</div>`; return; }
   const u=URL.createObjectURL(f); box.innerHTML=`<img src="${u}" style="max-height:140px;margin-top:6px;border:1px solid #ddd;border-radius:6px">`;
- });
+ }));
  // add / change the notice on a meeting that is already scheduled
  document.querySelectorAll('.pmPtmNoticeAdd').forEach(inp=>inp.addEventListener('change', async e => {
   const f=e.target.files[0]; if(!f) return;
@@ -15275,6 +15411,23 @@ function _attachPtmManagementEvents(){
   delete ev.noticeUrl; delete ev.noticeName; delete ev.noticeType;
   try { DB.setAll('ptmEvents', evs); } catch(_){ return; }
   showToast('Notice removed'); renderApp();
+ }));
+ // the Hindi notice
+ document.querySelectorAll('.pmPtmNoticeHiAdd').forEach(inp=>inp.addEventListener('change', async e => {
+  const f=e.target.files[0]; if(!f) return;
+  showToast('Uploading Hindi notice…');
+  const n=_ptmAsHindi(await _ptmPrepareNotice(f)); if(!n) return;
+  const evs=DB.getAll('ptmEvents'); const ev=evs.find(x=>x.id===parseInt(inp.dataset.id)); if(!ev) return;
+  Object.assign(ev, n);
+  try { DB.setAll('ptmEvents', evs); } catch(_){ return; }
+  showToast('Hindi notice added'); renderApp();
+ }));
+ document.querySelectorAll('.pmPtmNoticeHiDel').forEach(b=>b.addEventListener('click',()=>{
+  if(!confirm('Remove the Hindi notice from this PTM?')) return;
+  const evs=DB.getAll('ptmEvents'); const ev=evs.find(x=>x.id===parseInt(b.dataset.id)); if(!ev) return;
+  delete ev.noticeHiUrl; delete ev.noticeHiName; delete ev.noticeHiType;
+  try { DB.setAll('ptmEvents', evs); } catch(_){ return; }
+  showToast('Hindi notice removed'); renderApp();
  }));
  document.querySelectorAll('.pmPtmDelBtn').forEach(b=>b.addEventListener('click',()=>{
   if(!confirm('Delete this PTM? Attendance records for it will remain but be hidden.'))return;
@@ -17611,7 +17764,8 @@ function printDataTable(opts){
 // Fee-due students (the reminders list), optionally one class.
 function printFeeDueList(cls){
  let list = getActiveStudents().filter(s => (Number(s.feeBalance)||0) > 0);
- if (cls) list = list.filter(s => String(s.class||'').trim() === cls);
+ if (Array.isArray(cls)) { const set = cls.map(String); list = list.filter(s => set.includes(String(s.class||'').trim())); cls = cls.length === 1 ? String(cls[0]) : cls.map(_classLabel).join(', '); }
+ else if (cls) list = list.filter(s => String(s.class||'').trim() === cls);
  const clsIdx = x => { const i = ALL_CLASSES.indexOf(String(x.class||'').trim()); return i<0?999:i; };
  list.sort((a,b) => clsIdx(a)-clsIdx(b) || (Number(b.feeBalance)||0)-(Number(a.feeBalance)||0));
  const n = v => Math.round(Number(v)||0);
@@ -17948,8 +18102,12 @@ function printVillageVisitSheets(){
  </style></head><body><h1>Murti Devi Balika Vidyapeeth — fee collection visits</h1><div class="sub">Printed ${date} · total due Rs.${inr(vd.reduce((a,v)=>a+v.total,0))} · this year's balance + old dues</div>${body}</body></html>`);
  w.document.close(); setTimeout(() => w.print(), 400);
 }
+// A class teacher sees and reminds only their own class(es); everyone else sees the whole school.
+function _feeReminderScope(){ return _inTeacherView() ? _myClassTeacherClasses() : null; }
 function renderFeeRemindersTab(){
- const students = getStudents();
+ const scope = _feeReminderScope();
+ if (scope) _frView = 'class';
+ const students = getStudents().filter(s => !scope || scope.includes(String(s.class)));
  const overdue = students
   .filter(s => !s.archived && (s.feeBalance || 0) > 0)
   .sort((a,b) => (b.feeBalance||0) - (a.feeBalance||0));
@@ -17964,9 +18122,9 @@ function renderFeeRemindersTab(){
   <div class="flex flex-wrap justify-between items-center gap-2 mb-3">
    <div>
     <h2 class="text-lg font-bold"><i class="fas fa-bell text-amber-600 mr-1"></i>Fee Reminders</h2>
-    <p class="text-xs text-gray-500">Students with outstanding fee balance. Send a polite WhatsApp reminder to parents in one tap.</p>
+    <p class="text-xs text-gray-500">${scope ? `Your class${scope.length>1?'es':''}: <b>${scope.map(c => escapeHTML(_classLabel(c))).join(', ')}</b> · ` : ''}Students with outstanding fee balance. Send a polite WhatsApp reminder to parents in one tap.</p>
    </div>
-   <div class="inline-flex rounded-lg border overflow-hidden text-sm">
+   <div class="inline-flex rounded-lg border overflow-hidden text-sm" ${scope ? 'style="display:none"' : ''}>
     <button class="frViewBtn px-3 py-1.5 ${_frView!=='village'?'bg-burgundy text-white':'bg-white text-gray-700'}" data-view="class" style="${_frView!=='village'?'background:#7a1e2e;color:#fff':''}"><i class="fas fa-list mr-1"></i>By student</button>
     <button class="frViewBtn px-3 py-1.5 ${_frView==='village'?'text-white':'bg-white text-gray-700'}" data-view="village" style="${_frView==='village'?'background:#7a1e2e;color:#fff':''}"><i class="fas fa-location-dot mr-1"></i>By village (plan visits)</button>
    </div>
@@ -17989,8 +18147,8 @@ function renderFeeRemindersTab(){
   ` : `
    <div class="flex flex-wrap gap-2 mb-3">
     <select id="frClassFilter" class="text-sm" style="width:auto">
-     <option value="">All classes</option>
-     ${ALL_CLASSES.filter(c => students.some(s => s.class===c && (s.feeBalance||0)>0)).map(c => `<option value="${c}">Class ${c}</option>`).join('')}
+     <option value="">${scope ? (scope.length > 1 ? 'All my classes' : escapeHTML(_classLabel(scope[0]))) : 'All classes'}</option>
+     ${(scope && scope.length < 2) ? '' : ALL_CLASSES.filter(c => students.some(s => s.class===c && (s.feeBalance||0)>0)).map(c => `<option value="${c}">${escapeHTML(_classLabel(c))}</option>`).join('')}
     </select>
     <button id="frBulkBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fab fa-whatsapp mr-1"></i>Send All Reminders</button>
     <button id="frPrintBtn" class="bg-slate-700 hover:bg-slate-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium" title="Print the dues list — follows the class filter"><i class="fas fa-print mr-1"></i>Print Dues List</button>
@@ -18073,7 +18231,7 @@ function attachFeeRemindersEvents(){
   const s = getStudents().find(x => x.id === parseInt(b.dataset.id));
   if (!s || !s.parentPhone) return;
   if (WA.ready()) {
-   const items = WA.build('fee', { minDue: 0 }).filter(it => WA.phoneKey(it.phone) === WA.phoneKey(s.parentPhone));
+   const items = WA.build('fee', { minDue: 0, classes: _feeReminderScope() }).filter(it => WA.phoneKey(it.phone) === WA.phoneKey(s.parentPhone));
    if (items.length && confirm(`Send the fee reminder automatically from the school WhatsApp number?\n\n${items[0].text}\n\n(Cancel = open WhatsApp on this phone instead)`)) { WA.send('fee', items); return; }
   }
   const url = `https://wa.me/${_cleanPhone(s.parentPhone)}?text=${encodeURIComponent(_feeReminderMessage(s))}`;
@@ -18087,10 +18245,11 @@ function attachFeeRemindersEvents(){
  // Bulk reminders (respects current filter)
  document.getElementById('frBulkBtn')?.addEventListener('click', () => {
   const cls = document.getElementById('frClassFilter')?.value || '';
-  const targets = getStudents().filter(s => (s.feeBalance||0) > 0 && s.parentPhone && (!cls || s.class === cls));
+  const scope = _feeReminderScope();
+  const targets = getStudents().filter(s => !s.archived && (s.feeBalance||0) > 0 && s.parentPhone && (!cls || s.class === cls) && (!scope || scope.includes(String(s.class))));
   if (targets.length === 0) { alert('No reminders to send (no students with dues and a phone number in this filter).'); return; }
   if (WA.ready()) {
-   const items = WA.build('fee', { cls, minDue: 1 });
+   const items = WA.build('fee', { cls, classes: scope, minDue: 1 });
    if (items.length && confirm(WA.confirmText('fee', items.length) + '\n\n(Cancel = open them one by one on this phone instead)')) { WA.send('fee', items); return; }
   }
   if (!confirm(`Open ${targets.length} WhatsApp reminder${targets.length===1?'':'s'}? Each opens in a new tab — please allow popups, then tap Send in each WhatsApp window.`)) return;
@@ -18105,10 +18264,12 @@ function attachFeeRemindersEvents(){
  // Export dues list
  document.getElementById('frPrintBtn')?.addEventListener('click', () => {
   const sel = document.getElementById('frClassFilter');
-  printFeeDueList(sel && sel.value && sel.value !== 'all' ? sel.value : '');
+  const scope = _feeReminderScope();
+  printFeeDueList(sel && sel.value && sel.value !== 'all' ? sel.value : (scope || ''));
  });
  document.getElementById('frExportBtn')?.addEventListener('click', () => {
-  const overdue = getStudents().filter(s => !s.archived && (s.feeBalance||0) > 0).sort((a,b) => (b.feeBalance||0)-(a.feeBalance||0));
+  const scope = _feeReminderScope();
+  const overdue = getStudents().filter(s => !s.archived && (s.feeBalance||0) > 0 && (!scope || scope.includes(String(s.class)))).sort((a,b) => (b.feeBalance||0)-(a.feeBalance||0));
   const today = new Date().toISOString().slice(0,10);
   let h = '<table border="1"><tr><th>Roll</th><th>Student</th><th>Class</th><th>Section</th><th>Parent</th><th>Phone</th><th>Composite Fee</th><th>Paid</th><th>Balance Due</th><th>% Paid</th><th>Overdue Installments</th></tr>';
   overdue.forEach(s => {
@@ -21744,7 +21905,7 @@ const WA = {
  },
  // Build the messages for one kind. Returns [{phone, params, studentId, studentName, text}]
  build(kind, opt){
-  const all = getStudents().filter(s => !s.archived && s.createdFrom !== 'Fee register 2025-26' && (!opt.cls || s.class === opt.cls));
+  const all = getStudents().filter(s => !s.archived && s.createdFrom !== 'Fee register 2025-26' && (!opt.cls || s.class === opt.cls) && (!opt.classes || opt.classes.includes(String(s.class))));
   const L = this.cfg().lang === 'en';
   const inr = n => Number(n || 0).toLocaleString('en-IN');
   if (kind === 'fee') {
@@ -23691,6 +23852,7 @@ function attachTeachersTabEvents(){
  });
 
  document.getElementById('addTeacherBtn')?.addEventListener('click', () => openTeacherModal(null));
+ document.getElementById('classTeachersBtn')?.addEventListener('click', openClassTeachersModal);
  document.getElementById('tchAddQualBtn')?.addEventListener('click', () => { _tchQualRows.push({level: _tchQualRows.length ? 'Graduation' : '10th', course:'', board:'', year:''}); _renderTchQualRows(); });
  document.querySelectorAll('.viewStaffBtn').forEach(b => b.addEventListener('click', () => openStaffProfile(b.dataset.id)));
  document.querySelectorAll('.editTeacherBtn').forEach(b => b.addEventListener('click', () => openTeacherModal(b.dataset.id)));
