@@ -13150,6 +13150,9 @@ function showParentNotifyModal(recipients, message, title, waSpec){
  // {child} / {class} in the message are filled in for each parent
  const fill = (m, r) => String(m || '').split('{child}').join(r.studentName || '').split('{class}').join(r.cls || '');
  const personal = /\{child\}|\{class\}/.test(message || '');
+ // Notice pictures: a WhatsApp link can only carry text, so pictures go through the phone's Share menu.
+ const shareImgs = (waSpec && Array.isArray(waSpec.images)) ? waSpec.images.filter(x => x && x.url) : [];
+ const shareOk = shareImgs.length > 0 && typeof navigator !== 'undefined' && typeof navigator.share === 'function';
  const rows = recipients.filter(r=>r.phone).map(r => {
   const wa = 'https://wa.me/' + _cleanPhone(r.phone) + '?text=' + encodeURIComponent(fill(message, r));
   const sms = 'sms:' + (r.phone||'').replace(/[^\d+]/g,'') + '?&body=' + encodeURIComponent(fill(message, r));
@@ -13158,6 +13161,7 @@ function showParentNotifyModal(recipients, message, title, waSpec){
     <div class="flex gap-1 flex-shrink-0">
      <a href="${wa}" target="_blank" rel="noopener" class="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1.5 rounded text-xs font-medium"><i class="fab fa-whatsapp mr-1"></i>WhatsApp</a>
      <a href="${sms}" class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 rounded text-xs font-medium"><i class="fas fa-comment-sms mr-1"></i>SMS</a>
+     ${shareOk ? `<button type="button" class="notifyShareBtn bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded text-xs font-medium" data-phone="${escapeHTML(r.phone)}" title="Share the message with the notice pictures"><i class="fas fa-image mr-1"></i>With photos</button>` : ''}
     </div>
    </div>`;
  }).join('');
@@ -13170,6 +13174,9 @@ function showParentNotifyModal(recipients, message, title, waSpec){
    <div class="text-xs text-gray-400 mb-1">Recipients</div>
    <div class="max-h-64 overflow-y-auto border rounded-lg px-3">${rows || '<div class="text-sm text-gray-500 py-3">No parent phone numbers on file.</div>'}</div>
    ${noPhone.length?`<div class="text-xs text-amber-600 mt-2">${noPhone.length} student(s) have no parent phone number saved.</div>`:''}
+   ${shareImgs.length ? (shareOk
+     ? `<div class="bg-purple-50 border border-purple-200 rounded-lg p-2 mt-3 text-xs text-purple-900"><b><i class="fas fa-image mr-1"></i>Send the notice as pictures:</b> “With photos” opens your phone's Share menu with the message and ${shareImgs.length === 2 ? 'both notices (Hindi + English)' : 'the notice'} attached — choose WhatsApp, then the parent. Quickest: <button type="button" id="notifyShareGroupBtn" class="underline font-semibold">share once to the class WhatsApp group</button>.</div>`
+     : `<div class="bg-amber-50 border border-amber-200 rounded-lg p-2 mt-3 text-xs text-amber-900"><i class="fas fa-image mr-1"></i>To send the notice as pictures instead of links, open this window on your <b>phone</b> (Chrome or Safari): a “With photos” button appears for each parent.</div>`) : ''}
    <div class="flex justify-end gap-2 mt-4">${WA.ready() ? `<button id="notifyAutoBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm"><i class="fab fa-whatsapp mr-1"></i>Send to all automatically</button>` : ''}<button class="closeModal bg-gray-700 text-white px-4 py-2 rounded-lg text-sm">Close</button></div>
   </div>`;
  document.body.appendChild(el);
@@ -13193,6 +13200,31 @@ function showParentNotifyModal(recipients, message, title, waSpec){
   el.querySelectorAll('a[href^="https://wa.me"]').forEach((a,i)=>{ const r=recipients.filter(x=>x.phone)[i]; if(r) a.href='https://wa.me/'+_cleanPhone(r.phone)+'?text='+encodeURIComponent(fill(m, r)); });
   el.querySelectorAll('a[href^="sms:"]').forEach((a,i)=>{ const r=recipients.filter(x=>x.phone)[i]; if(r) a.href='sms:'+(r.phone||'').replace(/[^\d+]/g,'')+'?&body='+encodeURIComponent(fill(m, r)); });
  });
+ // Share with photos (phone Share menu → WhatsApp). Pictures are fetched as soon as the window opens,
+ // so the Share menu can open straight away when the button is tapped.
+ if (shareOk) {
+  const stripLinks = t => String(t || '').split('\n').filter(l => !/https?:\/\/\S+/.test(l) || !/(सूचना|Notice)/.test(l)).join('\n').replace(/\n{3,}/g, '\n\n');
+  const groupText = t => String(t || '').replace(/\*\{child\}\* \((?:कक्षा|Class) \{class\}\) — /g, '').split('{child}').join('').split('{class}').join('');
+  let files = null;
+  const ready = Promise.all(shareImgs.map(async (im, i) => {
+   const blob = await (await fetch(im.url)).blob();
+   const type = /^(image\/|application\/pdf)/.test(blob.type || '') ? blob.type : (im.type || 'image/jpeg');
+   const ext = type === 'application/pdf' ? 'pdf' : (type.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
+   return new File([blob], (im.name || ('notice-' + (i + 1))) + '.' + ext, { type });
+  })).then(f => { files = f; return f; }).catch(() => null);
+  const doShare = async (text) => {
+   const f = files || await ready;
+   if (!f || !f.length) { alert('Could not load the notice pictures. Check the internet connection and try again, or use the WhatsApp button (it sends the notice as a link).'); return; }
+   const data = { files: f, text };
+   if (navigator.canShare && !navigator.canShare(data)) { alert('This browser cannot share pictures. Please open the portal on your phone in Chrome or Safari, or use the WhatsApp button (it sends the notice as a link).'); return; }
+   try { await navigator.share(data); } catch (e) { if (e && e.name !== 'AbortError') alert('Sharing did not work: ' + e.message); }
+  };
+  el.querySelectorAll('.notifyShareBtn').forEach(b => b.addEventListener('click', () => {
+   const r = recipients.find(x => x.phone === b.dataset.phone) || {};
+   doShare(stripLinks(fill(el.querySelector('#notifyMsgBox')?.value || message, r)));
+  }));
+  el.querySelector('#notifyShareGroupBtn')?.addEventListener('click', () => doShare(stripLinks(groupText(el.querySelector('#notifyMsgBox')?.value || message))));
+ }
  el.querySelectorAll('.closeModal').forEach(b=>b.addEventListener('click',()=>el.remove()));
 }
 
@@ -15317,6 +15349,13 @@ function _ptmBilingualMsg(ev){
   + (enLink && enLink !== hiLink ? `\nNotice (English): ${enLink}` : (enLink && !hiLink ? `\nNotice: ${enLink}` : ''))
   + `\n\nधन्यवाद / Thank you\n${SCHOOL_INFO.name}${SCHOOL_INFO.phone ? '\n' + SCHOOL_INFO.phone : ''}`;
 }
+// The PTM's notice pictures (Hindi first), for "Share with photos".
+function _ptmNoticeFiles(ev){
+ const out = [];
+ if (ev && ev.noticeHiUrl) out.push({ url: ev.noticeHiUrl, type: ev.noticeHiType || 'image/jpeg', name: 'PTM-suchna-hindi' });
+ if (ev && ev.noticeUrl) out.push({ url: ev.noticeUrl, type: ev.noticeType || 'image/jpeg', name: 'PTM-notice-english' });
+ return out;
+}
 // One entry per student for the send window (father's name by default).
 function _ptmRecipients(roster){
  return roster.map(s => ({ name: s.fatherName || s.parentName || 'Parent', studentName: s.name,
@@ -15467,7 +15506,7 @@ function _attachPtmManagementEvents(){
   const ev=DB.getAll('ptmEvents').find(x=>x.id===parseInt(b.dataset.id)); if(!ev) return;
   const roster=getStudents().filter(s=>(!ev.classes||!ev.classes.length||ev.classes.includes(s.class))&&!s.archived);
   const recips=_ptmRecipients(roster);
-  showParentNotifyModal(recips, _ptmBilingualMsg(ev), 'Notify Parents — PTM', { kind: 'ptm', items: (WA.ready() ? WA.build('ptm', { ptmId: ev.id }).filter(it => recips.some(r => WA.phoneKey(r.phone) === WA.phoneKey(it.phone))) : []) });
+  showParentNotifyModal(recips, _ptmBilingualMsg(ev), 'Notify Parents — PTM', { kind: 'ptm', images: _ptmNoticeFiles(ev), items: (WA.ready() ? WA.build('ptm', { ptmId: ev.id }).filter(it => recips.some(r => WA.phoneKey(r.phone) === WA.phoneKey(it.phone))) : []) });
  }));
 }
 // Events for the teacher PTM portal (tracking only — scheduling is done by management).
@@ -15510,7 +15549,7 @@ function _attachTchPtmEvents(){
   const evClasses=(ev.classes&&ev.classes.length)?ev.classes.filter(c=>classes.includes(c)):classes;
   const roster=getStudents().filter(s=>evClasses.includes(s.class)&&!s.archived);
   const recips=_ptmRecipients(roster);
-  showParentNotifyModal(recips, _ptmBilingualMsg(ev), 'Notify Parents — PTM', { kind: 'ptm', items: (WA.ready() ? WA.build('ptm', { ptmId: ev.id }).filter(it => recips.some(r => WA.phoneKey(r.phone) === WA.phoneKey(it.phone))) : []) });
+  showParentNotifyModal(recips, _ptmBilingualMsg(ev), 'Notify Parents — PTM', { kind: 'ptm', images: _ptmNoticeFiles(ev), items: (WA.ready() ? WA.build('ptm', { ptmId: ev.id }).filter(it => recips.some(r => WA.phoneKey(r.phone) === WA.phoneKey(it.phone))) : []) });
  }));
 }
 function renderTchPTM(){
