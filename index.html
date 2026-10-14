@@ -9670,6 +9670,13 @@ function _myClassTeacherClasses(){
  const list = (t && Array.isArray(t.classTeacherOf)) ? t.classTeacherOf : [];
  return ALL_CLASSES.filter(c => list.includes(c));
 }
+// Which classes' parents this teacher informs about a PTM: their own class(es) as class teacher.
+// A leader (owner/admin/principal) with no class of their own may inform every class.
+function _ptmNotifyClasses(){
+ const mine = _myClassTeacherClasses();
+ if (mine.length) return mine;
+ return _isSchoolLeader() ? ALL_CLASSES.slice() : [];
+}
 function _isSchoolLeader(){ return isPrincipalLevel() || isAdminLevel() || isOwnerLevel(); }
 function _canMarkAttendance(cls){
  if (_isSchoolLeader()) return true;
@@ -13176,7 +13183,7 @@ function showParentNotifyModal(recipients, message, title, waSpec){
    ${noPhone.length?`<div class="text-xs text-amber-600 mt-2">${noPhone.length} student(s) have no parent phone number saved.</div>`:''}
    ${shareImgs.length ? (shareOk
      ? `<div class="bg-purple-50 border border-purple-200 rounded-lg p-2 mt-3 text-xs text-purple-900"><b><i class="fas fa-image mr-1"></i>Send the notice as pictures:</b> “With photos” opens your phone's Share menu with the message and ${shareImgs.length === 2 ? 'both notices (Hindi + English)' : 'the notice'} attached — choose WhatsApp, then the parent. Quickest: <button type="button" id="notifyShareGroupBtn" class="underline font-semibold">share once to the class WhatsApp group</button>.</div>`
-     : `<div class="bg-amber-50 border border-amber-200 rounded-lg p-2 mt-3 text-xs text-amber-900"><i class="fas fa-image mr-1"></i>To send the notice as pictures instead of links, open this window on your <b>phone</b> (Chrome or Safari): a “With photos” button appears for each parent.</div>`) : ''}
+     : `<div class="bg-amber-50 border border-amber-200 rounded-lg p-2 mt-3 text-xs text-amber-900"><i class="fas fa-image mr-1"></i>To send the notice pictures, open this window on your <b>phone</b> (Chrome or Safari): a “With photos” button appears for each parent.</div>`) : ''}
    <div class="flex justify-end gap-2 mt-4">${WA.ready() ? `<button id="notifyAutoBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm"><i class="fab fa-whatsapp mr-1"></i>Send to all automatically</button>` : ''}<button class="closeModal bg-gray-700 text-white px-4 py-2 rounded-lg text-sm">Close</button></div>
   </div>`;
  document.body.appendChild(el);
@@ -13214,9 +13221,9 @@ function showParentNotifyModal(recipients, message, title, waSpec){
   })).then(f => { files = f; return f; }).catch(() => null);
   const doShare = async (text) => {
    const f = files || await ready;
-   if (!f || !f.length) { alert('Could not load the notice pictures. Check the internet connection and try again, or use the WhatsApp button (it sends the notice as a link).'); return; }
+   if (!f || !f.length) { alert('Could not load the notice pictures. Check the internet connection and try again, or use the WhatsApp button to send the message as text only.'); return; }
    const data = { files: f, text };
-   if (navigator.canShare && !navigator.canShare(data)) { alert('This browser cannot share pictures. Please open the portal on your phone in Chrome or Safari, or use the WhatsApp button (it sends the notice as a link).'); return; }
+   if (navigator.canShare && !navigator.canShare(data)) { alert('This browser cannot share pictures. Please open the portal on your phone in Chrome or Safari, or use the WhatsApp button to send the message as text only.'); return; }
    try { await navigator.share(data); } catch (e) { if (e && e.name !== 'AbortError') alert('Sharing did not work: ' + e.message); }
   };
   el.querySelectorAll('.notifyShareBtn').forEach(b => b.addEventListener('click', () => {
@@ -15332,21 +15339,17 @@ function _ptmMsgWithNotice(msg, ev){
 }
 // Pre-filled PTM message for parents: Hindi, then English, each starting with the child's name and
 // class. {child} and {class} are filled in separately for every parent in the send window.
+// Text only — the notice pictures go with the "With photos" button, so no links here.
 function _ptmBilingualMsg(ev){
- const web = u => !!u && /^https?:/i.test(u);
  const dl = fmtDate(ev.date);
  const hiTime = ev.time ? `, समय ${ev.time}` : '';
  const enTime = ev.time ? ` at ${ev.time}` : '';
  const note = ev.description ? String(ev.description).trim() : '';
- const hiLink = web(ev.noticeHiUrl) ? ev.noticeHiUrl : (web(ev.noticeUrl) ? ev.noticeUrl : '');
- const enLink = web(ev.noticeUrl) ? ev.noticeUrl : (web(ev.noticeHiUrl) ? ev.noticeHiUrl : '');
  return `*{child}* (कक्षा {class}) — अभिभावक-शिक्षक बैठक\n`
   + `मूर्ति देवी बालिका विद्यापीठ में ${dl}${hiTime} अभिभावक-शिक्षक बैठक होगी। बच्चे की प्रगति पर बात करने के लिए आपकी उपस्थिति आवश्यक है।`
-  + (hiLink ? `\nसूचना (हिंदी): ${hiLink}` : '')
   + `\n\n*{child}* (Class {class}) — Parent-Teacher Meeting\n`
   + `A Parent-Teacher Meeting${ev.title && ev.title !== 'Parent-Teacher Meeting' ? ' (' + ev.title + ')' : ''} is on ${dl}${enTime} at ${SCHOOL_INFO.name}. Your presence is requested to discuss your child's progress.`
   + (note ? `\n${note}` : '')
-  + (enLink && enLink !== hiLink ? `\nNotice (English): ${enLink}` : (enLink && !hiLink ? `\nNotice: ${enLink}` : ''))
   + `\n\nधन्यवाद / Thank you\n${SCHOOL_INFO.name}${SCHOOL_INFO.phone ? '\n' + SCHOOL_INFO.phone : ''}`;
 }
 // The PTM's notice pictures (Hindi first), for "Share with photos".
@@ -15545,8 +15548,10 @@ function _attachTchPtmEvents(){
  // Notify parents about a PTM
  document.querySelectorAll('.ptmNotifyBtn').forEach(b=>b.addEventListener('click',()=>{
   const ev=DB.getAll('ptmEvents').find(x=>x.id===parseInt(b.dataset.id)); if(!ev) return;
-  const classes=_teacherAssignedClasses();
+  const classes=_ptmNotifyClasses();
+  if (!classes.length) { alert('PTM messages are sent by each class teacher for their own class.'); return; }
   const evClasses=(ev.classes&&ev.classes.length)?ev.classes.filter(c=>classes.includes(c)):classes;
+  if (!evClasses.length) { alert('This PTM is not for your class.'); return; }
   const roster=getStudents().filter(s=>evClasses.includes(s.class)&&!s.archived);
   const recips=_ptmRecipients(roster);
   showParentNotifyModal(recips, _ptmBilingualMsg(ev), 'Notify Parents — PTM', { kind: 'ptm', images: _ptmNoticeFiles(ev), items: (WA.ready() ? WA.build('ptm', { ptmId: ev.id }).filter(it => recips.some(r => WA.phoneKey(r.phone) === WA.phoneKey(it.phone))) : []) });
@@ -15571,7 +15576,7 @@ function renderTchPTM(){
      ${nextPtm.classes&&nextPtm.classes.length?`<div class="text-xs text-gray-500 mt-0.5">For Class ${nextPtm.classes.join(', ')}</div>`:''}
      ${_ptmNoticeHTML(nextPtm)}
     </div>
-    <button class="ptmNotifyBtn bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm font-medium" data-id="${nextPtm.id}"><i class="fab fa-whatsapp mr-1"></i>Notify parents</button>
+    ${_ptmNotifyClasses().length ? `<button class="ptmNotifyBtn bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm font-medium" data-id="${nextPtm.id}"><i class="fab fa-whatsapp mr-1"></i>Notify parents of ${escapeHTML(_ptmNotifyClasses().map(_classLabel).join(', '))}</button>` : `<span class="text-xs text-gray-500">Parents are informed by each class teacher.</span>`}
    </div>
   </div>` : `<div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-sm text-amber-800"><i class="fas fa-calendar-xmark mr-1"></i>No upcoming PTM scheduled. Meetings are scheduled by the school office/management.</div>`;
 
