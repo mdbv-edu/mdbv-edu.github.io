@@ -5353,6 +5353,27 @@ function renderOwnerDashboard(){
   </div>`;
  }
 
+ if (ownerView === 'payments') {
+  return `<div class="p-4 md:p-6 mx-auto portal-wide">
+   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+    <div><button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
+     <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-crown text-amber-500 mr-2"></i>Payments &amp; Expenses</h1></div>
+    <button id="logoutBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
+   </div>
+   <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-3 text-sm text-amber-900"><i class="fas fa-circle-info mr-1"></i>Money you paid yourself: set <b>Paid from</b> to <b>Owner (personal money)</b>. Money from the school's cash or bank: <b>School funds</b>.</div>
+   ${renderAccPayments()}
+  </div>`;
+ }
+ if (ownerView === 'bank') {
+  return `<div class="p-4 md:p-6 mx-auto portal-wide">
+   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+    <div><button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
+     <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-crown text-amber-500 mr-2"></i>Bank Accounts</h1></div>
+    <button id="logoutBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
+   </div>
+   <div id="adminTabContent">${renderBank()}</div>
+  </div>`;
+ }
  if (ownerView === 'advances') {
   return `<div class="p-4 md:p-6 mx-auto portal-wide">
    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
@@ -16580,6 +16601,7 @@ function _ownerQuickLinks(){
   {id:'ownerQuickStaffAtt',  view:'staffattendance',   icon:'user-clock',      label:'Staff Attendance', color:'#059669'},
   {id:'ownerQuickStudAtt',   view:'studentattendance', icon:'calendar-check',  label:'Student Attendance', color:'#2563eb'},
   {id:'ownerQuickFeeDash',   view:'feedashboard',      icon:'chart-column',    label:'Fee Dashboard', color:'#7a1e2e'},
+  {id:'ownerQuickExpense',   view:'payments',          icon:'money-bill-transfer', label:'Add Expense', color:'#be123c'},
   {id:'ownerQuickLedger',    view:'ledger',            icon:'book',            label:'Ledger', color:'#334155'},
   {id:'ownerQuickWhatsApp',  view:'whatsapp',          icon:'comments',        label:'WhatsApp', color:'#059669'}
  ];
@@ -16591,7 +16613,7 @@ function _ownerQuickLinks(){
    </div></div>`;
 }
 function _ownerCategoryTiles(){
- const counts = { finance:6, academics:4, people:3, attendance:3, admin:4 };
+ const counts = { finance:10, academics:4, people:3, attendance:3, admin:4 };
  const tile = (key) => { const s=OWNER_SECTIONS[key];
   return `<button class="ownerSecTile text-left bg-white border-2 rounded-2xl p-5 hover:shadow-md transition group" style="border-color:${s.color}33" data-sec="${key}">
     <div class="flex items-center gap-3">
@@ -16621,6 +16643,8 @@ function _ownerSectionCards(section){
  const users = getUsers(); const defPw = users.filter(u=>u.defaultPw||u.password==='CHANGE_ME').length;
  const cards = {
   finance: [
+   {btn:'ownerOpenPaymentsBtn', title:'Payments & Expenses', icon:'money-bill-transfer', color:'#be123c', action:'Add Expense', desc:'Record a payment or expense (school funds or your own money), or import a month-wise expense sheet.'},
+   {btn:'ownerOpenBankBtn', title:'Bank Accounts', icon:'building-columns', color:'#1d4ed8', action:'Open Bank Accounts', desc:'School bank accounts with balance as on a date; add an account or set a fresh balance.', meta:`${(get('bankAccounts')||[]).length} account(s)`},
    {btn:'ownerOpenContribBtn', title:"Owner's Contribution", icon:'hand-holding-heart', color:'#b3261e', action:'Open My Contribution', desc:'How much of the school\'s spending you have funded personally, month by month.'},
    {btn:'ownerOpenAdvancesBtn', title:'Advance Accounts', icon:'hand-holding-dollar', color:'#b45309', action:'Open Advance Accounts', desc:'Money handed to someone to spend for the school, and exactly where it went.'},
    {btn:'ownerOpenLedgerBtn', title:'Ledger', icon:'book', color:'#334155', action:'Open Ledger', desc:'Every rupee in and out — searchable, sortable by head, filterable by date.'},
@@ -22554,6 +22578,10 @@ function attachOwnerEvents(){
  document.getElementById('ownerOpenContribBtn')?.addEventListener('click', () => { ownerView='contribution'; renderApp(); });
  if (ownerView === 'contribution') _attachOwnerContributionEvents();
  document.getElementById('ownerOpenAdvancesBtn')?.addEventListener('click', () => { ownerView='advances'; renderApp(); });
+ document.getElementById('ownerOpenPaymentsBtn')?.addEventListener('click', () => { ownerView='payments'; renderApp(); });
+ if (ownerView === 'payments') _attachPaymentEvents();
+ document.getElementById('ownerOpenBankBtn')?.addEventListener('click', () => { ownerView='bank'; activeAdminTab='bank'; renderApp(); });
+ if (ownerView === 'bank') { activeAdminTab='bank'; attachGenericModuleEvents(); }
  if (ownerView === 'advances') _attachAdvanceEvents();
  document.getElementById('ownerOpenGapBtn')?.addEventListener('click', () => { ownerView='facultygap'; renderApp(); });
  if (ownerView === 'facultygap') _attachFacultyGapEvents();
