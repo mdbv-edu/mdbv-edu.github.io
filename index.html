@@ -7823,9 +7823,9 @@ function renderBank(){
  const acc=get('bankAccounts'),trans=get('bankTransactions');
  return `<div>
   <div class="flex justify-between items-center mb-3"><h2 class="text-lg font-bold"><i class="fas fa-building-columns text-blue-600 mr-1"></i>Bank Accounts</h2><button id="addAcc" class="bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-sm">+ Add Account</button></div>
-  <div class="grid md:grid-cols-2 gap-3">${acc.map(a=>`<div class="border p-3 rounded-lg"><div class="font-semibold">${a.bankName}</div><div class="text-sm text-gray-600">A/C: ${a.accountNo} - IFSC: ${a.ifsc||'-'}</div><div class="text-xl font-bold text-green-700 mt-1">Rs.${(a.balance||0).toLocaleString('en-IN')}</div><div class="mt-2 flex gap-2"><button class="addTransBtn text-blue-600 text-sm" data-id="${a.id}"><i class="fas fa-plus"></i> Transaction</button><button class="delAcc text-red-600 text-sm" data-id="${a.id}"><i class="fas fa-trash"></i> Delete</button></div></div>`).join('')}</div>
+  <div class="grid md:grid-cols-2 gap-3">${acc.map(a=>`<div class="border p-3 rounded-lg"><div class="font-semibold">${a.bankName}</div><div class="text-sm text-gray-600">A/C: ${a.accountNo} - IFSC: ${a.ifsc||'-'}</div><div class="text-xl font-bold text-green-700 mt-1">Rs.${(a.balance||0).toLocaleString('en-IN')}</div>${a.balanceAsOn?`<div class="text-xs text-gray-500">From Rs.${(a.balanceAsOnAmount||0).toLocaleString('en-IN')} as on ${a.balanceAsOn.split('-').reverse().join('-')}, plus later entries</div>`:''}<div class="mt-2 flex gap-2"><button class="editAccBal text-emerald-700 text-sm" data-id="${a.id}"><i class="fas fa-pen"></i> Edit / set balance</button><button class="addTransBtn text-blue-600 text-sm" data-id="${a.id}"><i class="fas fa-plus"></i> Transaction</button><button class="delAcc text-red-600 text-sm" data-id="${a.id}"><i class="fas fa-trash"></i> Delete</button></div></div>`).join('')}</div>
   <h3 class="font-semibold mt-5 mb-1">Transactions</h3><div class="overflow-x-auto"><table class="border"><thead><tr><th>Date</th><th>Type</th><th>Description</th><th>Amount</th></tr></thead><tbody>${trans.map(t=>`<tr><td>${t.date}</td><td><span class="pill pill-${t.type==='Credit'?'green':'red'}">${t.type}</span></td><td>${t.description||'-'}</td><td>Rs.${t.amount}</td></tr>`).join('')||'<tr><td colspan="4" class="text-center text-gray-500 py-4">No transactions</td></tr>'}</tbody></table></div>
-  <div id="bankModal" class="hidden modal"><div class="modal-content"><h3 class="font-bold mb-3">Add Bank Account</h3><div class="space-y-2"><input id="bankName" placeholder="Bank Name"><input id="bankAccNo" placeholder="Account No"><input id="bankIfsc" placeholder="IFSC"><input type="number" id="bankBal" placeholder="Opening Balance"></div><div class="flex justify-end gap-2 mt-3"><button class="closeModal bg-gray-300 px-3 py-1.5 rounded">Cancel</button><button id="saveBankModal" class="bg-indigo-600 text-white px-3 py-1.5 rounded">Save</button></div></div></div>
+  <div id="bankModal" class="hidden modal"><div class="modal-content"><h3 class="font-bold mb-3" id="bankModalTitle">Add Bank Account</h3><input type="hidden" id="bankEditId"><div class="space-y-2"><input id="bankName" placeholder="Bank Name"><input id="bankAccNo" placeholder="Account No"><input id="bankIfsc" placeholder="IFSC"><div class="grid grid-cols-2 gap-2"><div><label class="text-xs font-medium">Balance (Rs.)</label><input type="number" id="bankBal" placeholder="As per bank statement"></div><div><label class="text-xs font-medium">Balance as on</label><input type="date" id="bankBalDate"></div></div><div class="text-xs text-gray-500">Take this from the passbook or statement at the end of that day. Payments dated on or before this date are treated as already included; only later ones change the balance.</div></div><div class="flex justify-end gap-2 mt-3"><button class="closeModal bg-gray-300 px-3 py-1.5 rounded">Cancel</button><button id="saveBankModal" class="bg-indigo-600 text-white px-3 py-1.5 rounded">Save</button></div></div></div>
   <div id="transModal" class="hidden modal"><div class="modal-content"><h3 class="font-bold mb-3">Add Transaction</h3><div class="space-y-2"><input type="hidden" id="transAccId"><select id="transType"><option>Credit</option><option>Debit</option></select><input id="transDesc" placeholder="Description"><input type="number" id="transAmount" placeholder="Amount"><input type="date" id="transDate"></div><div class="flex justify-end gap-2 mt-3"><button class="closeModal bg-gray-300 px-3 py-1.5 rounded">Cancel</button><button id="saveTransModal" class="bg-indigo-600 text-white px-3 py-1.5 rounded">Save</button></div></div></div>
  </div>`;
 }
@@ -20514,6 +20514,12 @@ function _logAccountingChange(action, kind, before, after, reason){
  DB.setAll('accountingAuditLog', log);
 }
 
+// A bank balance is entered "as on" a date. Payments dated on or before that date are already in it,
+// so they must not move the balance again; only later ones do.
+function _bankCounts(acc, date){
+ if (!acc || !acc.balanceAsOn) return true;
+ return !!date && String(date).slice(0,10) > acc.balanceAsOn;
+}
 // Reverse the bank/balance side-effect of a transaction (used on edit or delete)
 function _reverseTxnEffect(t, kind){
  if (kind === 'receipt') {
@@ -20532,14 +20538,14 @@ function _reverseTxnEffect(t, kind){
   if (t.bankAccountId && t.mode !== 'Cash') {
    const banks = get('bankAccounts');
    const bi = banks.findIndex(b => b.id === t.bankAccountId);
-   if (bi > -1) { banks[bi].balance = (banks[bi].balance || 0) - (t.amount || 0); set('bankAccounts', banks); }
+   if (bi > -1 && _bankCounts(banks[bi], t.date)) { banks[bi].balance = (banks[bi].balance || 0) - (t.amount || 0); set('bankAccounts', banks); }
   }
  } else if (kind === 'expense') {
   // If non-cash, credit back the bank account
   if (t.bankAccountId && t.mode !== 'Cash') {
    const banks = get('bankAccounts');
    const bi = banks.findIndex(b => b.id === t.bankAccountId);
-   if (bi > -1) { banks[bi].balance = (banks[bi].balance || 0) + (t.amount || 0); set('bankAccounts', banks); }
+   if (bi > -1 && _bankCounts(banks[bi], t.date)) { banks[bi].balance = (banks[bi].balance || 0) + (t.amount || 0); set('bankAccounts', banks); }
   }
  }
 }
@@ -20738,7 +20744,7 @@ function _openTxnEditModal(txnId, txnKind){
    if (newBankId && updated.mode !== 'Cash') {
     const bb = get('bankAccounts');
     const bi = bb.findIndex(b => b.id === newBankId);
-    if (bi > -1) { bb[bi].balance = (bb[bi].balance || 0) + updated.amount; set('bankAccounts', bb); }
+    if (bi > -1 && _bankCounts(bb[bi], updated.date)) { bb[bi].balance = (bb[bi].balance || 0) + updated.amount; set('bankAccounts', bb); }
    }
    const tr = getFeeTransactions();
    const idx = tr.findIndex(x => x.id === id);
@@ -20748,7 +20754,7 @@ function _openTxnEditModal(txnId, txnKind){
    if (newBankId && updated.mode !== 'Cash') {
     const bb = get('bankAccounts');
     const bi = bb.findIndex(b => b.id === newBankId);
-    if (bi > -1) { bb[bi].balance = (bb[bi].balance || 0) - updated.amount; set('bankAccounts', bb); }
+    if (bi > -1 && _bankCounts(bb[bi], updated.date)) { bb[bi].balance = (bb[bi].balance || 0) - updated.amount; set('bankAccounts', bb); }
    }
    const ee = get('expenses');
    const idx = ee.findIndex(x => x.id === id);
@@ -21489,7 +21495,7 @@ function _attachReceiptEvents(){
   if (bankAccId && mode !== 'Cash') {
    const banks = get('bankAccounts');
    const bi = banks.findIndex(b => b.id === bankAccId);
-   if (bi > -1) { banks[bi].balance = (banks[bi].balance||0) + amt; set('bankAccounts', banks); }
+   if (bi > -1 && _bankCounts(banks[bi], date)) { banks[bi].balance = (banks[bi].balance||0) + amt; set('bankAccounts', banks); }
    const bt = get('bankTransactions');
    bt.push({ id: Date.now()+1, accountId: bankAccId, amount: amt, date, description: headLabel + ' — ' + (transaction.payerName || (getStudents().find(s=>s.id===transaction.studentId)?.name||'')), type: 'Credit' });
    set('bankTransactions', bt);
@@ -21737,7 +21743,7 @@ function _attachPaymentEvents(){
   if (bankAccId && mode !== 'Cash') {
    const banks = get('bankAccounts');
    const bi = banks.findIndex(b => b.id === bankAccId);
-   if (bi > -1) {
+   if (bi > -1 && _bankCounts(banks[bi], date)) {
     if ((banks[bi].balance || 0) < amt) {
      if (!confirm('Insufficient balance in ' + banks[bi].bankName + ' (have ' + banks[bi].balance + '). Proceed anyway?')) return;
     }
@@ -21807,10 +21813,10 @@ function _attachPaymentEvents(){
 
   if (type === 'deposit') {
    // Cash → Bank: bank balance increases, cash decreases (recorded as cash expense + bank credit)
-   banks[bi].balance = (banks[bi].balance||0) + amt;
+   if (_bankCounts(banks[bi], date)) banks[bi].balance = (banks[bi].balance||0) + amt;
    set('bankAccounts', banks);
    const bt = get('bankTransactions');
-   bt.push({ id: Date.now(), accountId: accId, amount: amt, date, description: 'Cash deposit by accountant', type: 'Credit' });
+   bt.push({ id: Date.now(), accountId: accId, amount: amt, date, description: 'Cash deposit by accountant', type: 'Credit', source: 'cashmove' });
    set('bankTransactions', bt);
    // Also record as expense from cash side so cash on hand decreases
    const exp = get('expenses');
@@ -21822,10 +21828,10 @@ function _attachPaymentEvents(){
    if ((banks[bi].balance||0) < amt) {
     if (!confirm('Insufficient balance in ' + banks[bi].bankName + '. Proceed anyway?')) return;
    }
-   banks[bi].balance = (banks[bi].balance||0) - amt;
+   if (_bankCounts(banks[bi], date)) banks[bi].balance = (banks[bi].balance||0) - amt;
    set('bankAccounts', banks);
    const bt = get('bankTransactions');
-   bt.push({ id: Date.now(), accountId: accId, amount: amt, date, description: 'Cash withdrawal by accountant', type: 'Debit' });
+   bt.push({ id: Date.now(), accountId: accId, amount: amt, date, description: 'Cash withdrawal by accountant', type: 'Debit', source: 'cashmove' });
    set('bankTransactions', bt);
    // Also record as receipt to cash side
    const tr = getFeeTransactions();
@@ -24575,10 +24581,33 @@ function attachGenericModuleEvents(){
   set('expenses',e);document.getElementById('expModal').classList.add('hidden');refreshAdminTabContent();
  });
  document.querySelectorAll('.delExp').forEach(b=>b.addEventListener('click',()=>{set('expenses',get('expenses').filter(x=>x.id!==parseInt(b.dataset.id)));refreshAdminTabContent()}));
- document.getElementById('addAcc')?.addEventListener('click',()=>document.getElementById('bankModal').classList.remove('hidden'));
+ const _openBankModal=(acc)=>{
+  const v=(id,x)=>{const el=document.getElementById(id); if(el) el.value=x;};
+  v('bankEditId',acc?acc.id:''); v('bankName',acc?.bankName||''); v('bankAccNo',acc?.accountNo||''); v('bankIfsc',acc?.ifsc||'');
+  v('bankBal',acc?(acc.balance||0):''); v('bankBalDate',new Date().toISOString().slice(0,10));
+  document.getElementById('bankModalTitle').textContent=acc?'Edit Bank Account / Set Balance':'Add Bank Account';
+  document.getElementById('bankModal').classList.remove('hidden');
+ };
+ document.getElementById('addAcc')?.addEventListener('click',()=>_openBankModal(null));
+ document.querySelectorAll('.editAccBal').forEach(b=>b.addEventListener('click',()=>_openBankModal(get('bankAccounts').find(x=>x.id===parseInt(b.dataset.id)))));
  document.getElementById('saveBankModal')?.addEventListener('click',()=>{
+  const name=document.getElementById('bankName').value.trim();
+  if(!name){alert('Enter the bank name');return;}
+  const bal=Number(document.getElementById('bankBal').value)||0;
+  const asOn=document.getElementById('bankBalDate').value||new Date().toISOString().slice(0,10);
+  // later-dated bank entries already recorded for this account move the balance forward from the as-on figure
+  const editId=parseInt(document.getElementById('bankEditId').value)||0;
+  let later=0;
+  if(editId){
+   (getFeeTransactions()||[]).forEach(t=>{ if(t.bankAccountId===editId&&t.mode!=='Cash'&&String(t.date||'')>asOn) later+=(t.amount||0); });
+   (get('expenses')||[]).forEach(t=>{ if(t.bankAccountId===editId&&t.mode!=='Cash'&&String(t.date||'')>asOn) later-=(t.amount||0); });
+   (get('bankTransactions')||[]).forEach(t=>{ if(t.accountId===editId&&String(t.date||'')>asOn&&/manual|cashmove/.test(t.source||'')) later+=(t.type==='Credit'?1:-1)*(t.amount||0); });
+  }
   const a=get('bankAccounts');
-  a.push({id:Date.now(),bankName:document.getElementById('bankName').value,accountNo:document.getElementById('bankAccNo').value,ifsc:document.getElementById('bankIfsc').value,balance:parseInt(document.getElementById('bankBal').value)||0,branch:''});
+  const fields={bankName:name,accountNo:document.getElementById('bankAccNo').value.trim(),ifsc:document.getElementById('bankIfsc').value.trim(),
+   balance:bal+later,balanceAsOn:asOn,balanceAsOnAmount:bal};
+  if(editId){const i=a.findIndex(x=>x.id===editId); if(i>-1) a[i]={...a[i],...fields};}
+  else a.push({id:Date.now(),branch:'',...fields});
   set('bankAccounts',a);document.getElementById('bankModal').classList.add('hidden');refreshAdminTabContent();
  });
  document.querySelectorAll('.delAcc').forEach(b=>b.addEventListener('click',()=>{set('bankAccounts',get('bankAccounts').filter(x=>x.id!==parseInt(b.dataset.id)));refreshAdminTabContent()}));
@@ -24587,9 +24616,9 @@ function attachGenericModuleEvents(){
   const t=get('bankTransactions');const aid=parseInt(document.getElementById('transAccId').value);
   const amount=parseInt(document.getElementById('transAmount').value)||0;
   const type=document.getElementById('transType').value;
-  t.push({id:Date.now(),accountId:aid,type,description:document.getElementById('transDesc').value,amount,date:document.getElementById('transDate').value});
+  t.push({id:Date.now(),accountId:aid,type,description:document.getElementById('transDesc').value,amount,date:document.getElementById('transDate').value,source:'manual'});
   const acc=get('bankAccounts');const ai=acc.findIndex(x=>x.id===aid);
-  if(ai>-1){acc[ai].balance=(acc[ai].balance||0)+(type==='Credit'?amount:-amount);set('bankAccounts',acc)}
+  if(ai>-1&&_bankCounts(acc[ai],document.getElementById('transDate').value)){acc[ai].balance=(acc[ai].balance||0)+(type==='Credit'?amount:-amount);set('bankAccounts',acc)}
   set('bankTransactions',t);document.getElementById('transModal').classList.add('hidden');refreshAdminTabContent();
  });
  const _calRefresh = () => {
