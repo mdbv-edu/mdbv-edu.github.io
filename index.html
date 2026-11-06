@@ -5068,6 +5068,32 @@ async function applyStudentPatch(patch, progressCb){
   set('expenses', exps);
   if (paysChanged) saveSalaryPayments(pays);
  }
+ // 6) Bank statement lines for the main school bank account (skips lines already entered).
+ if (patch.bankStatement && Array.isArray(patch.bankStatement.lines) && patch.bankStatement.lines.length) {
+  const accs = get('bankAccounts') || [];
+  const main = accs.find(x => x.isMain) || accs[0];
+  if (!main) report.skipped.push('Bank statement: add the school bank account first (Finance → Bank Accounts), then import this file again');
+  else {
+   say('Adding bank statement…');
+   const bs = patch.bankStatement, bt = get('bankTransactions') || [];
+   const have = new Set(bt.filter(b => b.source === 'statement' && String(b.accountId) === String(main.id)).map(b => b.key));
+   let added = 0; const base = Date.now();
+   bs.lines.forEach((l, k) => {
+    if (have.has(l.key)) return;
+    bt.push({ id: base + k, accountId: main.id, source: 'statement', key: l.key, seq: l.seq || k, date: l.date, type: l.type,
+     amount: Number(l.amount) || 0, description: l.description || '', chequeNo: l.chequeNo || undefined, balance: l.balance, head: l.head || undefined });
+    added++;
+   });
+   set('bankTransactions', bt);
+   const st = (main.statements || []).slice();
+   (bs.statements || []).forEach(x => { if (!st.some(y => y.from === x.from && y.to === x.to)) st.push(x); });
+   main.statements = st.sort((x, y) => x.from.localeCompare(y.from));
+   if (bs.rules) { main.rules = Object.assign({}, main.rules || {}, bs.rules); delete main.rules.schoolNonCash; }
+   set('bankAccounts', accs);
+   main.balance = _bankBalance(main); set('bankAccounts', accs);
+   report.applied.push(`Bank statement: ${added} line(s) added` + (bs.lines.length - added ? ` (${bs.lines.length - added} already entered)` : '') + ` for ${main.bankName || 'the school account'}`);
+  }
+ }
  if (DB.mode === 'cloud') {
   say('Uploading to cloud…');
   await DB.flushNow();
@@ -20630,17 +20656,23 @@ function _bankCounts(acc, date){
  return !!date && String(date).slice(0,10) > acc.balanceAsOn;
 }
 // ===== SCHOOL BANK BOOK =====
-// Which receipts and payments went through the school's bank account is worked out from simple rules
-// (set on the account), so years of past entries don't have to be tagged one by one:
-//  • fee receipts — all of them were deposited in the account (default), or only cheque/online ones
-//  • salaries — those paid by cheque/bank transfer (default), or all of them
-//  • other school-funds payments made by cheque / online / bank transfer
-// The owner's own money and school cash payments never touch the account. An entry linked to an
-// account, or one the owner moved in/out of the bank book by hand, overrides the rules.
-const BANK_RULE_DEFAULTS = { receipts: 'all', salaries: 'nonCash', schoolNonCash: true };
+// The bank book is built from two sources:
+//  • the bank's own statement lines, for every period a statement has been entered (exact, line by line);
+//  • outside those periods, the portal's entries, using simple rules set on the account —
+//    fee receipts (all / only cheque-online / none), salaries (cheque-bank or all), other school payments
+//    (cheque only / cheque-online / none). The owner's own money and school cash payments never count.
+// Every known balance (statement opening/closing, a balance the owner typed in) is a checkpoint: where the
+// book and the bank disagree, the difference is shown as its own line, so a gap never hides inside the totals.
+const BANK_RULE_DEFAULTS = { receipts: 'all', salaries: 'nonCash', other: 'nonCash' };
 function _isTransfer(t){ return !!t && (t._bankMove === true || t.category === 'Bank Deposit' || t.feeHead === 'Bank Withdrawal'); }
 function _mainBank(){ const b = get('bankAccounts') || []; return b.find(x => x.isMain) || b[0] || null; }
-function _bankRules(acc){ return Object.assign({}, BANK_RULE_DEFAULTS, (acc && acc.rules) || {}); }
+function _bankRules(acc){
+ const raw = (acc && acc.rules) || {};
+ const r = Object.assign({}, BANK_RULE_DEFAULTS, raw);
+ if (!raw.other && raw.schoolNonCash === false) r.other = 'none';          // older setting
+ return r;
+}
+function _inStatement(acc, date){ return !!(acc && date && (acc.statements || []).some(s => date >= s.from && date <= s.to)); }
 function _isSalaryExp(e){ return e.category === 'Salary' || !!e.salaryPaymentId; }
 function _txnInBank(t, kind, acc){
  if (!acc || !t || t._deleted) return false;
@@ -20660,7 +20692,9 @@ function _txnInBank(t, kind, acc){
  if (m.includes('adjust')) return false;
  if (_isTransfer(t)) return r.receipts !== 'all';                     // cash taken to the bank: already counted when every receipt is
  if (_isSalaryExp(t)) return r.salaries === 'all' || !isCash;
- return !!r.schoolNonCash && !isCash;
+ if (r.other === 'none') return false;
+ if (r.other === 'cheque') return m.includes('cheque') || m.includes('chq');
+ return !isCash;
 }
 // + money into the account, − money out
 function _bankAmt(t, kind){
@@ -20672,37 +20706,77 @@ function _bankBookRows(acc){
  if (!acc) return [];
  const students = getStudents(), rows = [];
  getFeeTransactions().forEach(t => {
-  if (t._deleted || !_txnInBank(t, 'receipt', acc)) return;
+  if (t._deleted || _inStatement(acc, t.date) || !_txnInBank(t, 'receipt', acc)) return;
   const st = students.find(x => x.id === t.studentId);
   rows.push({ id: t.id, kind: 'receipt', date: t.date || '', party: st ? st.name + ' (' + st.class + ')' : (t.payerName || ''),
    head: _ledgerHead({ ...t, _kind: 'receipt' }), mode: t.mode || '', ref: t.bookReceiptNo || t.receiptNo || '', amt: _bankAmt(t, 'receipt'), src: t });
  });
  (get('expenses') || []).forEach(e => {
-  if (e._deleted || !_txnInBank(e, 'expense', acc)) return;
+  if (e._deleted || _inStatement(acc, e.date) || !_txnInBank(e, 'expense', acc)) return;
   rows.push({ id: e.id, kind: 'expense', date: e.date || '', party: e.vendor || '',
    head: _isTransfer(e) ? 'Cash deposited' : _ledgerHead({ ...e, _kind: 'expense' }), mode: e.mode || '',
    ref: (e.description || '') + (e.chequeNo ? ' · Chq ' + e.chequeNo : ''), amt: _bankAmt(e, 'expense'), src: e });
  });
  (get('bankTransactions') || []).forEach(b => {
-  if (b.source !== 'manual' || String(b.accountId) !== String(acc.id)) return;   // others mirror entries already above
-  rows.push({ id: b.id, kind: 'bank', date: b.date || '', party: '', head: b.type === 'Credit' ? 'Bank credit' : 'Bank debit',
-   mode: 'Bank', ref: b.description || '', amt: (b.type === 'Credit' ? 1 : -1) * (Number(b.amount) || 0), src: b });
+  if (String(b.accountId) !== String(acc.id)) return;
+  const amt = (b.type === 'Credit' ? 1 : -1) * (Number(b.amount) || 0);
+  if (b.source === 'statement') {
+   rows.push({ id: b.id, seq: b.seq || 0, kind: 'stmt', date: b.date || '', party: b.description || '', head: b.head || (amt > 0 ? 'Bank credit' : 'Bank debit'),
+    mode: 'Bank statement', ref: '', chequeNo: b.chequeNo || '', amt, pbal: (b.balance == null ? null : Number(b.balance)), src: b });
+   return;
+  }
+  if (b.source !== 'manual' || _inStatement(acc, b.date)) return;   // other bank rows mirror entries already above
+  rows.push({ id: b.id, kind: 'bank', date: b.date || '', party: '', head: amt > 0 ? 'Bank credit' : 'Bank debit',
+   mode: 'Bank', ref: b.description || '', amt, src: b });
  });
- rows.sort((a, b) => a.date.localeCompare(b.date) || (a.id || 0) - (b.id || 0));
+ rows.sort((a, b) => a.date.localeCompare(b.date) || (a.kind === 'stmt' && b.kind === 'stmt' ? (a.seq - b.seq) : 0) || (a.id || 0) - (b.id || 0));
  return rows;
 }
-// Balance at the end of `date`, worked forwards and backwards from the balance entered "as on" a date.
-function _bankBalanceAt(acc, rows, date){
- if (!acc) return 0;
- if (!acc.balanceAsOn) return rows.filter(r => r.date <= date).reduce((s, r) => s + r.amt, 0);
- const a = acc.balanceAsOn; let bal = Number(acc.balanceAsOnAmount) || 0;
- rows.forEach(r => { if (r.date > a && r.date <= date) bal += r.amt; else if (r.date > date && r.date <= a) bal -= r.amt; });
- return bal;
+// Known balances: statement opening/closing and any balance the owner entered.
+function _bankPoints(acc){
+ const pts = [];
+ (acc.statements || []).forEach(s => {
+  pts.push({ date: _dayBefore(s.from), bal: Number(s.opening), label: 'Bank statement — opening', stmt: true });
+  pts.push({ date: s.to, bal: Number(s.closing), label: 'Bank statement — closing', stmt: true });
+ });
+ if (acc.balanceAsOn) pts.push({ date: acc.balanceAsOn, bal: Number(acc.balanceAsOnAmount) || 0, label: 'Balance you entered' });
+ (acc.checkpoints || []).forEach(c => pts.push({ date: c.date, bal: Number(c.balance) || 0, label: c.label || 'Balance you entered' }));
+ pts.sort((a, b) => a.date.localeCompare(b.date) || (b.stmt ? 1 : 0) - (a.stmt ? 1 : 0));
+ return pts.filter((p, i) => !(i > 0 && pts[i - 1].date === p.date && Math.abs(pts[i - 1].bal - p.bal) < 0.5));
 }
+// Running balance through every line, re-set at each known balance (a difference becomes its own line).
+function _bankTimeline(acc){
+ const rows = _bankBookRows(acc);
+ const pts = acc ? _bankPoints(acc) : [];
+ const r2 = v => Math.round(v * 100) / 100;
+ if (!pts.length) { let run = 0; const out = rows.map(r => ({ ...r, bal: (run = r2(run + r.amt)) })); return { start: 0, rows: out, checks: [], end: run, noAnchor: true }; }
+ const p0 = pts[0];
+ const start = r2(p0.bal - rows.filter(r => r.date <= p0.date).reduce((s, r) => s + r.amt, 0));
+ let run = start, i = 0, j = 0; const out = [], checks = [];
+ while (i < rows.length || j < pts.length) {
+  const r = rows[i], p = pts[j];
+  if (r && (!p || r.date <= p.date)) {                       // a day's lines come before that day's closing balance
+   run = r2(run + r.amt);
+   const o = { ...r, bal: run };
+   if (r.kind === 'stmt' && r.pbal != null && Math.abs(r.pbal - run) >= 0.5) { o.mismatch = r2(r.pbal - run); run = r.pbal; o.bal = run; }
+   out.push(o); i++;
+  } else {
+   const d = r2(p.bal - run);
+   checks.push({ ...p, book: run, diff: d });
+   if (Math.abs(d) >= 1) out.push({ id: 'diff' + j, kind: 'diff', date: p.date, amt: d, bal: p.bal,
+    party: d > 0 ? 'More money in the bank than the book shows' : 'Less money in the bank than the book shows',
+    head: 'Difference with ' + (p.stmt ? 'the bank statement' : 'the balance you entered'), mode: '', ref: '' });
+   run = p.bal; j++;
+  }
+ }
+ return { start, rows: out, checks, end: run };
+}
+function _bankBalAt(tl, date){ let b = tl.start; for (const r of tl.rows) { if (r.date <= date) b = r.bal; else break; } return b; }
+function _bankBalanceAt(acc, rows, date){ return _bankBalAt(_bankTimeline(acc), date); }
 function _bankBalance(acc){
  if (!acc) return 0;
- if (!acc.balanceAsOn) return Number(acc.balance) || 0;
- return _bankBalanceAt(acc, _bankBookRows(acc), '9999-12-31');
+ if (!acc.balanceAsOn && !(acc.statements || []).length) return Number(acc.balance) || 0;
+ return _bankTimeline(acc).end;
 }
 // Payments that look like fee cash carried to the bank, still counted as spending
 function _depositCandidates(){
@@ -20718,15 +20792,26 @@ function renderBankBook(acc){
  if (!acc) return '';
  const inr = v => (v < 0 ? '−' : '') + 'Rs.' + Math.abs(Math.round(v || 0)).toLocaleString('en-IN');
  const canEdit = isOwnerLevel() || isAdminLevel();
- const R = _bankRules(acc), rows = _bankBookRows(acc), isMain = _mainBank() && String(_mainBank().id) === String(acc.id);
+ const R = _bankRules(acc), isMain = _mainBank() && String(_mainBank().id) === String(acc.id);
+ const tl = _bankTimeline(acc);
  const today = new Date().toISOString().slice(0, 10);
  const from = _bankBookFrom || (currentSession().slice(0, 4) + '-04-01'), to = _bankBookTo || today;
- const opening = _bankBalanceAt(acc, rows, _dayBefore(from));
- const inPeriod = rows.filter(r => r.date >= from && r.date <= to);
- let run = opening;
- const withBal = inPeriod.map(r => { run += r.amt; return { ...r, bal: run }; });
- const mIn = inPeriod.filter(r => r.amt > 0).reduce((s, r) => s + r.amt, 0), mOut = -inPeriod.filter(r => r.amt < 0).reduce((s, r) => s + r.amt, 0);
- const closing = opening + mIn - mOut;
+ const opening = _bankBalAt(tl, _dayBefore(from));
+ const inPeriod = tl.rows.filter(r => r.date >= from && r.date <= to);
+ const real = inPeriod.filter(r => r.kind !== 'diff'), diffs = inPeriod.filter(r => r.kind === 'diff');
+ const mIn = real.filter(r => r.amt > 0).reduce((s, r) => s + r.amt, 0), mOut = -real.filter(r => r.amt < 0).reduce((s, r) => s + r.amt, 0);
+ const dSum = diffs.reduce((s, r) => s + r.amt, 0);
+ const closing = _bankBalAt(tl, to);
+ // portal payments by cheque number, to show whether each cheque on the statement is in the books
+ const chq = {};
+ (get('expenses') || []).forEach(e => { if (!e._deleted && e.chequeNo) { const k = String(e.chequeNo).trim(); chq[k] = chq[k] || { n: 0, sum: 0 }; chq[k].n++; chq[k].sum += Number(e.amount) || 0; } });
+ const chqTag = r => {
+  if (r.kind !== 'stmt' || !r.chequeNo || r.amt > 0) return '';
+  const m = chq[String(r.chequeNo)];
+  if (!m) return '<span class="pill pill-red text-[10px]" title="No payment with this cheque number in the portal">not in portal</span>';
+  if (Math.abs(m.sum + r.amt) < 1) return `<span class="pill pill-green text-[10px]" title="${m.n} payment(s) in the portal with this cheque number">in portal ✓</span>`;
+  return `<span class="pill pill-amber text-[10px]" title="Portal payments with this cheque number add up to a different amount">portal ${inr(m.sum)}</span>`;
+ };
  // what did NOT go through the bank in the same period, for context
  const exps = (get('expenses') || []).filter(e => !e._deleted && !_isTransfer(e) && (e.date || '') >= from && (e.date || '') <= to);
  const ownerOut = exps.filter(e => expenseFunding(e) === OWNER_FUNDED).reduce((s, e) => s + (Number(e.amount) || 0), 0);
@@ -20735,21 +20820,23 @@ function renderBankBook(acc){
   getFeeTransactions().filter(t => !t._deleted && t.bankOverride === 'out').map(t => ({ ...t, _kind: 'receipt' })),
   (get('expenses') || []).filter(e => !e._deleted && e.bankOverride === 'out').map(e => ({ ...e, _kind: 'expense' })));
  const dep = isMain ? _depositCandidates() : [];
- const shown = _bankBookShowAll ? withBal : withBal.slice(-300);
+ const shown = _bankBookShowAll ? inPeriod : inPeriod.slice(-300);
+ const sts = (acc.statements || []);
  const sel = (id, opts, val) => `<select id="${id}" class="text-sm" ${canEdit ? '' : 'disabled'}>${opts.map(([v, l]) => `<option value="${v}" ${v === val ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
  return `<div class="mt-5 border-t pt-4" id="bankBookBox">
   <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
    <h3 class="font-bold text-lg"><i class="fas fa-book text-blue-700 mr-1"></i>Bank Book — ${escapeHTML(acc.bankName || '')} ${acc.accountNo ? '· A/C ' + escapeHTML(String(acc.accountNo)) : ''}</h3>
    <button id="bbExport" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-file-excel mr-1"></i>Export</button>
   </div>
-  ${!acc.balanceAsOn ? `<div class="bg-amber-50 border border-amber-200 rounded p-2 text-sm text-amber-900 mb-2"><i class="fas fa-circle-info mr-1"></i>Set this account's balance from the passbook or statement (<b>Edit / set balance</b>) — until then the running balance starts from zero.</div>` : ''}
+  ${!acc.balanceAsOn && !sts.length ? `<div class="bg-amber-50 border border-amber-200 rounded p-2 text-sm text-amber-900 mb-2"><i class="fas fa-circle-info mr-1"></i>Set this account's balance from the passbook or statement (<b>Edit / set balance</b>) — until then the running balance starts from zero.</div>` : ''}
+  ${sts.length ? `<div class="bg-sky-50 border border-sky-200 rounded p-2 text-sm text-sky-900 mb-2"><i class="fas fa-file-invoice mr-1"></i>Bank statement entered for ${sts.map(s => fmtDate(s.from) + ' – ' + fmtDate(s.to)).join(', ')}. For those dates the book shows the bank's own lines; for other dates it uses the portal's entries and the settings below.</div>` : ''}
   ${!isMain ? `<div class="bg-gray-50 border rounded p-2 text-sm text-gray-700 mb-2">This is not the main school account, so only entries linked to it (and its own bank entries) are shown. ${canEdit ? `<button class="bbMakeMain text-blue-700 underline ml-1" data-id="${acc.id}">Make it the main school account</button>` : ''}</div>` : `
   <div class="bg-white border rounded-lg p-3 mb-3">
-   <div class="text-sm font-semibold mb-2">What goes through this account</div>
+   <div class="text-sm font-semibold mb-2">What goes through this account${sts.length ? ' (dates without a bank statement)' : ''}</div>
    <div class="grid md:grid-cols-3 gap-3 text-sm">
-    <div><label class="text-xs font-medium">Fee receipts</label>${sel('bbRuleReceipts', [['all', 'All receipts (all fees deposited here)'], ['nonCash', 'Only cheque / online receipts'], ['none', 'None']], R.receipts)}</div>
+    <div><label class="text-xs font-medium">Fee receipts</label>${sel('bbRuleReceipts', [['all', 'All receipts (all fees deposited here)'], ['nonCash', 'Only cheque / online receipts, plus cash deposits'], ['none', 'None']], R.receipts)}</div>
     <div><label class="text-xs font-medium">Salaries</label>${sel('bbRuleSalaries', [['nonCash', 'Paid by cheque / bank transfer'], ['all', 'All salaries, even ones marked cash']], R.salaries)}</div>
-    <div><label class="text-xs font-medium">Other school payments</label>${sel('bbRuleOther', [['1', 'Cheque / online / bank transfer ones'], ['0', 'None']], R.schoolNonCash ? '1' : '0')}</div>
+    <div><label class="text-xs font-medium">Other school payments</label>${sel('bbRuleOther', [['cheque', 'Cheque payments only'], ['nonCash', 'Cheque / online / bank transfer'], ['none', 'None']], R.other)}</div>
    </div>
    <div class="text-xs text-gray-500 mt-2">Payments from the owner's own money and school payments made in cash are never in the bank book. Use <i class="fas fa-xmark"></i> on a line to take it out, if it didn't go through the bank.</div>
   </div>`}
@@ -20759,6 +20846,13 @@ function renderBankBook(acc){
    <details class="mt-1"><summary class="cursor-pointer text-blue-800">See them</summary><table class="text-xs mt-1">${dep.map(e => `<tr><td class="pr-3">${fmtDate(e.date)}</td><td class="pr-3">${escapeHTML(e.vendor || '')} — ${escapeHTML(e.description || '')}</td><td class="text-right">${inr(e.amount)}</td></tr>`).join('')}</table></details>
    ${canEdit ? `<div class="mt-2 flex flex-wrap gap-2"><button id="bbMarkDeposits" class="bg-blue-700 hover:bg-blue-800 text-white px-3 py-1.5 rounded text-xs font-medium">Mark them as bank deposits</button><button id="bbNotDeposits" class="bg-white border px-3 py-1.5 rounded text-xs">They are real payments — leave them</button></div>` : ''}
   </div>` : ''}
+  ${tl.checks.length ? `<div class="bg-white border rounded-lg p-3 mb-3">
+   <div class="text-sm font-semibold mb-1"><i class="fas fa-scale-balanced text-blue-700 mr-1"></i>Check against the bank</div>
+   <div class="overflow-x-auto"><table class="text-xs w-full"><thead><tr class="text-gray-500"><th class="text-left p-1">Date</th><th class="text-left p-1">Balance from</th><th class="text-right p-1">Bank says</th><th class="text-right p-1">Book says</th><th class="text-right p-1">Difference</th></tr></thead><tbody>
+    ${tl.checks.map(c => `<tr class="border-t"><td class="p-1 whitespace-nowrap">${fmtDate(c.date)}</td><td class="p-1">${escapeHTML(c.label)}</td><td class="p-1 text-right">${inr(c.bal)}</td><td class="p-1 text-right">${inr(c.book)}</td><td class="p-1 text-right font-semibold ${Math.abs(c.diff) < 1 ? 'text-emerald-700' : 'text-amber-700'}">${Math.abs(c.diff) < 1 ? '✓ matches' : (c.diff > 0 ? '+' : '') + inr(c.diff)}</td></tr>`).join('')}
+   </tbody></table></div>
+   ${tl.checks.some(c => Math.abs(c.diff) >= 1) ? `<div class="text-xs text-amber-800 mt-1">A difference means money went in or out of the bank between the two dates without a matching entry here — usually cash deposits or UPI fee payments. Entering the bank statement for those dates clears it.</div>` : ''}
+  </div>` : ''}
   <div class="flex flex-wrap items-end gap-2 mb-3">
    <div><label class="text-xs font-medium">From</label><input type="date" id="bbFrom" value="${from}"></div>
    <div><label class="text-xs font-medium">To</label><input type="date" id="bbTo" value="${to}"></div>
@@ -20767,26 +20861,31 @@ function renderBankBook(acc){
   </div>
   <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
    <div class="bg-gray-50 border rounded-lg p-3"><div class="text-xs text-gray-600 uppercase font-semibold">Opening ${fmtDate(from)}</div><div class="text-xl font-bold">${inr(opening)}</div></div>
-   <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3"><div class="text-xs text-emerald-700 uppercase font-semibold">Money in</div><div class="text-xl font-bold text-emerald-900">${inr(mIn)}</div><div class="text-xs text-emerald-700">${inPeriod.filter(r => r.amt > 0).length} entries</div></div>
-   <div class="bg-rose-50 border border-rose-200 rounded-lg p-3"><div class="text-xs text-rose-700 uppercase font-semibold">Money out</div><div class="text-xl font-bold text-rose-900">${inr(mOut)}</div><div class="text-xs text-rose-700">${inPeriod.filter(r => r.amt < 0).length} entries</div></div>
-   <div class="bg-blue-50 border border-blue-200 rounded-lg p-3"><div class="text-xs text-blue-700 uppercase font-semibold">Closing ${fmtDate(to)}</div><div class="text-xl font-bold ${closing < 0 ? 'text-rose-700' : 'text-blue-900'}">${inr(closing)}</div>${acc.balanceAsOn ? `<div class="text-[11px] text-blue-700">Worked from ${inr(acc.balanceAsOnAmount)} as on ${fmtDate(acc.balanceAsOn)}</div>` : ''}</div>
+   <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3"><div class="text-xs text-emerald-700 uppercase font-semibold">Money in</div><div class="text-xl font-bold text-emerald-900">${inr(mIn)}</div><div class="text-xs text-emerald-700">${real.filter(r => r.amt > 0).length} entries</div></div>
+   <div class="bg-rose-50 border border-rose-200 rounded-lg p-3"><div class="text-xs text-rose-700 uppercase font-semibold">Money out</div><div class="text-xl font-bold text-rose-900">${inr(mOut)}</div><div class="text-xs text-rose-700">${real.filter(r => r.amt < 0).length} entries</div></div>
+   <div class="bg-blue-50 border border-blue-200 rounded-lg p-3"><div class="text-xs text-blue-700 uppercase font-semibold">Closing ${fmtDate(to)}</div><div class="text-xl font-bold ${closing < 0 ? 'text-rose-700' : 'text-blue-900'}">${inr(closing)}</div>${Math.abs(dSum) >= 1 ? `<div class="text-[11px] text-amber-700">includes ${dSum > 0 ? '+' : ''}${inr(dSum)} not yet explained</div>` : ''}</div>
   </div>
-  ${closing < 0 || opening < 0 ? `<div class="bg-amber-50 border border-amber-200 rounded p-2 text-xs text-amber-900 mb-2"><i class="fas fa-triangle-exclamation mr-1"></i>The balance goes below zero in this period. Usually some fee cash was spent before it reached the bank, or a payment shown here didn't go through the bank — take those lines out, or check against the bank statement.</div>` : ''}
   <div class="text-xs text-gray-600 mb-2">Not through the bank in this period: school cash payments ${inr(cashOut)} · owner's own money ${inr(ownerOut)}</div>
   <div class="overflow-x-auto bg-white border rounded-lg"><table class="text-sm w-full">
    <thead class="bg-gray-100"><tr><th class="text-left p-2">Date</th><th class="text-left p-2">Particulars</th><th class="text-left p-2">Head</th><th class="text-left p-2">Mode / Ref</th><th class="text-right p-2">In</th><th class="text-right p-2">Out</th><th class="text-right p-2">Balance</th>${canEdit ? '<th></th>' : ''}</tr></thead>
    <tbody>
     <tr class="bg-gray-50"><td class="p-2 text-xs">${fmtDate(from)}</td><td class="p-2 font-semibold" colspan="5">Opening balance</td><td class="p-2 text-right font-semibold">${inr(opening)}</td>${canEdit ? '<td></td>' : ''}</tr>
-    ${withBal.length > shown.length ? `<tr><td colspan="${canEdit ? 8 : 7}" class="p-2 text-xs text-gray-500">${withBal.length - shown.length} earlier lines hidden · <button id="bbShowAll" class="text-blue-700 underline">show all</button></td></tr>` : ''}
-    ${shown.map(r => `<tr class="border-t ${r.amt > 0 ? 'hover:bg-emerald-50' : 'hover:bg-rose-50'}">
+    ${inPeriod.length > shown.length ? `<tr><td colspan="${canEdit ? 8 : 7}" class="p-2 text-xs text-gray-500">${inPeriod.length - shown.length} earlier lines hidden · <button id="bbShowAll" class="text-blue-700 underline">show all</button></td></tr>` : ''}
+    ${shown.map(r => r.kind === 'diff' ? `<tr class="border-t bg-amber-50">
+     <td class="p-2 text-xs whitespace-nowrap">${fmtDate(r.date)}</td>
+     <td class="p-2 text-amber-900 font-medium" colspan="3"><i class="fas fa-triangle-exclamation mr-1"></i>${escapeHTML(r.party)} <span class="text-xs font-normal">(${escapeHTML(r.head)})</span></td>
+     <td class="p-2 text-right text-amber-800">${r.amt > 0 ? inr(r.amt) : ''}</td>
+     <td class="p-2 text-right text-amber-800">${r.amt < 0 ? inr(-r.amt) : ''}</td>
+     <td class="p-2 text-right font-medium">${inr(r.bal)}</td>${canEdit ? '<td></td>' : ''}
+    </tr>` : `<tr class="border-t ${r.amt > 0 ? 'hover:bg-emerald-50' : 'hover:bg-rose-50'}">
      <td class="p-2 text-xs whitespace-nowrap">${fmtDate(r.date)}</td>
      <td class="p-2">${escapeHTML(r.party || (r.kind === 'bank' ? r.ref : '-'))}</td>
-     <td class="p-2 text-xs">${escapeHTML(r.head)}</td>
-     <td class="p-2 text-xs">${escapeHTML(r.mode)}${r.ref && r.kind !== 'bank' ? ' · ' + escapeHTML(String(r.ref)).slice(0, 80) : ''}</td>
+     <td class="p-2 text-xs">${escapeHTML(r.head)} ${chqTag(r)}</td>
+     <td class="p-2 text-xs">${r.kind === 'stmt' ? '<span class="pill pill-blue text-[10px]">bank statement</span>' + (r.chequeNo ? ' Chq ' + escapeHTML(String(r.chequeNo)) : '') : escapeHTML(r.mode) + (r.ref && r.kind !== 'bank' ? ' · ' + escapeHTML(String(r.ref)).slice(0, 80) : '')}</td>
      <td class="p-2 text-right text-emerald-700">${r.amt > 0 ? inr(r.amt) : ''}</td>
      <td class="p-2 text-right text-rose-700">${r.amt < 0 ? inr(-r.amt) : ''}</td>
-     <td class="p-2 text-right font-medium ${r.bal < 0 ? 'text-rose-700' : ''}">${inr(r.bal)}</td>
-     ${canEdit ? `<td class="p-2">${r.kind !== 'bank' ? `<button class="bbOut text-gray-400 hover:text-rose-600" data-id="${r.id}" data-kind="${r.kind}" title="Didn't go through the bank — take it out of the bank book"><i class="fas fa-xmark"></i></button>` : ''}</td>` : ''}
+     <td class="p-2 text-right font-medium ${r.bal < 0 ? 'text-rose-700' : ''}">${inr(r.bal)}${r.mismatch ? ' <i class="fas fa-circle-exclamation text-amber-600" title="The statement shows a different balance here"></i>' : ''}</td>
+     ${canEdit ? `<td class="p-2">${(r.kind === 'receipt' || r.kind === 'expense') ? `<button class="bbOut text-gray-400 hover:text-rose-600" data-id="${r.id}" data-kind="${r.kind}" title="Didn't go through the bank — take it out of the bank book"><i class="fas fa-xmark"></i></button>` : ''}</td>` : ''}
     </tr>`).join('')}
     <tr class="border-t bg-blue-50"><td class="p-2 text-xs">${fmtDate(to)}</td><td class="p-2 font-semibold" colspan="3">Closing balance</td><td class="p-2 text-right font-semibold text-emerald-700">${inr(mIn)}</td><td class="p-2 text-right font-semibold text-rose-700">${inr(mOut)}</td><td class="p-2 text-right font-bold">${inr(closing)}</td>${canEdit ? '<td></td>' : ''}</tr>
    </tbody></table></div>
@@ -20803,11 +20902,11 @@ function _attachBankBookEvents(){
  const redraw = () => refreshAdminTabContent();
  const saveRules = patch => {
   const a = accs(); const i = a.findIndex(x => String(x.id) === String(acc.id));
-  if (i < 0) return; a[i].rules = Object.assign({}, _bankRules(a[i]), patch); set('bankAccounts', a); redraw();
+  if (i < 0) return; a[i].rules = Object.assign({}, _bankRules(a[i]), patch); delete a[i].rules.schoolNonCash; set('bankAccounts', a); redraw();
  };
  document.getElementById('bbRuleReceipts')?.addEventListener('change', e => saveRules({ receipts: e.target.value }));
  document.getElementById('bbRuleSalaries')?.addEventListener('change', e => saveRules({ salaries: e.target.value }));
- document.getElementById('bbRuleOther')?.addEventListener('change', e => saveRules({ schoolNonCash: e.target.value === '1' }));
+ document.getElementById('bbRuleOther')?.addEventListener('change', e => saveRules({ other: e.target.value }));
  document.getElementById('bbFrom')?.addEventListener('change', e => { _bankBookFrom = e.target.value || null; redraw(); });
  document.getElementById('bbTo')?.addEventListener('change', e => { _bankBookTo = e.target.value || null; redraw(); });
  document.getElementById('bbThisSession')?.addEventListener('click', () => { _bankBookFrom = null; _bankBookTo = null; redraw(); });
@@ -20836,15 +20935,14 @@ function _attachBankBookEvents(){
  document.getElementById('bbMarkDeposits')?.addEventListener('click', () => markDeps('_bankMove'));
  document.getElementById('bbNotDeposits')?.addEventListener('click', () => markDeps('notTransfer'));
  document.getElementById('bbExport')?.addEventListener('click', () => {
-  const rows = _bankBookRows(acc);
+  const tl = _bankTimeline(acc);
   const from = _bankBookFrom || (currentSession().slice(0, 4) + '-04-01'), to = _bankBookTo || new Date().toISOString().slice(0, 10);
-  let bal = _bankBalanceAt(acc, rows, _dayBefore(from));
   const esc = v => escapeHTML(String(v == null ? '' : v));
-  let h = '<table border="1"><tr><th>Date</th><th>Particulars</th><th>Head</th><th>Mode</th><th>Reference</th><th>In</th><th>Out</th><th>Balance</th></tr>';
-  h += `<tr><td>${from}</td><td>Opening balance</td><td></td><td></td><td></td><td></td><td></td><td>${bal}</td></tr>`;
-  rows.filter(r => r.date >= from && r.date <= to).forEach(r => { bal += r.amt;
-   h += `<tr><td>${r.date}</td><td>${esc(r.party || '')}</td><td>${esc(r.head)}</td><td>${esc(r.mode)}</td><td>${esc(r.ref)}</td><td>${r.amt > 0 ? r.amt : ''}</td><td>${r.amt < 0 ? -r.amt : ''}</td><td>${bal}</td></tr>`; });
-  h += `<tr><td>${to}</td><td>Closing balance</td><td></td><td></td><td></td><td></td><td></td><td>${bal}</td></tr></table>`;
+  let h = '<table border="1"><tr><th>Date</th><th>Particulars</th><th>Head</th><th>Mode</th><th>Reference</th><th>In</th><th>Out</th><th>Balance</th><th>Source</th></tr>';
+  h += `<tr><td>${from}</td><td>Opening balance</td><td></td><td></td><td></td><td></td><td></td><td>${_bankBalAt(tl, _dayBefore(from))}</td><td></td></tr>`;
+  tl.rows.filter(r => r.date >= from && r.date <= to).forEach(r => {
+   h += `<tr><td>${r.date}</td><td>${esc(r.party || '')}</td><td>${esc(r.head)}</td><td>${esc(r.mode)}</td><td>${esc(r.chequeNo ? 'Chq ' + r.chequeNo : r.ref)}</td><td>${r.amt > 0 ? r.amt : ''}</td><td>${r.amt < 0 ? -r.amt : ''}</td><td>${r.bal}</td><td>${r.kind === 'stmt' ? 'Bank statement' : r.kind === 'diff' ? 'Difference with bank' : 'Portal'}</td></tr>`; });
+  h += `<tr><td>${to}</td><td>Closing balance</td><td></td><td></td><td></td><td></td><td></td><td>${_bankBalAt(tl, to)}</td><td></td></tr></table>`;
   downloadExcel(h, SCHOOL_INFO.shortName + '_Bank_Book_' + from + '_to_' + to);
  });
 }
@@ -23186,7 +23284,8 @@ function attachOwnerEvents(){
    const nSal = (obj.salaryPayments||[]).length, nTch = (obj.teachers||[]).length + (obj.newTeachers||[]).length;
    const nFee = (obj.feeTransactions||[]).length, nNewStu = (obj.newStudents||[]).length;
    const nExp = (obj.expenses||[]).length, nFix = (obj.expenseUpdates||[]).length;
-   if (!confirm(`Import updates?\n\n${obj.title || ''}\n${nStu} students · ${nDoc} documents · ${nTch} staff · ${nSal} salary payments${nFee?` · ${nFee} fee receipts`:''}${nNewStu?` · ${nNewStu} former-student records`:''}${nExp?` · ${nExp} payments`:''}${nFix?` · ${nFix} payment corrections`:''}\n\nOnly the listed fields and documents are added. If a field was edited on the site after this file was prepared, it is left unchanged and reported.\n\nPlease keep this page open until it finishes.`)) return;
+   const nBank = ((obj.bankStatement||{}).lines||[]).length;
+   if (!confirm(`Import updates?\n\n${obj.title || ''}\n${nStu} students · ${nDoc} documents · ${nTch} staff · ${nSal} salary payments${nFee?` · ${nFee} fee receipts`:''}${nNewStu?` · ${nNewStu} former-student records`:''}${nExp?` · ${nExp} payments`:''}${nFix?` · ${nFix} payment corrections`:''}${nBank?` · ${nBank} bank statement lines`:''}\n\nOnly the listed fields and documents are added. If a field was edited on the site after this file was prepared, it is left unchanged and reported.\n\nPlease keep this page open until it finishes.`)) return;
    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Importing…'; }
    try {
     const r = await applyStudentPatch(obj, m => { if (status) status.textContent = m; });
