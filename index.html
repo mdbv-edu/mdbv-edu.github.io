@@ -5026,6 +5026,48 @@ async function applyStudentPatch(patch, progressCb){
   saveSalaryPayments(pays);
   report.applied.push(`${added} salary payment(s) recorded in Expenses/Salary` + (dup ? ` (${dup} already recorded earlier — skipped)` : ''));
  }
+ // 5) Other payments (e.g. from the school cheque book), and corrections to payments already recorded.
+ //    A correction names the entries it expects (how many, what total); if the site holds something
+ //    different it is left alone and reported, so a prepared file can never change the wrong rows.
+ if ((Array.isArray(patch.expenses) && patch.expenses.length) || (Array.isArray(patch.expenseUpdates) && patch.expenseUpdates.length)) {
+  say('Recording payments…');
+  const exps = get('expenses');
+  const pays = getSalaryPayments();
+  let paysChanged = false, added = 0, dup = 0;
+  (patch.expenses || []).forEach((x, k) => {
+   const same = exps.some(e => !e._deleted && ((x.importKey && e.importKey === x.importKey) ||
+     (x.chequeNo && String(e.chequeNo || '') === String(x.chequeNo) && Number(e.amount) === Number(x.amount))));
+   if (same) { dup++; return; }
+   exps.push(Object.assign({ id: Date.now() + 5000 + k * 3, createdAt: new Date().toISOString(),
+    createdBy: (currentUser && currentUser.name) || 'Import' }, x));
+   added++;
+  });
+  if ((patch.expenses || []).length) report.applied.push(`${added} payment(s) recorded` + (dup ? ` (${dup} already recorded — skipped)` : ''));
+  const inr = v => 'Rs ' + (Number(v) || 0).toLocaleString('en-IN');
+  (patch.expenseUpdates || []).forEach(u => {
+   const key = u.key || u.label;
+   if (exps.some(e => (e._fixKeys || []).includes(key))) return;          // applied on an earlier import
+   const w = u.where || {};
+   const hits = exps.filter(e => !e._deleted && Object.keys(w).every(k =>
+     k === 'importKeyPrefix' ? String(e.importKey || '').startsWith(w[k]) : String(e[k] == null ? '' : e[k]) === String(w[k] == null ? '' : w[k])));
+   const sum = hits.reduce((a, e) => a + (Number(e.amount) || 0), 0);
+   if (!hits.length) { report.skipped.push(`${u.label}: no matching payments found — nothing changed`); return; }
+   if ((u.expectCount != null && hits.length !== u.expectCount) || (u.expectTotal != null && sum !== u.expectTotal)) {
+    report.skipped.push(`${u.label}: found ${hits.length} payments totalling ${inr(sum)}, expected ${u.expectCount} totalling ${inr(u.expectTotal)} — left unchanged`); return;
+   }
+   hits.forEach(e => {
+    Object.keys(u.set || {}).forEach(k => { if (u.set[k] === null) delete e[k]; else e[k] = u.set[k]; });
+    e._fixKeys = (e._fixKeys || []).concat(key);
+    if (e.salaryPaymentId) {
+     const sp = pays.find(x => x.id === e.salaryPaymentId);
+     if (sp) { if ('date' in u.set) sp.date = u.set.date; if ('chequeNo' in u.set) sp.chequeNo = u.set.chequeNo || ''; paysChanged = true; }
+    }
+   });
+   report.applied.push(`${u.label}: ${hits.length} payment(s), ${inr(sum)}`);
+  });
+  set('expenses', exps);
+  if (paysChanged) saveSalaryPayments(pays);
+ }
  if (DB.mode === 'cloud') {
   say('Uploading to cloud…');
   await DB.flushNow();
@@ -23143,7 +23185,8 @@ function attachOwnerEvents(){
               + (obj.teachers || []).reduce((a, p) => a + ((p.addDocuments || []).length), 0);
    const nSal = (obj.salaryPayments||[]).length, nTch = (obj.teachers||[]).length + (obj.newTeachers||[]).length;
    const nFee = (obj.feeTransactions||[]).length, nNewStu = (obj.newStudents||[]).length;
-   if (!confirm(`Import updates?\n\n${obj.title || ''}\n${nStu} students · ${nDoc} documents · ${nTch} staff · ${nSal} salary payments${nFee?` · ${nFee} fee receipts`:''}${nNewStu?` · ${nNewStu} former-student records`:''}\n\nOnly the listed fields and documents are added. If a field was edited on the site after this file was prepared, it is left unchanged and reported.\n\nPlease keep this page open until it finishes.`)) return;
+   const nExp = (obj.expenses||[]).length, nFix = (obj.expenseUpdates||[]).length;
+   if (!confirm(`Import updates?\n\n${obj.title || ''}\n${nStu} students · ${nDoc} documents · ${nTch} staff · ${nSal} salary payments${nFee?` · ${nFee} fee receipts`:''}${nNewStu?` · ${nNewStu} former-student records`:''}${nExp?` · ${nExp} payments`:''}${nFix?` · ${nFix} payment corrections`:''}\n\nOnly the listed fields and documents are added. If a field was edited on the site after this file was prepared, it is left unchanged and reported.\n\nPlease keep this page open until it finishes.`)) return;
    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Importing…'; }
    try {
     const r = await applyStudentPatch(obj, m => { if (status) status.textContent = m; });
@@ -23151,7 +23194,7 @@ function attachOwnerEvents(){
      `Done. ${r.applied.length} updates applied.`,
      `Documents: ${r.docsCloud} saved to cloud storage` + (r.docsInline ? `, ${r.docsInline} stored inline` : '') + (r.docsSkipped ? `, ${r.docsSkipped} already present` : '') + '.',
     ];
-    if (r.skipped.length) lines.push('', `${r.skipped.length} change(s) NOT applied because the field was edited on the site since:`, ...r.skipped.slice(0, 15));
+    if (r.skipped.length) lines.push('', `${r.skipped.length} change(s) NOT applied (the field was edited on the site since, or the payments didn't match):`, ...r.skipped.slice(0, 15));
     if (r.notFound.length) lines.push('', 'Students not found: ' + r.notFound.join(', '));
     if (status) status.innerHTML = `<i class="fas fa-circle-check text-emerald-600 mr-1"></i>Student updates imported and synced — ${r.applied.length} updates.` + (r.skipped.length ? ` <span class="text-amber-700">${r.skipped.length} skipped (see message).</span>` : '');
     alert(lines.join('\n'));
