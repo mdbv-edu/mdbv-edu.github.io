@@ -5,7 +5,7 @@
 
 <html lang="en">
 <head>
-<meta name="mdbv-build" content="2026-11-28.19">
+<meta name="mdbv-build" content="2026-11-28.20">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -949,7 +949,7 @@
           </div>
           <div>
             <div class="font-display text-xl font-semibold">Murti Devi Balika Vidyapeeth</div>
-            <div class="text-xs uppercase tracking-widest opacity-60">CBSE school since 2022</div>
+            <div class="text-xs uppercase tracking-widest opacity-60">Educating girls since 2022</div>
           </div>
         </div>
         <p class="text-xs opacity-70 mb-3">Managed by <b>M.D.D.G. Makhar Educational &amp; Social Welfare Trust</b></p>
@@ -1476,7 +1476,7 @@ function renderHome() {
           <a href="#" class="w-badge" onclick="showPage('admissions'); return false;">प्रवेश 2027-28 शुरू &nbsp;|&nbsp; Admissions open for 2027-28</a>
           <h1 class="w-hi w-h1" lang="hi">भरोसे की पढ़ाई<span class="w-h1-sub">प्री-नर्सरी से 12वीं तक</span></h1>
           <p class="w-h1-en">Trusted schooling from <span class="w-nowrap">Pre-Nursery</span> to Class 12.</p>
-          <p class="w-lead">Started in 2022 as a girls' school. From this session, boys and girls study together up to Class 8, and Classes 9 to 12 stay only for girls. A CBSE school on Meerut–Baraut Road in Binauli, with smart classes, science and computer labs, a shooting academy and GPS-tracked buses.</p>
+          <p class="w-lead">Boys and girls study together up to Class 8. Classes 9 to 12 are only for girls. A CBSE school on Meerut–Baraut Road in Binauli, open since 2022, with smart classes, science and computer labs, a shooting academy and GPS-tracked buses.</p>
           <div class="w-actions">
             <a href="#" class="w-btn w-btn-apply" onclick="showPage('admissions'); return false;"><i class="fas fa-pen-to-square"></i>Apply for 2027-28</a>
             <a href="${WA}" target="_blank" rel="noopener" class="w-btn w-btn-wa"><i class="fab fa-whatsapp"></i>WhatsApp us</a>
@@ -8259,7 +8259,7 @@ function renderTeachersTab(){
  const byType = {}; STAFF_TYPES.forEach(k => byType[k] = sortStaffByName(ts.filter(t => staffTypeOf(t) === k)));
  const teaching = byType['Teaching'], nonTeaching = byType['Non-Teaching'];
  const inStaffArchive = (typeof _staffArchiveView !== 'undefined') && _staffArchiveView;
- const staffRow = t => `<tr><td>${t.photo?`<img src="${t.photo}" class="w-9 h-9 rounded-full object-cover" alt="">`:`<div class="w-9 h-9 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold">${initials(t.name)}</div>`}</td><td class="font-medium"><button class="viewStaffBtn text-left hover:underline" data-id="${t.id}">${escapeHTML(t.name||'')}</button>${t.employeeId?`<div class="text-[11px] text-gray-500 font-normal">${escapeHTML(t.employeeId)}</div>`:''}${t.aadhaarName && t.aadhaarName.toLowerCase()!==String(t.name||'').toLowerCase()?`<div class="text-[11px] text-gray-500 font-normal">${escapeHTML(t.aadhaarName)}</div>`:''}</td><td>${t.subject||'-'}</td><td class="text-xs">${isAcademicStaff(t)?(teacherTeaching(t).length?teacherTeaching(t).map(r=>`<div><b>${escapeHTML(r.subject)}</b>: ${escapeHTML(r.classes.join(', ')||'—')}</div>`).join(''):'<span class="text-amber-600">none</span>'):'<span class="text-gray-300">—</span>'}</td><td style="min-width:150px">${teacherQualBadges(t)}</td><td>${t.employeeId || t.udiseTeacherId || '-'}</td><td>${t.trainingDate?fmtDate(t.trainingDate):'-'}</td>${canSeeSalary()?`<td>Rs.${(t.salary||0).toLocaleString('en-IN')}</td>`:''}<td>${t.phone||'-'}</td><td class="whitespace-nowrap"><button class="viewStaffBtn bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-1 rounded text-xs" data-id="${t.id}" title="View full profile, qualifications & documents"><i class="fas fa-eye"></i></button> <button class="editTeacherBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${t.id}" title="Edit"><i class="fas fa-edit"></i></button> <button class="staffKycBtn bg-slate-600 hover:bg-slate-700 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Print staff record / KYC"><i class="fas fa-print"></i></button><button class="archiveTeacherBtn bg-amber-500 hover:bg-amber-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Archive (keeps full record & salary history)"><i class="fas fa-box-archive"></i></button>${currentUser&&currentUser.role==='owner'?` <button class="delTeacherBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Delete permanently (Owner only)"><i class="fas fa-trash"></i></button>`:''}</td></tr>`;
+ const staffRow = t => `<tr><td>${t.photo?`<img src="${t.photo}" class="w-9 h-9 rounded-full object-cover" alt="">`:`<div class="w-9 h-9 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold">${initials(t.name)}</div>`}</td><td class="font-medium"><button class="viewStaffBtn text-left hover:underline" data-id="${t.id}">${escapeHTML(t.name||'')}</button>${t.aadhaarName && t.aadhaarName.toLowerCase()!==String(t.name||'').toLowerCase()?`<div class="text-[11px] text-gray-500 font-normal">${escapeHTML(t.aadhaarName)}</div>`:''}</td><td>${t.subject||'-'}</td>${isAcademicStaff(t)?`<td class="text-xs">${teacherTeaching(t).length?teacherTeaching(t).map(r=>`<div><b>${escapeHTML(r.subject)}</b>: ${escapeHTML(r.classes.join(', ')||'—')}</div>`).join(''):'<span class="text-amber-600">none</span>'}</td>`:''}<td style="min-width:150px">${teacherQualBadges(t)}</td><td>${t.employeeId || t.udiseTeacherId || '-'}</td><td>${t.trainingDate?fmtDate(t.trainingDate):'-'}</td>${canSeeSalary()?`<td>Rs.${(t.salary||0).toLocaleString('en-IN')}</td>`:''}<td>${t.phone||'-'}</td><td class="whitespace-nowrap"><button class="viewStaffBtn bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-1 rounded text-xs" data-id="${t.id}" title="View full profile, qualifications & documents"><i class="fas fa-eye"></i></button> <button class="editTeacherBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${t.id}" title="Edit"><i class="fas fa-edit"></i></button> <button class="staffKycBtn bg-slate-600 hover:bg-slate-700 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Print staff record / KYC"><i class="fas fa-print"></i></button><button class="archiveTeacherBtn bg-amber-500 hover:bg-amber-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Archive (keeps full record & salary history)"><i class="fas fa-box-archive"></i></button>${currentUser&&currentUser.role==='owner'?` <button class="delTeacherBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Delete permanently (Owner only)"><i class="fas fa-trash"></i></button>`:''}</td></tr>`;
  // Archived staff row: shows when they left, why, and their salary history at a glance.
  const archivedRow = t => { const h = staffHistory(t.id); return `<tr class="bg-gray-50">
    <td class="font-medium">${escapeHTML(t.name||'')}</td>
@@ -8313,7 +8313,7 @@ function renderTeachersTab(){
     const alwaysShow = (k === 'Teaching' || k === 'Non-Teaching');
     if (!list.length && !alwaysShow) return '';
     const m2 = meta[k];
-    const secondCol = isAcademicStaff({staffType:k}) ? '<th>Subject</th><th>Classes</th>' : '<th>Designation</th><th>—</th>';
+    const secondCol = isAcademicStaff({staffType:k}) ? '<th>Subject</th><th>Classes</th>' : '<th>Designation</th>';
     return `<div class="overflow-x-auto mb-6">
       <div class="text-sm font-semibold ${m2.color} mb-1"><i class="fas fa-${m2.icon} mr-1"></i>${STAFF_TYPE_LABELS[k]}
        <span class="font-normal text-gray-400">(${list.length})${m2.note?' · '+m2.note:''}</span></div>
