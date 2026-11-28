@@ -5,7 +5,7 @@
 
 <html lang="en">
 <head>
-<meta name="mdbv-build" content="2026-11-28.22">
+<meta name="mdbv-build" content="2026-11-28.23">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -18172,8 +18172,9 @@ function _fmInputsHTML(){
    <div class="fm-sub">New posts and changes <span class="fm-h">(a teacher to hire, a post that ends)</span></div>
    ${(m.hires || []).map((h, i) => `<div class="fm-card">
      <div class="fm-card-top">${_fmIn('hires.' + i + '.label', { text: 1, ph: 'Post, e.g. PGT Physics', cls: 'fm-grow' })}${_fmSel('hires.' + i + '.type', STAFF_TYPES)}<button type="button" data-act="del" data-list="hires" data-i="${i}" class="fm-x" title="Remove"><i class="fas fa-trash"></i></button></div>
-     <div class="fm-grid5">${_fmField('How many', _fmIn('hires.' + i + '.count'))}${_fmField('Salary each /mo', _fmIn('hires.' + i + '.monthly'))}${_fmField('From', _fmSel('hires.' + i + '.startYear', _fmYearOpts(), { num: true }))}${_fmField('Until', _fmSel('hires.' + i + '.endYear', _fmYearOpts(true)))}${_fmField('Months /yr', _fmIn('hires.' + i + '.months', { step: 0.5 }))}</div>
-     ${_fmField('Months paid in the first year', _fmIn('hires.' + i + '.firstYearMonths', { step: 0.5, w: '90px' }), 'e.g. 5 for someone joining in November')}
+     <div class="fm-row2">${_fmField('Salary each /month', _fmIn('hires.' + i + '.monthly'), `<span data-amt="hires.${i}.monthly">${_fmN(h.monthly) ? _fmMoney(_fmN(h.monthly)) + ' a month' : ''}</span>`)}${_fmField('How many', _fmIn('hires.' + i + '.count'))}</div>
+     <div class="fm-row2">${_fmField('From', _fmSel('hires.' + i + '.startYear', _fmYearOpts(), { num: true }))}${_fmField('Until', _fmSel('hires.' + i + '.endYear', _fmYearOpts(true)))}</div>
+     <div class="fm-row2">${_fmField('Months paid a year', _fmIn('hires.' + i + '.months', { step: 0.5 }))}${_fmField('Months in the first year', _fmIn('hires.' + i + '.firstYearMonths', { step: 0.5 }), 'e.g. 5 if joining in November')}</div>
     </div>`).join('') || '<div class="fm-h">None yet.</div>'}
    <button type="button" data-act="add" data-list="hires" class="fm-btn-s"><i class="fas fa-plus"></i> Add a post</button>
    <div class="fm-h">A negative salary works too: use it for someone leaving, from the year they leave.</div>`;
@@ -18191,7 +18192,7 @@ function _fmInputsHTML(){
   body = `${_fmField('Cash in hand at the start', _fmIn('openingCash', { w: '160px' }), 'bank + cash today, for the cash-flow view')}
    <div class="fm-sub">One-time spending <span class="fm-h">(a bus, a new floor, a lab)</span></div>
    ${(m.capex || []).map((c, i) => `<div class="fm-card"><div class="fm-card-top">${_fmIn('capex.' + i + '.name', { text: 1, ph: 'e.g. New bus', cls: 'fm-grow' })}<button type="button" data-act="del" data-list="capex" data-i="${i}" class="fm-x"><i class="fas fa-trash"></i></button></div>
-     <div class="fm-row2">${_fmField('Amount', _fmIn('capex.' + i + '.amount'))}${_fmField('In', _fmSel('capex.' + i + '.year', _fmYearOpts(), { num: true }))}</div></div>`).join('')}
+     <div class="fm-row2">${_fmField('Amount', _fmIn('capex.' + i + '.amount'), `<span data-amt="capex.${i}.amount">${_fmN(c.amount) ? _fmMoney(_fmN(c.amount)) : ''}</span>`)}${_fmField('In', _fmSel('capex.' + i + '.year', _fmYearOpts(), { num: true }))}</div></div>`).join('')}
    <button type="button" data-act="add" data-list="capex" class="fm-btn-s"><i class="fas fa-plus"></i> Add spending</button>
    <div class="fm-sub">Loans</div>
    ${(m.loans || []).map((l, i) => { const P = _fmN(l.amount), r = _fmN(l.rate) / 100, n = Math.max(1, Math.round(_fmN(l.years, 1))); const emi = r > 0 ? P * r / (1 - Math.pow(1 + r, -n)) : P / n;
@@ -18203,6 +18204,7 @@ function _fmInputsHTML(){
  return `<div class="fm-panel"><div class="fm-intabs">${tabs.map(([k, l, ic]) => `<button type="button" data-act="intab" data-v="${k}" class="${_fmInTab === k ? 'on' : ''}"><i class="fas fa-${ic}"></i>${l}</button>`).join('')}</div>
   <div class="fm-inbody">${body}</div></div>`;
 }
+function _fmAmtWords(v, kind){ v = _fmN(v); return v ? _fmMoney(v) + (kind === 'perStudent' ? ' per student' : ' a year') : ''; }
 function _fmLineCard(list, l, i, isCost){
  const p = list + '.' + i + '.';
  const growthOpts = isCost ? [['', 'Inflation'], ['0', 'No rise'], ['3', '3%'], ['5', '5%'], ['8', '8%'], ['10', '10%'], ['15', '15%']] : [['fee', 'Same as fees'], ['', 'No rise'], ['3', '3%'], ['5', '5%'], ['8', '8%'], ['10', '10%']];
@@ -18210,7 +18212,8 @@ function _fmLineCard(list, l, i, isCost){
  if (!growthOpts.some(o => o[0] === cur)) growthOpts.push([cur, cur + '%']);
  return `<div class="fm-card"><div class="fm-card-top">${_fmIn(p + 'name', { text: 1, ph: isCost ? 'e.g. Electricity' : 'e.g. Books margin', cls: 'fm-grow' })}${isCost ? _fmSel(p + 'group', FM_GROUPS) : ''}
    <button type="button" data-act="del" data-list="${list}" data-i="${i}" class="fm-x" title="Remove"><i class="fas fa-trash"></i></button></div>
-  <div class="fm-grid5">${_fmField('Amount', _fmIn(p + 'amount'))}${_fmField('For', _fmSel(p + 'kind', [['fixed', 'Whole year'], ['perStudent', 'Per student']]))}${_fmField('Rises', _fmSel(p + 'growth', growthOpts))}${_fmField('From', _fmSel(p + 'startYear', _fmYearOpts(), { num: true }))}${_fmField('Until', _fmSel(p + 'endYear', _fmYearOpts(true)))}</div></div>`;
+  <div class="fm-row2">${_fmField('Amount', _fmIn(p + 'amount'), `<span data-amt="${p}amount">${_fmAmtWords(l.amount, l.kind)}</span>`)}${_fmField('For', _fmSel(p + 'kind', [['fixed', 'Whole year'], ['perStudent', 'Per student']]))}</div>
+  <div class="fm-grid3">${_fmField('Rises', _fmSel(p + 'growth', growthOpts))}${_fmField('From', _fmSel(p + 'startYear', _fmYearOpts(), { num: true }))}${_fmField('Until', _fmSel(p + 'endYear', _fmYearOpts(true)))}</div></div>`;
 }
 
 // ----- results -----
@@ -18391,7 +18394,8 @@ function _fmStyle(){
  #finModelWrap .fm-btn.pri{background:var(--fm-acc);border-color:var(--fm-acc);color:#fff}
  #finModelWrap .fm-btn:hover{filter:brightness(.97)}
  #finModelWrap .fm-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;margin-top:14px}
- @media(min-width:1180px){#finModelWrap .fm-grid{grid-template-columns:minmax(0,1fr) 440px}}
+ @media(min-width:1180px){#finModelWrap .fm-grid{grid-template-columns:minmax(0,1fr) 480px}}
+ #finModelWrap .fm-grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}
  #finModelWrap .fm-kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
  @media(min-width:760px){#finModelWrap .fm-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
  @media(min-width:1400px){#finModelWrap .fm-kpis{grid-template-columns:repeat(6,minmax(0,1fr))}}
@@ -18504,7 +18508,10 @@ function _attachFinancialModelEvents(){
   if (el.dataset && el.dataset.wi) { finModel.whatIf = finModel.whatIf || {}; finModel.whatIf[el.dataset.wi] = Number(el.value) || 0; clearTimeout(w._wiT); w._wiT = setTimeout(_finRecalc, 60);
    const f = FM_WHATIF.find(x => x.k === el.dataset.wi); const b = w.querySelector(`[data-wiv="${el.dataset.wi}"]`); if (b && f) { const v = Number(el.value) || 0; b.textContent = (v > 0 ? '+' : '') + v + f.u; b.className = v > 0 ? 'up' : v < 0 ? 'down' : ''; }
    const rl = w.querySelector('[data-act="wi-reset"]'); if (rl) rl.style.visibility = FM_WHATIF.some(x => _fmN(finModel.whatIf[x.k])) ? 'visible' : 'hidden'; return; }
-  if (el.dataset && el.dataset.k && el.tagName === 'INPUT') onVal(el, false); });
+  if (el.dataset && el.dataset.k && el.tagName === 'INPUT') { onVal(el, false);
+   const sp = w.querySelector(`[data-amt="${el.dataset.k}"]`);
+   if (sp) { const k = el.dataset.k, v = _fmN(_fmGet(k)), par = _fmGet(k.replace(/\.[^.]+$/, '')) || {};
+    sp.textContent = !v ? '' : /^hires\./.test(k) ? _fmMoney(v) + ' a month' : /^capex\./.test(k) ? _fmMoney(v) : _fmAmtWords(v, par.kind); } } });
  w.addEventListener('change', e => { const el = e.target;
   if (el.id === 'fmScenarioSel') { if (el.value) _finLoad(el.value); return; }
   if (el.dataset && el.dataset.sens) { const v = el.value; _fmSens[el.dataset.sens] = (el.dataset.sens === 'year') ? Number(v) : v; if (el.dataset.sens === 'x' && _fmSens.y === v) _fmSens.y = FM_LEVERS.find(l => l[0] !== v)[0]; _finRecalc(); return; }
