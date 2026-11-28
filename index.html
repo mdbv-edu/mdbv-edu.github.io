@@ -5,7 +5,7 @@
 
 <html lang="en">
 <head>
-<meta name="mdbv-build" content="2026-11-28.23">
+<meta name="mdbv-build" content="2026-11-28.24">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -6779,7 +6779,8 @@ function renderDataManagementModals(){
     <div><label class="text-xs font-medium">Roll No</label><input type="number" id="dmStuRoll"></div>
     <div><label class="text-xs font-medium">Father's Name</label><input id="dmStuFather"></div>
     <div><label class="text-xs font-medium">Mother's Name</label><input id="dmStuMother"></div>
-    <div><label class="text-xs font-medium">Contact Number</label><input id="dmStuPhone" placeholder="10-digit mobile"></div>
+    <div><label class="text-xs font-medium">Contact Number <span class="text-gray-400">(main, for WhatsApp)</span></label><input id="dmStuPhone" placeholder="10-digit mobile"></div>
+    <div><label class="text-xs font-medium">Second number <span class="text-gray-400">(other parent)</span></label><input id="dmStuPhone2" placeholder="optional"></div>
     <div><label class="text-xs font-medium">Village</label><input id="dmStuVillage"></div>
     <div class="col-span-2"><label class="text-xs font-medium">Full Address</label><input id="dmStuAddress"></div>
     <div><label class="text-xs font-medium">Gender</label><select id="dmStuGender"><option>Female</option><option>Male</option><option>Other</option></select></div>
@@ -26476,7 +26477,7 @@ function attachDataManagementEvents(){
  // Add Student button — opens the extended modal in "Add" mode
  const openStudentModal = (existingId) => {
   const fields = ['dmStuId','dmStuName','dmStuRegNo','dmStuAdmNo','dmStuRoll','dmStuFather','dmStuMother',
-                  'dmStuPhone','dmStuVillage','dmStuAddress','dmStuDob','dmStuAadhaar','dmStuPen','dmStuAdmDate',
+                  'dmStuPhone','dmStuPhone2','dmStuVillage','dmStuAddress','dmStuDob','dmStuAadhaar','dmStuPen','dmStuAdmDate',
                   'dmStuAnnual','dmStuDecided','dmStuTransport','dmStuFeeBal'];
   fields.forEach(f => { const el = document.getElementById(f); if (el) el.value = ''; });
   ['dmStuBpl','dmStuCwsn','dmStuFreeChild'].forEach(f => { const el = document.getElementById(f); if (el) el.checked = false; });
@@ -26506,6 +26507,7 @@ function attachDataManagementEvents(){
     document.getElementById('dmStuFather').value = s.fatherName || '';
     document.getElementById('dmStuMother').value = s.parentName || '';
     document.getElementById('dmStuPhone').value = s.parentPhone || '';
+    document.getElementById('dmStuPhone2').value = s.alternatePhone || '';
     document.getElementById('dmStuVillage').value = s.village || '';
     document.getElementById('dmStuAddress').value = s.address || '';
     document.getElementById('dmStuGender').value = s.gender || 'Female';
@@ -26655,6 +26657,7 @@ function attachDataManagementEvents(){
     fatherName: document.getElementById('dmStuFather').value.trim(),
     parentName: document.getElementById('dmStuMother').value.trim(),
     parentPhone: document.getElementById('dmStuPhone').value.trim(),
+    alternatePhone: document.getElementById('dmStuPhone2').value.trim(),
     parentId: 4,
     village: document.getElementById('dmStuVillage').value.trim(),
     address: document.getElementById('dmStuAddress').value.trim() || (document.getElementById('dmStuVillage').value.trim() + ', Baghpat'),
