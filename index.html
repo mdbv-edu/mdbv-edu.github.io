@@ -5,7 +5,7 @@
 
 <html lang="en">
 <head>
-<meta name="mdbv-build" content="2026-11-28.10">
+<meta name="mdbv-build" content="2026-11-28.12">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -1374,7 +1374,7 @@ async function submitChangePassword() {
    if (!res || !res.ok) { showErr((res && res.error) || 'Could not change the password. Try again.'); return; }
    currentUser.defaultPw = false;
    const us = getUsers(); const mine = us.find(u => u.id === currentUser.id);
-   if (mine && DB._sessionKind === 'staff') { mine.defaultPw = false; mine.password = ''; set('users', us); }
+   if (mine && DB._sessionKind === 'staff' && (isOwnerLevel() || isAdminLevel())) { mine.defaultPw = false; mine.password = ''; set('users', us); }   // the server already records it; only managers may write logins
    closeChangePasswordModal(); showToast('Your password has been updated'); return;
   }
   // Re-read the live user record from storage (currentUser may be stale)
@@ -29031,10 +29031,11 @@ Object.assign(WORK, {
    if (s.archived || s.createdFrom === 'Fee register 2025-26') return;
    let due = 0; try { due = WA.dueOf(s); } catch (_) {}
    if (!(due > 0)) return;
-   list.push({ s, cls: String(s.class ?? '').trim(), due: Math.round(due), paid: Math.round(paid.get(String(s.id)) || 0), last: last.get(String(s.id)) || '', phone: WA.phoneKey(s.parentPhone) });
+   // "nothing paid" = the same test as the Students page filter "Nothing paid yet": this year's balance is still the whole fee
+   list.push({ s, cls: String(s.class ?? '').trim(), due: Math.round(due), paid: Math.round(paid.get(String(s.id)) || 0), none: studentFeeStatus(s) === 'unpaid', last: last.get(String(s.id)) || '', phone: WA.phoneKey(s.parentPhone) });
   });
   const byClass = {};
-  list.forEach(x => { const b = byClass[x.cls] = byClass[x.cls] || { n: 0, amt: 0, zero: 0, big: 0 }; b.n++; b.amt += x.due; if (!(x.paid > 0)) b.zero++; if (x.due > 10000) b.big++; });
+  list.forEach(x => { const b = byClass[x.cls] = byClass[x.cls] || { n: 0, amt: 0, zero: 0, big: 0 }; b.n++; b.amt += x.due; if (x.none) b.zero++; if (x.due > 10000) b.big++; });
   this._dd = { list, byClass }; this._ddAt = Date.now(); return this._dd;
  },
  // round photo; the first letter of the name shows when there is no photo or it cannot load
@@ -29073,10 +29074,10 @@ Object.assign(WORK, {
    const byPhone = new Map(); list.forEach(x => { if (x.phone.length === 10) (byPhone.get(x.phone) || byPhone.set(x.phone, []).get(x.phone)).push(x); });
    const scope = list.filter(x => sel ? x.cls === sel : (!allowed || allowed.includes(x.cls)));
    const recentCall = x => { const c = (calls.get(String(x.s.id)) || [])[0]; return c && (Date.now() - Date.parse(c.at)) < 14 * 864e5 ? c : null; };
-   let rows = scope.filter(x => filter === 'zero' ? !(x.paid > 0) : filter === 'big' ? x.due > 10000 : filter === 'notcalled' ? !recentCall(x) : true);
+   let rows = scope.filter(x => filter === 'zero' ? x.none : filter === 'big' ? x.due > 10000 : filter === 'notcalled' ? !recentCall(x) : true);
    if (q) { const k = q.toLowerCase(); rows = rows.filter(x => (x.s.name + ' ' + (x.s.fatherName || x.s.parentName || '') + ' ' + x.phone).toLowerCase().includes(k)); }
    rows.sort((a, b) => b.due - a.due);
-   const tot = scope.reduce((a, x) => a + x.due, 0), zero = scope.filter(x => !(x.paid > 0)).length, big = scope.filter(x => x.due > 10000).length, notCalled = scope.filter(x => !recentCall(x)).length;
+   const tot = scope.reduce((a, x) => a + x.due, 0), zero = scope.filter(x => x.none).length, big = scope.filter(x => x.due > 10000).length, notCalled = scope.filter(x => !recentCall(x)).length;
    const chip = (on, attr, label) => `<button ${attr} class="px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap ${on ? 'text-white' : 'bg-gray-100 text-gray-700'}" style="${on ? 'background:#7a1e2e' : ''}">${label}</button>`;
    const me = (currentUser && currentUser.name) || '';
    const card = x => {
@@ -29092,7 +29093,7 @@ Object.assign(WORK, {
       <div class="min-w-0 flex-1">
        <div class="flex justify-between gap-2 items-start"><div class="font-semibold text-[15px] leading-tight">${escapeHTML(s.name)}</div><div class="font-bold text-rose-700 whitespace-nowrap">${inr(x.due)}</div></div>
        <div class="text-xs text-gray-600">${sel ? '' : escapeHTML(this.lbl(x.cls)) + ' · '}${s.rollNo ? 'Roll ' + escapeHTML(String(s.rollNo)) + ' · ' : ''}${escapeHTML(s.fatherName || s.parentName || '')}${s.village ? ' · ' + escapeHTML(s.village) : ''}</div>
-       <div class="text-xs mt-0.5">${x.paid > 0 ? `<span class="text-gray-700">Paid ${inr(x.paid)} this session${x.last ? ' · last on ' + fmtDate(x.last) : ''}</span>` : '<span class="font-semibold text-rose-700">Nothing paid this session</span>'}</div>
+       <div class="text-xs mt-0.5">${!x.none ? `<span class="text-gray-700">Paid ${inr(Math.max(x.paid, (Number(x.s.decidedFees) || Number(x.s.annualFees) || 0) - Math.max(0, Number(x.s.feeBalance) || 0)))} this session${x.last ? ' · last on ' + fmtDate(x.last) : ''}</span>` : '<span class="font-semibold text-rose-700">Nothing paid yet</span>'}</div>
        ${sibs.length ? `<div class="text-xs text-amber-800 mt-0.5"><i class="fas fa-people-roof mr-1"></i>Same family: ${sibs.map(y => `${escapeHTML(y.s.name)} (${escapeHTML(this.lbl(y.cls))}) ${inr(y.due)}`).join(', ')} — family total <b>${inr(fam)}</b></div>` : ''}
        ${c ? `<div class="text-xs mt-1 px-2 py-1 rounded ${late ? 'bg-amber-50 text-amber-900' : 'bg-sky-50 text-sky-900'}"><i class="fas fa-phone mr-1"></i>${escapeHTML(c.byName)}, ${fmtDate(this._istDate(c.at))}: <b>${escapeHTML(c.outcome)}</b>${c.promise ? ' by ' + fmtDate(c.promise) : ''}${c.note ? ' — “' + escapeHTML(c.note) + '”' : ''}${late ? ' · <b>promised date has passed</b>' : ''}</div>` : ''}
       </div></div>
@@ -29868,7 +29869,7 @@ const NOTIF = {
    if (now - this._duesAt > 60 * 60000 && typeof WA !== 'undefined' && WA.dueOf) {
     const { list, byClass } = WORK.duesData(true);
     let t = 0, zero = 0, zeroAmt = 0, big = 0, bigAmt = 0;
-    list.forEach(x => { t += x.due; if (!(x.paid > 0)) { zero++; zeroAmt += x.due; } if (x.due > 10000) { big++; bigAmt += x.due; } });
+    list.forEach(x => { t += x.due; if (x.none) { zero++; zeroAmt += x.due; } if (x.due > 10000) { big++; bigAmt += x.due; } });
     const bc = {}; Object.keys(byClass).forEach(k => { const v = byClass[k]; bc[k] = { n: v.n, amt: Math.round(v.amt), zero: v.zero, big: v.big }; });
     body.dues = { total: Math.round(t), students: list.length, paidNothing: zero, paidNothingAmt: Math.round(zeroAmt), over10000: big, over10000Amt: Math.round(bigAmt), byClass: bc };
    }
