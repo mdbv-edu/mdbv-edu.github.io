@@ -5,7 +5,7 @@
 
 <html lang="en">
 <head>
-<meta name="mdbv-build" content="2026-11-28.14">
+<meta name="mdbv-build" content="2026-11-28.15">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -13173,6 +13173,8 @@ const ONE_TIME_FIXES = {
  _done: false,
  run(){
   if (this._done || !currentUser || !DB._startupDone) return;
+  // simple Employee IDs (MDBV-T01 …) for staff who have none — also on a remembered login, which skips the full start-up
+  try { if (_ensureEmployeeIds() && !(typeof _formInProgress === 'function' && _formInProgress())) renderApp(); } catch (e) { console.warn('employee ids', e); }
   if (!['owner','managing_director','trustee','admin','admin_teacher','accountant','accountant_teacher'].some(r => userRoles(currentUser.role).includes(r))) return;
   this._done = true;
   try {
@@ -27816,6 +27818,7 @@ function _ensureEmployeeIds(){
  need.sort((a, b) => (a.staffType === 'Principal' ? -1 : 0) - (b.staffType === 'Principal' ? -1 : 0));
  need.forEach(t => { t.employeeId = _nextEmployeeId(t, all); delete t.udiseTeacherId; n++; });
  if (n) { saveTeachers(all); console.info('[MDBV] employee IDs given to', n, 'staff'); }
+ return n;
 }
 // Logins are only for teaching staff and the Principal — non-teaching staff, students and parents get none
 // (parents use the WhatsApp bot).
