@@ -5,7 +5,7 @@
 
 <html lang="en">
 <head>
-<meta name="mdbv-build" content="2026-11-28.13">
+<meta name="mdbv-build" content="2026-11-28.14">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -3439,6 +3439,7 @@ const DB = {
   this._notifySyncUI('idle');
   this.startAutoRefresh();
   try { migrateReceiptNumbers(); } catch (e) {}
+  setTimeout(() => { try { _ensureEmployeeIds(); } catch (e) { console.warn('employee ids', e); } }, 4000);
   if (typeof _autoMigrateFilesToCloud === 'function') _autoMigrateFilesToCloud();
  },
  // After a parent/student login: load only that family's records.
@@ -8237,7 +8238,7 @@ function renderTeachersTab(){
  const byType = {}; STAFF_TYPES.forEach(k => byType[k] = sortStaffByName(ts.filter(t => staffTypeOf(t) === k)));
  const teaching = byType['Teaching'], nonTeaching = byType['Non-Teaching'];
  const inStaffArchive = (typeof _staffArchiveView !== 'undefined') && _staffArchiveView;
- const staffRow = t => `<tr><td>${t.photo?`<img src="${t.photo}" class="w-9 h-9 rounded-full object-cover" alt="">`:`<div class="w-9 h-9 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold">${initials(t.name)}</div>`}</td><td class="font-medium"><button class="viewStaffBtn text-left hover:underline" data-id="${t.id}">${escapeHTML(t.name||'')}</button>${t.aadhaarName && t.aadhaarName.toLowerCase()!==String(t.name||'').toLowerCase()?`<div class="text-[11px] text-gray-500 font-normal">${escapeHTML(t.aadhaarName)}</div>`:''}</td><td>${t.subject||'-'}</td><td class="text-xs">${isAcademicStaff(t)?(teacherTeaching(t).length?teacherTeaching(t).map(r=>`<div><b>${escapeHTML(r.subject)}</b>: ${escapeHTML(r.classes.join(', ')||'—')}</div>`).join(''):'<span class="text-amber-600">none</span>'):'<span class="text-gray-300">—</span>'}</td><td style="min-width:150px">${teacherQualBadges(t)}</td><td>${t.employeeId || t.udiseTeacherId || '-'}</td><td>${t.trainingDate?fmtDate(t.trainingDate):'-'}</td>${canSeeSalary()?`<td>Rs.${(t.salary||0).toLocaleString('en-IN')}</td>`:''}<td>${t.phone||'-'}</td><td class="whitespace-nowrap"><button class="viewStaffBtn bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-1 rounded text-xs" data-id="${t.id}" title="View full profile, qualifications & documents"><i class="fas fa-eye"></i></button> <button class="editTeacherBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${t.id}" title="Edit"><i class="fas fa-edit"></i></button> <button class="staffKycBtn bg-slate-600 hover:bg-slate-700 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Print staff record / KYC"><i class="fas fa-print"></i></button><button class="archiveTeacherBtn bg-amber-500 hover:bg-amber-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Archive (keeps full record & salary history)"><i class="fas fa-box-archive"></i></button>${currentUser&&currentUser.role==='owner'?` <button class="delTeacherBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Delete permanently (Owner only)"><i class="fas fa-trash"></i></button>`:''}</td></tr>`;
+ const staffRow = t => `<tr><td>${t.photo?`<img src="${t.photo}" class="w-9 h-9 rounded-full object-cover" alt="">`:`<div class="w-9 h-9 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold">${initials(t.name)}</div>`}</td><td class="font-medium"><button class="viewStaffBtn text-left hover:underline" data-id="${t.id}">${escapeHTML(t.name||'')}</button>${t.employeeId?`<div class="text-[11px] text-gray-500 font-normal">${escapeHTML(t.employeeId)}</div>`:''}${t.aadhaarName && t.aadhaarName.toLowerCase()!==String(t.name||'').toLowerCase()?`<div class="text-[11px] text-gray-500 font-normal">${escapeHTML(t.aadhaarName)}</div>`:''}</td><td>${t.subject||'-'}</td><td class="text-xs">${isAcademicStaff(t)?(teacherTeaching(t).length?teacherTeaching(t).map(r=>`<div><b>${escapeHTML(r.subject)}</b>: ${escapeHTML(r.classes.join(', ')||'—')}</div>`).join(''):'<span class="text-amber-600">none</span>'):'<span class="text-gray-300">—</span>'}</td><td style="min-width:150px">${teacherQualBadges(t)}</td><td>${t.employeeId || t.udiseTeacherId || '-'}</td><td>${t.trainingDate?fmtDate(t.trainingDate):'-'}</td>${canSeeSalary()?`<td>Rs.${(t.salary||0).toLocaleString('en-IN')}</td>`:''}<td>${t.phone||'-'}</td><td class="whitespace-nowrap"><button class="viewStaffBtn bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-1 rounded text-xs" data-id="${t.id}" title="View full profile, qualifications & documents"><i class="fas fa-eye"></i></button> <button class="editTeacherBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${t.id}" title="Edit"><i class="fas fa-edit"></i></button> <button class="staffKycBtn bg-slate-600 hover:bg-slate-700 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Print staff record / KYC"><i class="fas fa-print"></i></button><button class="archiveTeacherBtn bg-amber-500 hover:bg-amber-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Archive (keeps full record & salary history)"><i class="fas fa-box-archive"></i></button>${currentUser&&currentUser.role==='owner'?` <button class="delTeacherBtn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs ml-1" data-id="${t.id}" title="Delete permanently (Owner only)"><i class="fas fa-trash"></i></button>`:''}</td></tr>`;
  // Archived staff row: shows when they left, why, and their salary history at a glance.
  const archivedRow = t => { const h = staffHistory(t.id); return `<tr class="bg-gray-50">
    <td class="font-medium">${escapeHTML(t.name||'')}</td>
@@ -8347,7 +8348,7 @@ function renderTeachersTab(){
     <div><label class="text-xs">Staff Type *</label><select id="tchStaffType">${STAFF_TYPES.map(v=>`<option value="${v}">${STAFF_TYPE_LABELS[v]}</option>`).join('')}</select></div>
     <div><label class="text-xs" id="tchSubjectLabel">Subject</label><input id="tchSubject" placeholder="e.g. Mathematics"></div>
     <div><label class="text-xs">Qualification <span class="text-gray-400">(summary — filled from the list below)</span></label><input id="tchQual"></div>
-    <div><label class="text-xs">Employee ID</label><input id="tchEmpId" placeholder="e.g. MDB-T-001"></div>
+    <div><label class="text-xs">Employee ID</label><input id="tchEmpId" placeholder="Left empty: given automatically (MDBV-T05)"></div>
     <div><label class="text-xs">Date of Joining</label><input type="date" id="tchTrain"></div>
     <div${canSeeSalary()?'':' style="display:none"'}><label class="text-xs">Salary</label><input type="number" id="tchSalary"></div>
     <div${canSeeSalary()?'':' style="display:none"'}><label class="text-xs">Salary Start Month <i class="fas fa-circle-info text-gray-400" title="Month salary began this session — used to calculate dues precisely for mid-year joiners. Leave blank to use April."></i></label><select id="tchSalaryStart"><option value="">April (session start)</option>${SESSION_MONTHS.map(m=>`<option value="${m}">${m}</option>`).join('')}</select></div>
@@ -22734,7 +22735,7 @@ function renderTchAuditAdminTab(){
      <option value="all">— All teachers —</option>
      ${teacherIds.map(tid => {
        const t = teachers.find(x => x.id === tid);
-       const name = t?.name || (log.find(e => e.byId === tid)?.byName || ('Teacher #' + tid));
+       const name = t?.name || (log.find(e => e.byId === tid)?.byName || ((getTeachers().find(x => String(x.id) === String(tid)) || {}).employeeId || 'Staff'));
        return `<option value="${tid}" ${String(tchAuditFilter.teacherId) === String(tid) ? 'selected' : ''}>${name}</option>`;
      }).join('')}
     </select>
@@ -25936,7 +25937,7 @@ function attachTeachersTabEvents(){
    staffType: (document.getElementById('tchStaffType') ? document.getElementById('tchStaffType').value : 'Teaching') || 'Teaching',
    subject: document.getElementById('tchSubject').value.trim(),
    qualification: document.getElementById('tchQual').value.trim(),
-   employeeId: document.getElementById('tchEmpId').value.trim(),
+   employeeId: document.getElementById('tchEmpId').value.trim().toUpperCase(),
    trainingDate: document.getElementById('tchTrain').value,
    phone: document.getElementById('tchPhone').value.trim(),
    bankAccount: document.getElementById('tchBank').value.trim(),
@@ -26000,6 +26001,7 @@ function attachTeachersTabEvents(){
   } else {
    // Add mode — create new record + auto-login
    data.id = Date.now();
+   if (!data.employeeId) data.employeeId = _nextEmployeeId(data, teachers);
    teachers.push(data);
    saveTeachers(teachers);
    const r = await createLoginForTeacher(data);
@@ -27394,15 +27396,15 @@ function renderUsersTab(){
    Logins are only for teaching staff and the Principal. Non-teaching staff, students and parents don't get one — parents use the school WhatsApp bot. When someone leaves, disable their login the same day.
   </div>
   <div class="overflow-x-auto"><table class="border text-sm w-full">
-   <thead><tr><th>ID</th><th>Username</th><th>Password</th><th>Role</th><th>Display Name</th><th>Linked ID</th><th>Actions</th></tr></thead>
+   <thead><tr><th>#</th><th>Username</th><th>Password</th><th>Role</th><th>Display Name</th><th>Employee ID</th><th>Actions</th></tr></thead>
    <tbody>
     ${users.map(u => `<tr ${u.id === myId ? 'style="background:#fef3c7;"' : ''}>
-     <td class="text-xs text-gray-600">${u.id}${u.id === myId ? ' <span class="pill pill-amber">YOU</span>' : ''}</td>
+     <td class="text-xs text-gray-600">${u.id < 100000 ? u.id : ''}${u.id === myId ? ' <span class="pill pill-amber">YOU</span>' : ''}</td>
      <td class="font-medium">${escapeHTML(u.username || '')}</td>
      <td><span class="font-mono text-xs">${'•'.repeat(Math.min(8, (u.password || '').length))}</span></td>
      <td><span class="pill pill-${u.role === 'owner' ? 'red' : (u.role === 'managing_director' || u.role === 'trustee') ? 'red' : u.role === 'admin' ? 'amber' : u.role === 'principal' ? 'blue' : 'gray'}">${u.role === 'managing_director' ? 'Managing Director' : u.role === 'trustee' ? 'Trustee' : u.role}</span></td>
      <td>${escapeHTML(u.name || '')}</td>
-     <td class="text-xs text-gray-600">${u.teacherId ? 'Teacher #' + u.teacherId : u.studentId ? 'Student #' + u.studentId : '—'}</td>
+     <td class="text-xs text-gray-600">${(() => { if (u.teacherId) { const t = getTeachers().find(x => String(x.id) === String(u.teacherId)); return t ? escapeHTML(t.employeeId || t.name || '') : 'Staff record removed'; } if (u.studentId) { const st = getStudents().find(x => String(x.id) === String(u.studentId)); return st ? escapeHTML(st.admissionNo || st.name || '') : 'Student removed'; } return '—'; })()}</td>
      <td class="whitespace-nowrap">
       ${canActOn(u)
         ? `<button class="editUserBtn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs" data-id="${u.id}">Edit</button>`
@@ -27468,7 +27470,7 @@ function renderUsersTab(){
      <input type="checkbox" id="bulkGenTeachers" class="w-auto mt-1" checked>
      <div class="flex-1">
       <div class="font-semibold text-sm">Teacher logins</div>
-      <div class="text-xs text-gray-600 mt-1">Username = first name (lowercased) · Password = <code class="bg-gray-100 px-1">Teacher@</code> + ID</div>
+      <div class="text-xs text-gray-600 mt-1">Username = first name (lowercased) · Password = <code class="bg-gray-100 px-1">Mdbv@</code> + last 4 digits of their phone (e.g. Mdbv@4521). They change it the first time they log in.</div>
      </div>
     </label>
    </div>
@@ -27729,7 +27731,11 @@ function _genUsername(kind, record) {
 function _genPassword(kind, record) {
  if (kind === 'student') return (record.admissionNo || record.registrationNo || ('s' + record.id)) + '@123';
  if (kind === 'parent')  return (record.parentPhone || '').replace(/\D/g, '').slice(-10) || ('parent' + record.id);
- if (kind === 'teacher') return 'Teacher@' + record.id;
+ if (kind === 'teacher') return 'Teacher@' + record.id;   // old rule, for logins made before 28 Nov 2026
+ if (kind === 'teacher2') {
+  const ph = String(record.phone || '').replace(/\D/g, '');
+  return 'Mdbv@' + (ph.length >= 4 ? ph.slice(-4) : String(record.employeeId || '').replace(/\D/g, '').padStart(4, '0'));
+ }
  return 'CHANGE_ME';
 }
 
@@ -27793,6 +27799,24 @@ async function createLoginsForStudent(student, flags) {
  };
 }
 
+// ===== Simple Employee IDs: MDBV-T01 (teaching staff and the Principal), MDBV-S01 (support / non-teaching) =====
+const EMP_ID_RE = /^MDBV-[TS]\d{2,}$/;
+function _nextEmployeeId(t, all){
+ const p = isAcademicStaff(t) ? 'T' : 'S';
+ const used = (all || getTeachers()).map(x => String(x.employeeId || '')).filter(v => v.startsWith('MDBV-' + p)).map(v => parseInt(v.slice(6)) || 0);
+ return 'MDBV-' + p + String((used.length ? Math.max(...used) : 0) + 1).padStart(2, '0');
+}
+// Give every current staff member without a proper ID one, in joining order (office logins only; runs once per login)
+function _ensureEmployeeIds(){
+ if (!currentUser || !(isAdminLevel() || isPrincipalLevel() || canSeeSalary())) return;
+ const all = getTeachers(); let n = 0;
+ const need = all.filter(t => !t.archived && !EMP_ID_RE.test(String(t.employeeId || '')))
+  .sort((a, b) => String(a.trainingDate || a.joinDate || '9999').localeCompare(String(b.trainingDate || b.joinDate || '9999')) || String(a.name || '').localeCompare(String(b.name || '')));
+ // the Principal first among teaching staff
+ need.sort((a, b) => (a.staffType === 'Principal' ? -1 : 0) - (b.staffType === 'Principal' ? -1 : 0));
+ need.forEach(t => { t.employeeId = _nextEmployeeId(t, all); delete t.udiseTeacherId; n++; });
+ if (n) { saveTeachers(all); console.info('[MDBV] employee IDs given to', n, 'staff'); }
+}
 // Logins are only for teaching staff and the Principal — non-teaching staff, students and parents get none
 // (parents use the WhatsApp bot).
 function _staffHasLogin(t, users){
@@ -27809,7 +27833,7 @@ async function createLoginForTeacher(teacher) {
  const username = _uniqueUsername(baseU, taken);
  const newUser = {
   id: Math.max(0, ...users.map(u => u.id)) + 1,
-  username, password: await hashPassword(_genPassword('teacher', teacher)), defaultPw: true,
+  username, password: await hashPassword(_genPassword('teacher2', teacher)), defaultPw: true, pwRule: 2,
   role: 'teacher', name: teacher.name, teacherId: teacher.id
  };
  users.push(newUser);
@@ -27867,7 +27891,7 @@ function _displayPasswordForSheet(user){
  }
  if (user.role === 'teacher') {
   const t = getTeachers().find(x => x.id === user.teacherId);
-  return t ? _genPassword('teacher', t) : '(default)';
+  return t ? _genPassword(user.pwRule === 2 ? 'teacher2' : 'teacher', t) : '(default)';
  }
  return 'CHANGE_ME';
 }
