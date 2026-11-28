@@ -5,7 +5,7 @@
 
 <html lang="en">
 <head>
-<meta name="mdbv-build" content="2026-11-28.20">
+<meta name="mdbv-build" content="2026-11-28.21">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -6894,6 +6894,14 @@ function subjectsForClass(cls){
  const list = CLASS_SUBJECTS[String(cls||'').trim()];
  return (list && list.length) ? list : SUBJECTS.filter(s=>s!=='Other');
 }
+// Who TEACHES what: in Classes 9 and 10 the exam subject "Science" is taught as three
+// separate subjects (Physics, Chemistry, Biology) by different teachers. Used by the
+// Faculty Gap Analysis; marks, report cards and homework keep the exam subjects above.
+const TEACHING_SPLIT = { '9': { Science: ['Physics', 'Chemistry', 'Biology'] }, '10': { Science: ['Physics', 'Chemistry', 'Biology'] } };
+function teachingSubjectsForClass(cls){
+ const split = TEACHING_SPLIT[String(cls || '').trim()] || {};
+ return subjectsForClass(cls).flatMap(s => split[s] || [s]);
+}
 // Subject <option>s for a class: that class's subjects first, then the rest, then Other.
 function classSubjectOptionsHTML(cls, selected){
  const mine = subjectsForClass(cls);
@@ -13205,6 +13213,18 @@ const ONE_TIME_FIXES = {
     const p = pays.find(x => x.id === id);
     if (p && String(p.teacherId) === '1790956442725') { p.teacherId = 1779427257801; p.teacherName = (getTeachers().find(t => t.id === 1779427257801) || {}).name || p.teacherName; pc = true; }
    });
+   // Classes 9-10 science is taught as Physics / Chemistry / Biology: Ayushi takes Biology (9-12), so her old "Science 9, 10" line goes
+   try {
+    const ts = getTeachers(), ay = ts.find(t => t.id === 1779427954105);
+    if (ay && Array.isArray(ay.teaching)) {
+     const k = ay.teaching.findIndex(r => r && r.subject === 'Science' && (r.classes || []).map(String).sort().join(',') === '10,9');
+     if (k > -1 && ay.teaching.some(r => r && r.subject === 'Biology')) {
+      ay.teaching.splice(k, 1);
+      const leg = teachingToLegacy(ay.teaching); ay.subject = leg.subject; ay.assignedClasses = leg.assignedClasses;
+      saveTeachers(ts);
+     }
+    }
+   } catch (e) { console.warn('teaching fix', e); }
    // payments whose Ledger entry was removed or turned into a fee adjustment
    [[1784010767121, 1784010767118], [1791459595166, 1791459595165]].forEach(([pid, eid]) => {
     const p = pays.find(x => x.id === pid), e = exps.find(x => x.id === eid); if (!p || !e) return;
@@ -18568,7 +18588,7 @@ function facultyGapData(){
  let required = 0, covered = 0;
  const gaps = [], load = {};
  classes.forEach(cls => {
-  subjectsForClass(cls).forEach(sub => {
+  teachingSubjectsForClass(cls).forEach(sub => {
    required++;
    const who = staff.filter(t => teacherCovers(t, cls, sub));
    if (who.length) { covered++; who.forEach(t => { load[t.name] = (load[t.name]||0)+1; }); }
@@ -18583,12 +18603,12 @@ function facultyGapData(){
  const noClass   = staff.filter(t => !Array.isArray(t.assignedClasses) || !t.assignedClasses.length);
  const noSubject = staff.filter(t => !teacherSubjects(t).length);
  // Subjects listed on a profile that aren't in any datesheet scheme (likely a typo/short form)
- const knownSubs = new Set(allClasses.flatMap(c => subjectsForClass(c)));
+ const knownSubs = new Set(allClasses.flatMap(c => teachingSubjectsForClass(c)));
  const unknownSubs = [];
  staff.forEach(t => teacherSubjects(t).forEach(sb => {
    if (sb !== '*ALL*' && !knownSubs.has(sb) && !unknownSubs.some(u => u.sub === sb)) unknownSubs.push({ name: t.name, sub: sb });
  }));
- const allSubs = Array.from(new Set(classes.flatMap(c => subjectsForClass(c))));
+ const allSubs = Array.from(new Set(classes.flatMap(c => teachingSubjectsForClass(c))));
  const orphanSubjects = allSubs.filter(sub => !staff.some(t => teacherSubjects(t).includes(sub)));
  const byClass = {}, bySubject = {};
  gaps.forEach(g => { (byClass[g.cls]=byClass[g.cls]||[]).push(g.sub); (bySubject[g.sub]=bySubject[g.sub]||[]).push(g.cls); });
@@ -18609,7 +18629,7 @@ function renderFacultyGap(){
    <div class="min-w-0"><div class="fgStatV" style="color:${clr}">${value}</div><div class="fgStatL">${label}</div>${sub ? `<div class="fgStatS">${sub}</div>` : ''}</div></div>`;
  // subjects: which classes each one covers, grouped by teacher
  const subs = d.allSubs.map(sub => {
-  const cls = d.classes.filter(c => subjectsForClass(c).includes(sub));
+  const cls = d.classes.filter(c => teachingSubjectsForClass(c).includes(sub));
   if (!cls.length) return null;
   const byT = new Map(), gaps = [];
   cls.forEach(c => { const cell = d.cells[c + '|' + sub] || []; if (!cell.length) gaps.push(c); cell.forEach(t => { const k = t.id || t.name; (byT.get(k) || byT.set(k, { t, cls: [] }).get(k)).cls.push(c); }); });
@@ -18711,7 +18731,7 @@ function _gapTableHTML(){
  const d = facultyGapData();
  const head = ['Subject'].concat(d.classes.map(c=>/^\d+$/.test(c)?'Class '+c:c));
  const rows = d.allSubs.map(sub => [sub].concat(d.classes.map(c => {
-   if (!subjectsForClass(c).includes(sub)) return '';
+   if (!teachingSubjectsForClass(c).includes(sub)) return '';
    const cell = d.cells[c+'|'+sub];
    return (cell && cell.length) ? cell.map(teacherLabel).join(', ') : 'GAP';
  })));
@@ -18741,7 +18761,7 @@ function printFacultyGap(){
    <div style="font-size:9px">Coverage ${d.covered}/${d.required} slots (${d.coveragePct}%) · ${d.gaps.length} gap(s) · Printed ${today}</div></div>
   <table><tr><th style="text-align:left">Subject</th>${d.classes.map(c=>`<th>${/^\d+$/.test(c)?c:escapeHTML(c)}</th>`).join('')}</tr>
    ${d.allSubs.map(sub=>`<tr><td class="sub">${escapeHTML(sub)}</td>${d.classes.map(c=>{
-     if(!subjectsForClass(c).includes(sub)) return '<td style="color:#ddd">–</td>';
+     if(!teachingSubjectsForClass(c).includes(sub)) return '<td style="color:#ddd">–</td>';
      const cell=d.cells[c+'|'+sub];
      return (cell&&cell.length)?`<td>${escapeHTML(cell.map(t=>t.name.split(' ')[0]+(t.qualification?' ('+t.qualification+')':'')).join(', '))}</td>`:'<td class="gap">GAP</td>';
     }).join('')}</tr>`).join('')}
