@@ -5,7 +5,7 @@
 
 <html lang="en">
 <head>
-<meta name="mdbv-build" content="2026-11-28.17">
+<meta name="mdbv-build" content="2026-11-28.18">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -1858,9 +1858,18 @@ function processStep(num, icon, title, desc) {
 }
 
 /* ----- GALLERY ----- */
+// Photos that ship with the website (assets/img). Photos added in the portal's Gallery tab come after them.
+const GALLERY_BUILTIN = [
+  { id: 'b1', src: 'assets/img/chem-lab.jpg', title: 'Chemistry lab', category: 'Labs' },
+  { id: 'b2', src: 'assets/img/physics-lab.jpg', title: 'Physics lab', category: 'Labs' },
+  { id: 'b3', src: 'assets/img/computer-lab.jpg', title: 'Computer lab', category: 'Labs' },
+  { id: 'b4', src: 'assets/img/playground.jpg', title: 'Play area in the school garden', category: 'Campus' },
+  { id: 'b5', src: 'assets/img/honesty-poster.jpg', title: 'Poster-making: Honesty', category: 'Activities' }
+];
 function renderGallery() {
-  const photos = DB.getAll('gallery');
-  const cats = ['All', 'Campus', 'Classrooms', 'Activities'];
+  const own = (DB.getAll('gallery') || []).filter(p => p && !p._deleted);
+  const photos = GALLERY_BUILTIN.filter(b => !own.some(p => p.src === b.src)).concat(own);
+  const cats = ['All', 'Labs', 'Campus', 'Classrooms', 'Activities'];
   return `
   <div class="page-section">
     <section class="bg-cream-deep border-b border-line">
@@ -1906,7 +1915,7 @@ function renderGallery() {
 }
 
 function openGalleryLightbox(id) {
-  const photos = DB.getAll('gallery');
+  const photos = GALLERY_BUILTIN.concat(DB.getAll('gallery') || []);
   const p = photos.find(x => String(x.id) === String(id));
   if (!p) return;
   document.getElementById('galleryLightboxImg').src = p.src;
