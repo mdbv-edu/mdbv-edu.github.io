@@ -1,0 +1,20 @@
+{
+  "id": "/",
+  "name": "MDBV Portal — Murti Devi Balika Vidyapeeth",
+  "short_name": "MDBV",
+  "description": "School portal of Murti Devi Balika Vidyapeeth, Binauli: attendance, fees, homework, notices and results for parents, students and staff.",
+  "start_url": "/?source=app",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#ffffff",
+  "theme_color": "#7a1e2e",
+  "lang": "en-IN",
+  "dir": "ltr",
+  "categories": ["education"],
+  "icons": [
+    { "src": "/app/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/app/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/app/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
