@@ -5,7 +5,7 @@
 
 <html lang="en">
 <head>
-<meta name="mdbv-build" content="2026-11-28.15">
+<meta name="mdbv-build" content="2026-11-28.16">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -795,10 +795,11 @@
   .w-stage p { margin: 8px 0 0; font-size: 16.5px; line-height: 1.6; color: var(--ink-soft); }
 
   /* inside the school: real photos */
-  .w-inside { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin: 30px 0 0; padding: 0; list-style: none; }
+  .w-inside { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin: 30px 0 0; padding: 0; list-style: none; }
   .w-inside figure { margin: 0; border-radius: 16px; overflow: hidden; background: #e7ecf3; position: relative; aspect-ratio: 4 / 5; }
   .w-inside img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .w-inside figcaption { position: absolute; left: 10px; right: 10px; bottom: 10px; background: rgba(255,255,255,.94); color: var(--ink); border-radius: 10px; padding: 8px 12px; font-size: 15px; line-height: 1.35; }
+  .w-inside figcaption { position: absolute; left: 10px; right: 10px; bottom: 10px; background: rgba(255,255,255,.94); color: var(--ink); border-radius: 10px; padding: 8px 12px; font-size: 14.5px; line-height: 1.35; }
+  @media (max-width: 1100px) and (min-width: 861px) { .w-inside { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   .w-inside figcaption b { display: block; font-size: 16.5px; color: var(--w-navy); }
 
   /* campus + facilities */
@@ -1534,6 +1535,7 @@ function renderHome() {
         <div class="w-inside">
           <figure><img src="assets/img/chem-lab.jpg" alt="Girls doing experiments with microscopes and glassware in the chemistry lab" loading="lazy" onerror="this.closest('figure').classList.add('w-ph-missing')"><figcaption><b>Chemistry lab</b>Experiments with microscopes and glassware.</figcaption></figure>
           <figure><img src="assets/img/physics-lab.jpg" alt="Two girls working with a pendulum and an electric circuit in the physics lab" loading="lazy" onerror="this.closest('figure').classList.add('w-ph-missing')"><figcaption><b>Physics lab</b>Hands-on work with circuits, meters and pendulums.</figcaption></figure>
+          <figure><img src="assets/img/computer-lab.jpg" alt="Girls working on desktop computers in the computer lab" loading="lazy" onerror="this.closest('figure').classList.add('w-ph-missing')"><figcaption><b>Computer lab</b>Lessons on desktop computers with internet.</figcaption></figure>
           <figure><img src="assets/img/playground.jpg" alt="Two young students on the slide in the school garden" loading="lazy" onerror="this.closest('figure').classList.add('w-ph-missing')"><figcaption><b>Play area</b>Green lawns and a slide for the younger children.</figcaption></figure>
         </div>
       </div>
