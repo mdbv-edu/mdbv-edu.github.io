@@ -5,7 +5,7 @@
 
 <html lang="en">
 <head>
-<meta name="mdbv-build" content="2026-11-28.12">
+<meta name="mdbv-build" content="2026-11-28.13">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -794,6 +794,13 @@
   .w-stage-age { display: inline-block; font-size: 14px; font-weight: 700; color: var(--w-red); }
   .w-stage p { margin: 8px 0 0; font-size: 16.5px; line-height: 1.6; color: var(--ink-soft); }
 
+  /* inside the school: real photos */
+  .w-inside { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin: 30px 0 0; padding: 0; list-style: none; }
+  .w-inside figure { margin: 0; border-radius: 16px; overflow: hidden; background: #e7ecf3; position: relative; aspect-ratio: 4 / 5; }
+  .w-inside img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .w-inside figcaption { position: absolute; left: 10px; right: 10px; bottom: 10px; background: rgba(255,255,255,.94); color: var(--ink); border-radius: 10px; padding: 8px 12px; font-size: 15px; line-height: 1.35; }
+  .w-inside figcaption b { display: block; font-size: 16.5px; color: var(--w-navy); }
+
   /* campus + facilities */
   .w-campus { background: var(--w-mist); padding: 84px 0; }
   .w-campus-fig { margin: 0 0 56px; border-radius: 20px; overflow: hidden; position: relative; background: #e7ecf3; aspect-ratio: 1080 / 336; }
@@ -847,6 +854,8 @@
     .w-stage h3 { margin-top: 4px; }
     .w-campus-fig { aspect-ratio: 4 / 3; margin-bottom: 40px; }
     .w-campus-fig figcaption { font-size: 15px; left: 10px; bottom: 10px; }
+    .w-inside { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 78%; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 6px; }
+    .w-inside figure { scroll-snap-align: start; }
     .w-qr { max-width: none; display: flex; align-items: center; gap: 18px; text-align: left; }
     .w-qr-box { width: 130px; height: 130px; flex: 0 0 130px; margin: 0; }
   }
@@ -1519,6 +1528,17 @@ function renderHome() {
       </div>
     </section>
 
+    <section class="w-sec" style="padding-top:0">
+      <div class="w-wrap">
+        <h2 class="w-h2"><span lang="hi" class="w-hi">विद्यालय के अंदर</span><span class="w-h2-en">Inside the school</span></h2>
+        <div class="w-inside">
+          <figure><img src="assets/img/chem-lab.jpg" alt="Girls doing experiments with microscopes and glassware in the chemistry lab" loading="lazy" onerror="this.closest('figure').classList.add('w-ph-missing')"><figcaption><b>Chemistry lab</b>Experiments with microscopes and glassware.</figcaption></figure>
+          <figure><img src="assets/img/physics-lab.jpg" alt="Two girls working with a pendulum and an electric circuit in the physics lab" loading="lazy" onerror="this.closest('figure').classList.add('w-ph-missing')"><figcaption><b>Physics lab</b>Hands-on work with circuits, meters and pendulums.</figcaption></figure>
+          <figure><img src="assets/img/playground.jpg" alt="Two young students on the slide in the school garden" loading="lazy" onerror="this.closest('figure').classList.add('w-ph-missing')"><figcaption><b>Play area</b>Green lawns and a slide for the younger children.</figcaption></figure>
+        </div>
+      </div>
+    </section>
+
     <section class="w-campus">
       <div class="w-wrap">
         <figure class="w-campus-fig"><img src="assets/img/campus-wide.jpg" alt="The MDBV school building in Binauli" loading="lazy" onerror="this.closest('figure').classList.add('w-ph-missing')">
@@ -1801,6 +1821,7 @@ function renderAdmissions() {
       <div class="max-w-7xl mx-auto px-6 py-20 grid md:grid-cols-2 gap-12">
         <div>
           <h2 class="font-display text-4xl text-ink mb-6">Documents to bring</h2>
+          <p class="text-ink-soft mb-5" style="font-size:16px">Also fill in the <a href="assets/docs/photo-consent-form.pdf" target="_blank" rel="noopener" style="color:#1e2e64;font-weight:700;text-decoration:underline">photo consent form (PDF)</a>: it asks where the school may use photos of your child. You can say yes or no to each use.</p>
           <ul class="space-y-3">
             ${["Birth Certificate (original + photocopy)", "Aadhaar card of student and parents", "Transfer Certificate (for Class II onwards)", "Previous year's report card", "Four recent passport-size photographs", "Parents' address proof", "Caste certificate (if applicable)", "Income certificate (for fee concession)"].map(d => `<li class="flex gap-3 text-ink-soft"><i class="fas fa-file-circle-check text-burgundy mt-1"></i><span>${d}</span></li>`).join('')}
           </ul>
@@ -5753,6 +5774,21 @@ function renderOwnerDashboard(){
   </div>`;
  }
 
+ // Forms sub-view
+ if (ownerView === 'forms') {
+  return `<div class="p-4 md:p-6 mx-auto portal-wide">
+   <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+    <div>
+     <button id="ownerBackBtn" class="text-gray-600 hover:text-gray-900 text-sm mb-1"><i class="fas fa-arrow-left mr-1"></i>Back to Dashboard</button>
+     <h1 class="text-xl md:text-2xl font-bold"><i class="fas fa-crown text-amber-500 mr-2"></i>Owner · Forms</h1>
+     <p class="text-gray-600 text-xs">${currentUser.name}</p>
+    </div>
+    <button id="logoutBtn" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-sign-out-alt mr-1"></i>Logout</button>
+   </div>
+   ${renderFormsTab()}
+  </div>`;
+ }
+
  // Users management sub-view
  if (ownerView === 'users') {
   return `<div class="p-4 md:p-6 mx-auto portal-wide">
@@ -6242,7 +6278,7 @@ var ADMIN_CATEGORIES = [
  {key:'attendance', label:'Attendance',       icon:'calendar-check', tabs:['attendance','staffattendance']},
  {key:'finance',    label:'Finance & Assets', icon:'sack-dollar',    tabs:['feestructure','bank','vehicles','maintenance','inventory']},
  {key:'comms',      label:'Communication',    icon:'bullhorn',       tabs:['whatsapp','notices','broadcast','enquiries']},
- {key:'compliance', label:'Compliance & Docs',icon:'shield-halved',  tabs:['compliance','disclosureDocs','documents','datamanagement','reports','tchaudit','backup']}
+ {key:'compliance', label:'Compliance & Docs',icon:'shield-halved',  tabs:['compliance','disclosureDocs','documents','forms','datamanagement','reports','tchaudit','backup']}
 ];
 var PRINCIPAL_CATEGORIES = [
  {key:'main',       label:'Dashboard',   icon:'gauge-high',     tabs:['dashboard']},
@@ -6251,7 +6287,7 @@ var PRINCIPAL_CATEGORIES = [
  {key:'attendance', label:'Attendance',  icon:'calendar-check', tabs:['studentattendance','staffattendance','attendance']},
  {key:'finance',    label:'Fees',        icon:'chart-column',   tabs:['feedashboard','feereminders']},
  {key:'comms',      label:'Communication',icon:'bullhorn',      tabs:['whatsapp','notices','broadcast','enquiries']},
- {key:'records',    label:'Compliance & Records', icon:'shield-halved', tabs:['compliance','documents','reports']}
+ {key:'records',    label:'Compliance & Records', icon:'shield-halved', tabs:['compliance','documents','forms','reports']}
 ];
 var ACC_CATEGORIES = [
  {key:'overview', label:'Overview', icon:'gauge-high',           tabs:['overview','feedashboard']},
@@ -6301,6 +6337,7 @@ function renderAdminPanel(){
   {id:'bank',label:'Bank',icon:'building-columns'},
   {id:'calendar',label:'Calendar',icon:'calendar-days'},
   {id:'documents',label:'Documents',icon:'folder-open'},
+  {id:'forms',label:'Forms',icon:'file-signature'},
   {id:'reports',label:'Reports',icon:'chart-bar'},
   {id:'tchaudit',label:'Teacher Audit',icon:'clipboard-list'},
   {id:'backup',label:'Backup',icon:'cloud-arrow-down'}
@@ -6354,6 +6391,7 @@ function renderAdminTabContent(){
   case 'bank':return renderBank();
   case 'calendar':return renderCalendar();
   case 'documents':return renderDocuments();
+  case 'forms':return renderFormsTab();
   case 'reports':return renderReports();
   case 'tchaudit':return renderTchAuditAdminTab();
   case 'backup':return renderBackupTab();
@@ -6622,7 +6660,7 @@ function renderStudentsTab(){
           ${canSeeConfidentialNumbers()?`<div><span class="st-lbl">PEN</span>${s.pen?escapeHTML(String(s.pen)):'<span class="st-miss">—</span>'}</div>`:''}
           <div><span class="st-lbl">Aadhaar</span>${s.aadhaar?'<span class="text-emerald-700">✓</span>':'<span class="st-miss">missing</span>'}</div>
          </td>`:''}
-         <td class="st-tags">${s.bpl?'<span class="pill pill-amber">BPL</span>':''}${s.cwsn?'<span class="pill pill-blue">CWSN</span>':''}${s.caste?`<span class="pill pill-gray">${escapeHTML(s.caste)}</span>`:''}${s.archived?'<span class="pill pill-gray">Archived</span>':''}</td>
+         <td class="st-tags">${s.bpl?'<span class="pill pill-amber">BPL</span>':''}${s.cwsn?'<span class="pill pill-blue">CWSN</span>':''}${s.caste?`<span class="pill pill-gray">${escapeHTML(s.caste)}</span>`:''}${_photoConsentNo(s)?'<span class="pill pill-red" title="Parents said no to photos">No photos</span>':''}${s.archived?'<span class="pill pill-gray">Archived</span>':''}</td>
          <td class="st-c-act">
           <div class="st-main-acts">
            <button class="viewStudentBtn st-btn st-btn-view" data-id="${s.id}" title="Open full profile"><i class="fas fa-eye"></i> View</button>
@@ -7827,6 +7865,63 @@ function _isOldFeeTxn(t){
  if (t.academicYear && cs && t.academicYear !== cs) return true;
  return /\bold\b|previous|last\s*year|pichl/i.test(String(t.feeHead||''));
 }
+// ===== Forms: printable forms for the office (owner, admin, Principal) =====
+// Add a form: put its PDF in assets/docs/ and add a line here.
+const SCHOOL_FORMS = [
+ { id: 'photo-consent', hi: 'फ़ोटो एवं वीडियो सहमति पत्र', en: 'Photo and video consent (parents)', file: 'assets/docs/photo-consent-form.pdf',
+   note: 'One for each student. When it comes back signed, record the answers in the student\'s profile: Students → View → Photo consent.' }
+];
+function renderFormsTab(){
+ const st = getActiveStudents(), got = st.filter(s => s.photoConsent && (s.photoConsent.date || PHOTO_USES.some(([k]) => s.photoConsent[k]))).length;
+ const noPhoto = st.filter(s => _photoConsentNo(s)).length;
+ return `<div>
+  <h2 class="text-lg font-bold mb-1"><i class="fas fa-file-signature mr-2" style="color:#0f766e"></i>Forms</h2>
+  <p class="text-sm text-gray-600 mb-4">Open a form to print it, or download it to send on WhatsApp.</p>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+   ${SCHOOL_FORMS.map(f => `<div class="border rounded-xl p-4 bg-white">
+    <div class="flex items-start gap-3">
+     <span class="flex-shrink-0 w-11 h-11 rounded-lg flex items-center justify-center" style="background:#ccfbf1;color:#0f766e"><i class="fas fa-file-pdf text-xl"></i></span>
+     <div class="min-w-0">
+      <div class="font-semibold text-gray-900" lang="hi">${f.hi}</div>
+      <div class="text-sm text-gray-700">${f.en}</div>
+      <div class="text-xs text-gray-500 mt-1">${f.note}</div>
+      ${f.id === 'photo-consent' ? `<div class="text-xs mt-2"><b>${got}</b> of ${st.length} students recorded${noPhoto ? ` · <span class="text-rose-700 font-semibold">${noPhoto} said no to photos</span>` : ''}</div>` : ''}
+     </div>
+    </div>
+    <div class="flex gap-2 mt-3">
+     <a href="${f.file}" target="_blank" rel="noopener" class="bg-teal-700 hover:bg-teal-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-print mr-1"></i>Open and print</a>
+     <a href="${f.file}" download class="bg-white border border-gray-300 hover:bg-gray-50 px-3 py-1.5 rounded-lg text-sm font-medium"><i class="fas fa-download mr-1"></i>Download</a>
+    </div>
+   </div>`).join('')}
+  </div>
+  <p class="text-xs text-gray-500 mt-4">Need another form here (TC request, leave application, bus form…)? Send it to the IT person and it will be added.</p>
+ </div>`;
+}
+const PHOTO_USES = [['web', 'School website'], ['pamphlet', 'Pamphlets, posters and banners'], ['social', 'WhatsApp, Facebook, Instagram, YouTube'], ['news', 'Newspaper reports'], ['name', 'Name with the photo']];
+// "no" to the website, pamphlets or social media = keep this child out of photos the school publishes
+function _photoConsentNo(s){ const pc = s && s.photoConsent; return !!pc && ['web', 'pamphlet', 'social'].some(k => pc[k] === 'no'); }
+function _photoConsentCard(s){
+ const pc = s.photoConsent || {}, can = isAdminLevel() || isPrincipalLevel();
+ const sel = (k) => `<select class="pcSel text-sm" data-sid="${s.id}" data-k="${k}" ${can ? '' : 'disabled'} style="width:auto;min-width:118px">
+   <option value="" ${!pc[k] ? 'selected' : ''}>Not received</option><option value="yes" ${pc[k] === 'yes' ? 'selected' : ''}>Yes</option><option value="no" ${pc[k] === 'no' ? 'selected' : ''}>No</option></select>`;
+ return `<section class="sp-card sp-span">
+    <h4 class="sp-h">Photo consent ${_photoConsentNo(s) ? '<span class="pill pill-red" style="margin-left:6px">No photos</span>' : ''}</h4>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+     ${PHOTO_USES.map(([k, l]) => `<label class="flex items-center justify-between gap-3"><span>${l}</span>${sel(k)}</label>`).join('')}
+     <label class="flex items-center justify-between gap-3"><span>Form received on</span><input type="date" class="pcDate text-sm" data-sid="${s.id}" value="${escapeHTML(pc.date || '')}" ${can ? '' : 'disabled'} style="width:auto"></label>
+    </div>
+    <div class="text-xs text-gray-500 mt-2">${can ? 'Copy the answers from the signed form. Saved as you change them.' : 'Only the office can change this.'}${pc.by ? ` Last changed by ${escapeHTML(pc.by)}.` : ''}</div>
+   </section>`;
+}
+document.addEventListener('change', e => {
+ const el = e.target; if (!el || !el.classList || !(el.classList.contains('pcSel') || el.classList.contains('pcDate'))) return;
+ if (!(isAdminLevel() || isPrincipalLevel())) return;
+ const all = getStudents(), st = all.find(x => String(x.id) === String(el.dataset.sid)); if (!st) return;
+ const pc = { ...(st.photoConsent || {}) };
+ if (el.classList.contains('pcDate')) pc.date = el.value; else { pc[el.dataset.k] = el.value; if (!pc.date && el.value) pc.date = new Date().toISOString().slice(0, 10); }
+ pc.by = currentUser && currentUser.name || ''; pc.at = new Date().toISOString();
+ st.photoConsent = pc; saveStudents(all); showToast('Photo consent saved');
+});
 function renderStudentProfile(id){
  const s=getStudents().find(x=>x.id===parseInt(id));
  if(!s)return '<div>Student not found</div>';
@@ -7873,6 +7968,7 @@ function renderStudentProfile(id){
      ${F('Full address', esc(s.address), {wide:true})}
     </div>
    </section>
+   ${_photoConsentCard(s)}
    <section class="sp-card sp-span">
     <h4 class="sp-h">Documents <span class="sp-count">${docs.length}</span></h4>
     ${docs.length===0?'<div class="sp-empty py-2"><i class="fas fa-folder-open mr-1"></i>No documents uploaded yet. Add them from Edit Student.</div>':
@@ -10110,6 +10206,7 @@ const PRINCIPAL_TAB_INFO = {
  whatsapp:{label:'WhatsApp Centre', icon:'comments', color:'#059669', action:'Open WhatsApp', desc:'Parents\' messages to the school number, the bot\'s replies, and sending fee reminders, absence alerts, results and notices.'},
  enquiries:{label:'Admissions', icon:'inbox', color:'#4f46e5', action:'View Enquiries', desc:'Admission enquiries received from the website.'},
  compliance:{label:'Compliance', icon:'shield-halved', color:'#059669', action:'Manage Compliance', desc:'Licences, certificates and statutory documents with expiry alerts.'},
+ forms:{label:'Forms', icon:'file-signature', color:'#0f766e', action:'Open Forms', desc:'Printable forms for parents and staff, such as the photo consent form.'},
  documents:{label:'Documents', icon:'folder-open', color:'#7c3aed', action:'Open Documents', desc:'School document store — policies, circulars and records.'},
  reports:{label:'Reports', icon:'chart-bar', color:'#334155', action:'View Reports', desc:'Printable summaries across students, staff and academics.'}
 };
@@ -10171,6 +10268,7 @@ function renderPrincipalPanel(){
   {id:'whatsapp',label:'WhatsApp',icon:'comments'},
   {id:'compliance',label:'Compliance',icon:'shield-halved'},
   {id:'documents',label:'Documents',icon:'folder-open'},
+  {id:'forms',label:'Forms',icon:'file-signature'},
   {id:'reports',label:'Reports',icon:'chart-bar'}
  ];
  return `<div class="p-4 md:p-6 mx-auto portal-wide">
@@ -10246,6 +10344,7 @@ function renderPrincipalTabContent(){
  else if(activePrincipalTab==='enquiries')return renderEnquiriesTab();
  else if(activePrincipalTab==='whatsapp')return renderWhatsAppCentre();
  else if(activePrincipalTab==='documents')return renderDocuments();
+ else if(activePrincipalTab==='forms')return renderFormsTab();
  else if(activePrincipalTab==='studentattendance')return renderAdminAttendance();
  else if(activePrincipalTab==='teachers')return renderTeachersTab();
  else if(activePrincipalTab==='staffattendance')return renderStaffAttendance();
@@ -17965,6 +18064,7 @@ function _ownerSectionCards(section){
   admin: [
    {btn:'ownerOpenWhatsAppBtn', title:'WhatsApp Centre', icon:'comments', color:'#059669', action:'Open WhatsApp', desc:'Parents\' messages to the school number, the bot\'s answers, and automatic fee reminders, absence alerts, results and notices.'},
    {btn:'ownerOpenUsersBtn', title:'User Accounts', icon:'user-shield', color:'#4f46e5', action:'Manage Users', desc:'Add staff, parents, students; change passwords; print login slips.', meta:`${users.length} logins${defPw>0?` · <span class="pill pill-red">${defPw} default password${defPw===1?'':'s'}</span>`:''}`},
+   {btn:'ownerOpenFormsBtn', title:'Forms', icon:'file-signature', color:'#0f766e', action:'Open Forms', desc:'Printable forms for parents and staff, such as the photo consent form.'},
    {btn:'ownerOpenComplianceBtn', title:'Compliance', icon:'shield-halved', color:'#059669', action:'Manage Compliance', desc:'Track licences, certificates and statutory documents with expiry alerts.'},
    {btn:'ownerOpenNoticesBtn', title:'Notice Board', icon:'thumbtack', color:'#ea580c', action:'Manage Notices', desc:'Post announcements to students, parents, teachers or the whole school.', meta:`${getNotices().filter(n=>!n.expiry||n.expiry>=new Date().toISOString().slice(0,10)).length} active notices`},
   ],
@@ -24447,6 +24547,7 @@ function attachOwnerEvents(){
   ownerView = 'compliance';
   renderApp();
  });
+ document.getElementById('ownerOpenFormsBtn')?.addEventListener('click', () => { ownerView = 'forms'; renderApp(); });
  // Notice board navigation
  document.getElementById('ownerOpenNoticesBtn')?.addEventListener('click', () => {
   ownerView = 'notices';
@@ -30104,7 +30205,7 @@ APP_UPDATE.start();
 </script>
 <script>
 // ===== Phone-friendly navigation: bottom bar, "More" menu, the phone's Back button, numbers that fit =====
-const MNAV_TABS = {"admin": [{"id": "dashboard", "label": "Dashboard", "icon": "gauge-high"}, {"id": "users", "label": "Users", "icon": "user-shield"}, {"id": "students", "label": "Students", "icon": "user-graduate"}, {"id": "attendance", "label": "Attendance", "icon": "calendar-check"}, {"id": "teachers", "label": "Staff", "icon": "users"}, {"id": "staffattendance", "label": "Staff Attendance", "icon": "user-clock"}, {"id": "homework", "label": "Homework", "icon": "book-open"}, {"id": "marks", "label": "Marks", "icon": "pen-to-square"}, {"id": "ptm", "label": "PTM", "icon": "people-arrows"}, {"id": "resources", "label": "Resources", "icon": "book-open-reader"}, {"id": "datamanagement", "label": "Data", "icon": "database"}, {"id": "compliance", "label": "Compliance", "icon": "shield-halved"}, {"id": "notices", "label": "Notice Board", "icon": "thumbtack"}, {"id": "feestructure", "label": "Fee Structure", "icon": "indian-rupee-sign"}, {"id": "reportcards", "label": "Report Cards", "icon": "file-lines"}, {"id": "enquiries", "label": "Admissions", "icon": "user-plus"}, {"id": "broadcast", "label": "Broadcast", "icon": "bullhorn"}, {"id": "whatsapp", "label": "WhatsApp", "icon": "comments"}, {"id": "gallery", "label": "Gallery", "icon": "images"}, {"id": "activities", "label": "Activities", "icon": "photo-film"}, {"id": "disclosureDocs", "label": "Disclosure PDFs", "icon": "file-pdf"}, {"id": "inventory", "label": "Inventory", "icon": "boxes-stacked"}, {"id": "vehicles", "label": "Vehicles", "icon": "bus"}, {"id": "advances", "label": "Advance Accounts", "icon": "hand-holding-dollar"}, {"id": "maintenance", "label": "Maintenance", "icon": "screwdriver-wrench"}, {"id": "bank", "label": "Bank", "icon": "building-columns"}, {"id": "calendar", "label": "Calendar", "icon": "calendar-days"}, {"id": "documents", "label": "Documents", "icon": "folder-open"}, {"id": "reports", "label": "Reports", "icon": "chart-bar"}, {"id": "tchaudit", "label": "Teacher Audit", "icon": "clipboard-list"}, {"id": "backup", "label": "Backup", "icon": "cloud-arrow-down"}], "accountant": [{"id": "overview", "label": "Overview", "icon": "gauge-high"}, {"id": "feedashboard", "label": "Fee Dashboard", "icon": "chart-column"}, {"id": "students", "label": "Students", "icon": "user-graduate"}, {"id": "receipts", "label": "Receipts", "icon": "hand-holding-dollar"}, {"id": "payments", "label": "Payments", "icon": "money-bill-transfer"}, {"id": "salary", "label": "Salary", "icon": "money-check-dollar"}, {"id": "vehicles", "label": "Vehicle Expenses", "icon": "bus"}, {"id": "reminders", "label": "Fee Reminders", "icon": "bell"}, {"id": "ledger", "label": "Ledger", "icon": "book"}, {"id": "audit", "label": "Audit Trail", "icon": "clipboard-list"}, {"id": "recyclebin", "label": "Recycle Bin", "icon": "trash-arrow-up"}], "teacher": [{"id": "dashboard", "label": "Dashboard", "icon": "gauge-high"}, {"id": "attendance", "label": "Attendance", "icon": "calendar-check"}, {"id": "homework", "label": "Homework", "icon": "book-open"}, {"id": "marks", "label": "Marks", "icon": "pen-to-square"}, {"id": "curriculum", "label": "Curriculum", "icon": "calendar-days"}, {"id": "resources", "label": "Resources", "icon": "book-open-reader"}, {"id": "ptm", "label": "PTM", "icon": "people-arrows"}, {"id": "class", "label": "My Class", "icon": "users"}, {"id": "fees", "label": "Fee Reminders", "icon": "bell"}, {"id": "audit", "label": "Audit Log", "icon": "clipboard-list"}]};
+const MNAV_TABS = {"admin": [{"id": "dashboard", "label": "Dashboard", "icon": "gauge-high"}, {"id": "users", "label": "Users", "icon": "user-shield"}, {"id": "students", "label": "Students", "icon": "user-graduate"}, {"id": "attendance", "label": "Attendance", "icon": "calendar-check"}, {"id": "teachers", "label": "Staff", "icon": "users"}, {"id": "staffattendance", "label": "Staff Attendance", "icon": "user-clock"}, {"id": "homework", "label": "Homework", "icon": "book-open"}, {"id": "marks", "label": "Marks", "icon": "pen-to-square"}, {"id": "ptm", "label": "PTM", "icon": "people-arrows"}, {"id": "resources", "label": "Resources", "icon": "book-open-reader"}, {"id": "datamanagement", "label": "Data", "icon": "database"}, {"id": "compliance", "label": "Compliance", "icon": "shield-halved"}, {"id": "notices", "label": "Notice Board", "icon": "thumbtack"}, {"id": "feestructure", "label": "Fee Structure", "icon": "indian-rupee-sign"}, {"id": "reportcards", "label": "Report Cards", "icon": "file-lines"}, {"id": "enquiries", "label": "Admissions", "icon": "user-plus"}, {"id": "broadcast", "label": "Broadcast", "icon": "bullhorn"}, {"id": "whatsapp", "label": "WhatsApp", "icon": "comments"}, {"id": "gallery", "label": "Gallery", "icon": "images"}, {"id": "activities", "label": "Activities", "icon": "photo-film"}, {"id": "disclosureDocs", "label": "Disclosure PDFs", "icon": "file-pdf"}, {"id": "inventory", "label": "Inventory", "icon": "boxes-stacked"}, {"id": "vehicles", "label": "Vehicles", "icon": "bus"}, {"id": "advances", "label": "Advance Accounts", "icon": "hand-holding-dollar"}, {"id": "maintenance", "label": "Maintenance", "icon": "screwdriver-wrench"}, {"id": "bank", "label": "Bank", "icon": "building-columns"}, {"id": "calendar", "label": "Calendar", "icon": "calendar-days"}, {"id": "documents", "label": "Documents", "icon": "folder-open"}, {"id": "forms", "label": "Forms", "icon": "file-signature"}, {"id": "reports", "label": "Reports", "icon": "chart-bar"}, {"id": "tchaudit", "label": "Teacher Audit", "icon": "clipboard-list"}, {"id": "backup", "label": "Backup", "icon": "cloud-arrow-down"}], "accountant": [{"id": "overview", "label": "Overview", "icon": "gauge-high"}, {"id": "feedashboard", "label": "Fee Dashboard", "icon": "chart-column"}, {"id": "students", "label": "Students", "icon": "user-graduate"}, {"id": "receipts", "label": "Receipts", "icon": "hand-holding-dollar"}, {"id": "payments", "label": "Payments", "icon": "money-bill-transfer"}, {"id": "salary", "label": "Salary", "icon": "money-check-dollar"}, {"id": "vehicles", "label": "Vehicle Expenses", "icon": "bus"}, {"id": "reminders", "label": "Fee Reminders", "icon": "bell"}, {"id": "ledger", "label": "Ledger", "icon": "book"}, {"id": "audit", "label": "Audit Trail", "icon": "clipboard-list"}, {"id": "recyclebin", "label": "Recycle Bin", "icon": "trash-arrow-up"}], "teacher": [{"id": "dashboard", "label": "Dashboard", "icon": "gauge-high"}, {"id": "attendance", "label": "Attendance", "icon": "calendar-check"}, {"id": "homework", "label": "Homework", "icon": "book-open"}, {"id": "marks", "label": "Marks", "icon": "pen-to-square"}, {"id": "curriculum", "label": "Curriculum", "icon": "calendar-days"}, {"id": "resources", "label": "Resources", "icon": "book-open-reader"}, {"id": "ptm", "label": "PTM", "icon": "people-arrows"}, {"id": "class", "label": "My Class", "icon": "users"}, {"id": "fees", "label": "Fee Reminders", "icon": "bell"}, {"id": "audit", "label": "Audit Log", "icon": "clipboard-list"}]};
 const MNAV = {
  stack: [], restoring: false, lastBack: 0, guarded: false,
  isPhone(){ return window.matchMedia && matchMedia('(max-width: 768px)').matches; },
@@ -30159,7 +30260,7 @@ const MNAV = {
   curriculum:'#0d9488', resources:'#4f46e5', ptm:'#a21caf', class:'#0891b2', fees:'#0369a1', audit:'#64748b', feedashboard:'#059669', students:'#4f46e5', receipts:'#16a34a',
   payments:'#be123c', salary:'#0f766e', vehicles:'#ca8a04', reminders:'#dc2626', ledger:'#334155', recyclebin:'#6b7280', advances:'#b45309', users:'#4f46e5', teachers:'#7c3aed',
   datamanagement:'#475569', compliance:'#059669', notices:'#ea580c', feestructure:'#d97706', reportcards:'#7c3aed', enquiries:'#4f46e5', broadcast:'#d97706', whatsapp:'#16a34a',
-  gallery:'#0891b2', activities:'#ea580c', disclosureDocs:'#b91c1c', inventory:'#92400e', maintenance:'#57534e', bank:'#1d4ed8', calendar:'#2563eb', documents:'#7c3aed',
+  gallery:'#0891b2', activities:'#ea580c', disclosureDocs:'#b91c1c', inventory:'#92400e', maintenance:'#57534e', bank:'#1d4ed8', calendar:'#2563eb', documents:'#7c3aed', forms:'#0f766e',
   reports:'#334155', tchaudit:'#64748b', backup:'#475569' },
  more(){
   const r = this.role(), C = id => this.COLORS[id] || '#7a1e2e', G = [];
