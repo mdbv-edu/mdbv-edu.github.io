@@ -5,7 +5,7 @@
 
 <html lang="en">
 <head>
-<meta name="mdbv-build" content="2026-11-28.21">
+<meta name="mdbv-build" content="2026-11-28.22">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -17781,247 +17781,230 @@ function _feeDashboardData(){
  tot.pct = tot.total>0 ? Math.round(tot.paid*100/tot.total) : 0;
  return { rows, tot };
 }
-// ============ INTERACTIVE FINANCIAL / PROJECTION MODEL (owner) ============
+// ============ FINANCIAL MODEL (owner) — v2 ============
+// One model object (finModel) drives everything. Year 0 is this session as it stands today;
+// years 1..N are projections. All money is per year unless a field says "/month".
 var finModel = null;
+var _finLoadedName = '';
+var _fmTab = 'overview', _fmInTab = 'students', _fmSens = { x: 'students', y: 'fee', metric: 'surplus', year: 1 }, _fmCmp = [];
 function _sumSalary(list){ return list.reduce((a,t)=>a+(Number(t.salary)||0),0); }
-function _finModelAutofill(){
- const studs = getStudents().filter(s => !s.archived);
- const n = studs.length || 265;
- const totalDecided = studs.reduce((a,s)=>a+(Number(s.decidedFees)||0),0);
- const totalBal = studs.reduce((a,s)=>a+(Number(s.feeBalance)||0),0);
- const avgFee = n ? Math.round(totalDecided/n) : 15000;
- const collRate = totalDecided>0 ? Math.round((totalDecided-totalBal)/totalDecided*100) : 100;
- const teachers = (typeof getTeachers==='function'?getTeachers():[]).filter(t=>!t.archived);
- // Principal sits with the academic salary bill; Manager with the non-teaching bill.
- const teachingSalary = _sumSalary(teachers.filter(t=>isAcademicStaff(t))) || 180000;
- const nonTeachingSalary = _sumSalary(teachers.filter(t=>!isAcademicStaff(t))) || 68000;
- // transport / maintenance / expenses: seed from recorded expenses where present, else sensible estimates
- let fuel=550000, maintenance=200000, permits=80000, transportMisc=20000, schoolMaintenance=150000, expenses=250000;
- try {
-  const exp = get('expenses')||[];
-  const rec = c => exp.filter(e=>c.test((e.category||'')+' '+(e.description||''))).reduce((a,e)=>a+(Number(e.amount)||0),0);
-  const f = rec(/fuel|diesel|petrol|transport/i); if (f>0) fuel = Math.round(f);
-  const r = rec(/repair|mainten/i); if (r>0) schoolMaintenance = Math.round(r);
-  const u = rec(/utilit|electric|water|suppl|station/i); if (u>0) expenses = Math.round(u);
- } catch(e){}
- const years = 5;
- const growthDefault = [{student:15,fee:8},{student:7,fee:8},{student:5,fee:5},{student:5,fee:5},{student:5,fee:5}];
- return { students:n, avgFee, collRate, bookFee:1500,
-  teachingSalary, nonTeachingSalary, addedStaff:[], monthsPaid:11,
-  fuel, maintenance, permits, transportMisc, schoolMaintenance, expenses,
-  salaryIncrement:8, inflation:6, years,
-  growth: Array.from({length:years}, (_,i)=> growthDefault[i] || {student:5,fee:5}) };
-}
-function _finBaseMonthly(m){ return (Number(m.teachingSalary)||0) + (Number(m.nonTeachingSalary)||0); }
-// Months paid to an added-staff line in a given year. Each line can carry its own
-// months-per-year, and a different figure for its joining year (someone starting in
-// October is only paid for part of that year).
-function _finStaffMonths(m, st, y){
- const start = Math.max(0, Math.round(Number(st.startYear)||0));
- const regular = (st.months !== undefined && st.months !== null && st.months !== '')
-   ? Number(st.months) : (Number(m.monthsPaid)||11);
- const first = (st.firstYearMonths !== undefined && st.firstYearMonths !== null && st.firstYearMonths !== '')
-   ? Number(st.firstYearMonths) : regular;
- return (y === start) ? first : regular;
-}
-function _finStaffCount(st){ return Math.max(1, Math.round(Number(st.count)||1)); }
-// ANNUAL cost of all additional hires in a given year. y = 0 is "now" (the baseline),
-// 1..N are the projection years. A line counts only once its start year has arrived, and
-// its salary then rises with the annual increment from that point.
-function _finAddedAnnual(m, y){
- const inc = (Number(m.salaryIncrement)||0)/100;
- return (m.addedStaff||[]).reduce((a, st) => {
-  const start = Math.max(0, Math.round(Number(st.startYear)||0));
-  if (start > y) return a;                       // not hired yet in this year
-  const monthly = (Number(st.monthly)||0) * Math.pow(1+inc, y-start);
-  return a + _finStaffCount(st) * monthly * _finStaffMonths(m, st, y);
- }, 0);
-}
-// Headcount of additional hires active in year y (counts the multiplier), optionally by type.
-function _finAddedCount(m, y, type){
- return (m.addedStaff||[]).reduce((a, st) => {
-  const start = Math.max(0, Math.round(Number(st.startYear)||0));
-  if (start > y) return a;
-  if (type && ((st.type||'Teaching') !== type)) return a;
-  return a + _finStaffCount(st);
- }, 0);
-}
-function _finBaseTransport(m){ return (Number(m.fuel)||0)+(Number(m.maintenance)||0)+(Number(m.permits)||0)+(Number(m.transportMisc)||0); }
-function _finYearCalc(m, students, avgFee, bookFee, y, infFactor){
- const coll=(m.collRate||0)/100;
- const rs=Math.round(students);
- const tuition=rs*avgFee*coll, books=rs*bookFee;
- const revenue=tuition+books;
- const salFactor=Math.pow(1+(Number(m.salaryIncrement)||0)/100, y);
- const salary=_finBaseMonthly(m)*salFactor*(Number(m.monthsPaid)||11) + _finAddedAnnual(m, y);
- const transport=_finBaseTransport(m)*infFactor;
- const schoolMaint=(Number(m.schoolMaintenance)||0)*infFactor;
- const expenses=(Number(m.expenses)||0)*infFactor;
- const cost=salary+transport+schoolMaint+expenses;
- return { students:rs, avgFee, tuition, books, revenue, salary, transport, schoolMaint, expenses, cost,
-   surplus:revenue-cost, margin: revenue>0?(revenue-cost)/revenue:0 };
-}
-function _finCompute(m){
- const yrs=Math.max(1, Math.min(15, Math.round(m.years)||1));
- // Current (baseline, no growth) for reference + break-even
- const current=_finYearCalc(m, Number(m.students)||0, Number(m.avgFee)||0, Number(m.bookFee)||0, 0, 1);
- const rows=[];
- let students=Number(m.students)||0, avgFee=Number(m.avgFee)||0, bookFee=Number(m.bookFee)||0;
- for (let i=0;i<yrs;i++){
-  const g=(m.growth&&m.growth[i])||{student:0,fee:0};
-  students=students*(1+(Number(g.student)||0)/100);
-  avgFee=avgFee*(1+(Number(g.fee)||0)/100);
-  bookFee=bookFee*(1+(Number(g.fee)||0)/100);
-  const infF=Math.pow(1+(Number(m.inflation)||0)/100, i+1);
-  const row=_finYearCalc(m, students, avgFee, bookFee, i+1, infF);
-  row.newHires=_finAddedCount(m, i+1);
-  row.year=i+1; rows.push(row);
- }
- const coll=(m.collRate||0)/100;
- const contribPerStudent=(Number(m.avgFee)||0)*coll+(Number(m.bookFee)||0);
- const beStudents=contribPerStudent>0?Math.ceil(current.cost/contribPerStudent):0;
- const beAvgFee=(m.students>0&&coll>0)?((current.cost/m.students)-(Number(m.bookFee)||0))/coll:0;
- return { current, rows, be:{ students:beStudents, avgFee:beAvgFee } };
-}
-function _inr(n){ n=Math.round(n||0); return '\u20b9'+n.toLocaleString('en-IN'); }
-function _lakh(n){ return '\u20b9'+((n||0)/100000).toLocaleString('en-IN',{maximumFractionDigits:2})+'L'; }
-function _finChart(series){
- const W=Math.max(640, series.length*118+90), H=380, padL=72, padB=48, padT=26, padR=18;
- const maxV=Math.max(1, ...series.map(r=>Math.max(r.revenue, r.cost)));
- const plotH=H-padB-padT, plotW=W-padL-padR, groupW=plotW/series.length, barW=Math.min(34, groupW/3.2);
- const y=v=>padT+plotH*(1-v/maxV);
- let g='';[0,.25,.5,.75,1].forEach(f=>{const yy=y(f*maxV);
-  g+=`<line x1="${padL}" y1="${yy.toFixed(1)}" x2="${W-padR}" y2="${yy.toFixed(1)}" stroke="#ececec"/>`+
-     `<text x="${padL-10}" y="${(yy+4).toFixed(1)}" text-anchor="end" font-size="12" fill="#8a8a8a">${(f*maxV/100000).toFixed(1)}L</text>`;});
- let bars='';const pts=[];
- series.forEach((r,i)=>{const cx=padL+groupW*i+groupW/2;
-  const rh=y(0)-y(r.revenue), ch=y(0)-y(r.cost);
-  bars+=`<rect x="${(cx-barW-3).toFixed(1)}" y="${y(r.revenue).toFixed(1)}" width="${barW}" height="${rh.toFixed(1)}" fill="#1f8f4e" rx="3"><title>${r.label} revenue ${_inr(r.revenue)}</title></rect>`;
-  bars+=`<rect x="${(cx+3).toFixed(1)}" y="${y(r.cost).toFixed(1)}" width="${barW}" height="${ch.toFixed(1)}" fill="#b3261e" rx="3"><title>${r.label} cost ${_inr(r.cost)}</title></rect>`;
-  bars+=`<text x="${cx.toFixed(1)}" y="${H-padB+20}" text-anchor="middle" font-size="13" fill="#555" font-weight="600">${r.label}</text>`;
-  bars+=`<text x="${cx.toFixed(1)}" y="${H-padB+36}" text-anchor="middle" font-size="11" fill="${r.surplus>=0?'#1f8f4e':'#b3261e'}">${(r.surplus/100000).toFixed(1)}L</text>`;
-  pts.push([cx,y(r.surplus)]);});
- let line=pts.length>1?`<polyline fill="none" stroke="#c8860d" stroke-width="2.5" points="${pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ')}"/>`:'';
- pts.forEach((p,i)=>line+=`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="4.5" fill="#c8860d" stroke="#fff" stroke-width="1.5"><title>${series[i].label} surplus ${_inr(series[i].surplus)}</title></circle>`);
- return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
-   ${g}<line x1="${padL}" y1="${y(0).toFixed(1)}" x2="${W-padR}" y2="${y(0).toFixed(1)}" stroke="#aaa"/>${bars}${line}
-   <g font-size="12.5"><rect x="${padL}" y="4" width="12" height="12" fill="#1f8f4e" rx="2"/><text x="${padL+18}" y="14" fill="#555">Revenue</text>
-    <rect x="${padL+92}" y="4" width="12" height="12" fill="#b3261e" rx="2"/><text x="${padL+110}" y="14" fill="#555">Cost</text>
-    <line x1="${padL+168}" y1="10" x2="${padL+188}" y2="10" stroke="#c8860d" stroke-width="2.5"/><text x="${padL+194}" y="14" fill="#555">Surplus</text></g></svg>`;
-}
-// Plain-language observations drawn from the numbers, so the model says what it means.
-function _finInsights(m, current, rows, be){
+function _inr(n){ n=Math.round(n||0); return '₹'+n.toLocaleString('en-IN'); }
+function _lakh(n){ return '₹'+((n||0)/100000).toLocaleString('en-IN',{maximumFractionDigits:2})+'L'; }
+function _fmN(v, d){ v = Number(v); return isFinite(v) ? v : (d || 0); }
+function _fmClamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+function _fmSess(y){ const s = (parseInt(String(currentSession()).slice(0, 4)) || 2026) + y; return s + '-' + String((s + 1) % 100).padStart(2, '0'); }
+function _fmCls(c){ return /^\d+$/.test(String(c)) ? 'Class ' + c : c; }
+function _fmActive(l, y){ const s = Math.max(0, Math.round(_fmN(l.startYear))); const e = (l.endYear === '' || l.endYear == null) ? Infinity : Math.round(_fmN(l.endYear)); return y >= s && y <= e; }
+const FM_GROUPS = ['Transport', 'Building & upkeep', 'Running costs', 'Other'];
+const FM_WHATIF = [
+ { k: 'students', l: 'Students', u: '%', min: -40, max: 40, step: 1 },
+ { k: 'fee', l: 'Fees', u: '%', min: -30, max: 40, step: 1 },
+ { k: 'coll', l: 'Fee collection', u: ' pts', min: -30, max: 30, step: 1 },
+ { k: 'salary', l: 'Salary bill', u: '%', min: -30, max: 40, step: 1 },
+ { k: 'costs', l: 'Other costs', u: '%', min: -40, max: 40, step: 1 }
+];
+
+// ---------- start from live data ----------
+function _fmLiveCostLines(){
  const out = [];
- const pct = (a,b) => b>0 ? Math.round(a*100/b) : 0;
- const add = (tone, title, body) => out.push({tone, title, body});
- // Headline position
- if (current.surplus >= 0) add('good','Running a surplus',
-   `Today you keep ${_inr(current.surplus)} on ${_inr(current.revenue)} of income — a ${(current.margin*100).toFixed(1)}% margin.`);
- else add('bad','Running a deficit',
-   `Costs exceed income by ${_inr(-current.surplus)}. You need ${be.students - m.students} more students (or an average fee of ${_inr(be.avgFee)}) to break even.`);
- // Salary share — the number that decides a school's health
- const salShare = pct(current.salary, current.revenue);
- if (salShare > 70) add('bad','Salaries are eating the budget',
-   `Salaries are ${salShare}% of income. Above about 65% leaves nothing for maintenance, transport or growth.`);
- else if (salShare > 60) add('warn','Salary load is high',
-   `Salaries take ${salShare}% of income. Most schools aim for 50–60%; watch this before adding staff.`);
- else add('good','Salary load is comfortable',
-   `Salaries are ${salShare}% of income, leaving room for the rest of the running costs.`);
- // Collection leakage
- if ((m.collRate||100) < 100) {
-  const lost = m.students * m.avgFee * (100-(m.collRate||100))/100;
-  add(m.collRate < 85 ? 'bad' : 'warn','Uncollected fees',
-   `At ${m.collRate}% collection you are losing about ${_inr(lost)} a year. Recovering even half of that is ${_inr(lost/2)} straight to surplus — usually easier than raising fees.`);
- }
- // Fees vs inflation
- const avgFeeInc = (m.growth||[]).reduce((a,g)=>a+(Number(g.fee)||0),0)/Math.max(1,(m.growth||[]).length);
- if (avgFeeInc < (m.salaryIncrement||0)) add('warn','Fees rising slower than salaries',
-   `Fees go up ${avgFeeInc.toFixed(1)}% a year on average while salaries rise ${m.salaryIncrement}%. Margins will thin each year unless student numbers make up the difference.`);
- // Biggest non-salary cost
- const heads = [['Transport',current.transport],['School maintenance',current.schoolMaint],['Other expenses',current.expenses]].sort((a,b)=>b[1]-a[1]);
- if (heads[0][1] > 0) add('info','Biggest non-salary cost',
-   `${heads[0][0]} at ${_inr(heads[0][1])} a year — ${pct(heads[0][1], current.cost)}% of total cost.`);
- // Per-student economics
- const revPer = m.students ? current.revenue/m.students : 0, costPer = m.students ? current.cost/m.students : 0;
- add('info','Per student',
-   `Each student brings ${_inr(revPer)} and costs ${_inr(costPer)} to teach — ${revPer>=costPer?`a gain of ${_inr(revPer-costPer)}`:`a shortfall of ${_inr(costPer-revPer)}`} each.`);
- // Where the projection turns
- const flipUp = rows.findIndex(r=>r.surplus>=0), flipDown = rows.findIndex(r=>r.surplus<0);
- if (current.surplus < 0 && flipUp > -1) add('good','Turns profitable in Year '+rows[flipUp].year,
-   `On these assumptions the deficit closes in Year ${rows[flipUp].year} with a surplus of ${_inr(rows[flipUp].surplus)}.`);
- if (current.surplus >= 0 && flipDown > -1) add('bad','Slips into deficit in Year '+rows[flipDown].year,
-   `Costs overtake income in Year ${rows[flipDown].year}. Revisit the hiring plan or the fee increase.`);
- // Planned hiring
- const later = (m.addedStaff||[]).filter(x=>Math.round(Number(x.startYear)||0)>0);
- if (later.length) {
-  const cost = later.reduce((a,st)=>a+_finStaffCount(st)*(Number(st.monthly)||0)*((st.months!=null&&st.months!=='')?Number(st.months):(m.monthsPaid||11)),0);
-  add('info','Planned hiring',
-   `${later.reduce((a,st)=>a+_finStaffCount(st),0)} more staff scheduled for later years, adding about ${_inr(cost)} a year once all have joined.`);
- }
- // Growth needed
- if (rows.length) {
-  const last = rows[rows.length-1];
-  add('info',`By Year ${last.year}`,
-   `${last.students} students, ${_inr(last.revenue)} income, ${_inr(last.cost)} cost — ${last.surplus>=0?'surplus':'deficit'} of ${_inr(Math.abs(last.surplus))} at a ${(last.margin*100).toFixed(1)}% margin.`);
- }
+ try {
+  const since = new Date(Date.now() - 365 * 864e5).toISOString().slice(0, 10);
+  const skip = /^(salary|other|bank deposit)$/i;
+  const by = {};
+  (get('expenses') || []).forEach(e => {
+   if (!e || e._deleted || String(e.date || '') < since || skip.test(String(e.category || '').trim())) return;
+   if (typeof _isTransfer === 'function' && _isTransfer(e)) return;
+   const k = String(e.category || 'Other').trim(); by[k] = (by[k] || 0) + (Number(e.amount) || 0);
+  });
+  Object.keys(by).sort((a, b) => by[b] - by[a]).forEach(k => {
+   const g = /transport|fuel|vehicle|bus/i.test(k) ? 'Transport' : /repair|mainten|construct|building/i.test(k) ? 'Building & upkeep' : 'Running costs';
+   out.push({ name: k, group: g, kind: 'fixed', amount: Math.round(by[k]), growth: '', startYear: 0, endYear: '' });
+  });
+ } catch (e) {}
  return out;
 }
-function _finResultsHTML(){
- const { current, rows, be } = _finCompute(finModel);
- const m = finModel;
- const clr=current.surplus>=0?'#1f8f4e':'#b3261e';
- const card=(l,v,sub,c)=>`<div class="bg-white rounded-xl border p-4">
-   <div class="text-xs text-gray-500 mb-1">${l}</div>
-   <div class="text-2xl font-bold leading-tight" style="color:${c||'#111'}">${v}</div>
-   ${sub?`<div class="text-xs text-gray-500 mt-1">${sub}</div>`:''}</div>`;
- const summary=`<div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-   ${card('Income (this year)', _lakh(current.revenue), _inr(current.revenue), '#7a1e2e')}
-   ${card('Running cost', _lakh(current.cost), _inr(current.cost), '#444')}
-   ${card(current.surplus>=0?'Surplus':'Deficit', _lakh(Math.abs(current.surplus)), (current.margin*100).toFixed(1)+'% margin', clr)}
-   ${card('Break-even', be.students+' students', 'you have '+m.students+' · or avg fee '+_inr(be.avgFee), '#c8860d')}
-  </div>`;
- // Insights
- const tones={good:{bg:'bg-emerald-50',bd:'border-emerald-200',ic:'circle-check',c:'text-emerald-700'},
-              warn:{bg:'bg-amber-50',bd:'border-amber-200',ic:'triangle-exclamation',c:'text-amber-700'},
-              bad:{bg:'bg-rose-50',bd:'border-rose-200',ic:'circle-exclamation',c:'text-rose-700'},
-              info:{bg:'bg-slate-50',bd:'border-slate-200',ic:'circle-info',c:'text-slate-700'}};
- const ins=_finInsights(m,current,rows,be);
- const insights=`<div class="bg-white rounded-xl border p-4">
-   <div class="font-bold text-gray-800 mb-3"><i class="fas fa-lightbulb text-amber-500 mr-2"></i>What this means</div>
-   <div class="grid md:grid-cols-2 gap-2">
-    ${ins.map(i=>{const t=tones[i.tone]||tones.info;
-     return `<div class="${t.bg} border ${t.bd} rounded-lg p-3">
-       <div class="font-semibold text-sm ${t.c}"><i class="fas fa-${t.ic} mr-1.5"></i>${i.title}</div>
-       <div class="text-xs text-gray-700 mt-1 leading-relaxed">${i.body}</div></div>`;}).join('')}
-   </div></div>`;
- const series=[{label:'Now',...current}].concat(rows.map(r=>({label:'Yr '+r.year, ...r})));
- const chart=`<div class="bg-white rounded-xl border p-4">
-   <div class="font-bold text-gray-800 mb-1">Income vs cost</div>
-   <div class="text-xs text-gray-500 mb-2">Today plus the next ${rows.length} year${rows.length===1?'':'s'}. The gold line is the surplus.</div>
-   ${_finChart(series)}</div>`;
- const th=(t,r)=>`<th class="px-3 py-2.5 ${r?'text-right':'text-left'} whitespace-nowrap font-semibold">${t}</th>`;
- const rowHtml=(label,r,hires,bold)=>`<tr class="border-b ${bold?'bg-stone-50 font-semibold':'hover:bg-gray-50'}">
-   <td class="px-3 py-2 whitespace-nowrap ${bold?'font-bold':'font-medium'}">${label}</td>
-   <td class="px-3 py-2 text-right">${r.students}</td>
-   <td class="px-3 py-2 text-right">${_inr(r.avgFee)}</td>
-   <td class="px-3 py-2 text-right text-emerald-700 font-medium">${_inr(r.revenue)}</td>
-   <td class="px-3 py-2 text-right">${_inr(r.salary)}${hires?`<span class="text-xs text-indigo-600"> +${hires}</span>`:''}</td>
-   <td class="px-3 py-2 text-right">${_inr(r.transport)}</td>
-   <td class="px-3 py-2 text-right">${_inr(r.schoolMaint)}</td>
-   <td class="px-3 py-2 text-right">${_inr(r.expenses)}</td>
-   <td class="px-3 py-2 text-right font-medium">${_inr(r.cost)}</td>
-   <td class="px-3 py-2 text-right font-bold" style="color:${r.surplus>=0?'#1f8f4e':'#b3261e'}">${_inr(r.surplus)}</td>
-   <td class="px-3 py-2 text-right">${(r.margin*100).toFixed(1)}%</td></tr>`;
- const table=`<div class="bg-white rounded-xl border overflow-hidden">
-   <div class="px-4 pt-4 pb-2 font-bold text-gray-800">Year by year</div>
-   <div class="overflow-x-auto"><table class="w-full text-sm">
-   <thead class="bg-stone-100 text-gray-700"><tr>${th('Period')}${th('Students',1)}${th('Avg fee',1)}${th('Income',1)}${th('Salary',1)}${th('Transport',1)}${th('Maintenance',1)}${th('Expenses',1)}${th('Total cost',1)}${th('Surplus',1)}${th('Margin',1)}</tr></thead>
-   <tbody>${rowHtml('Now (current)',current,_finAddedCount(m,0),true)}${rows.map((r,i)=>rowHtml('Year '+r.year,r,_finAddedCount(m,i+1),false)).join('')}</tbody>
-   </table></div></div>`;
- return summary+insights+chart+table;
+function _fmLiveClasses(){
+ const studs = getStudents().filter(s => !s.archived && s.createdFrom !== 'Fee register 2025-26');
+ const fs = (typeof getFeeStructures === 'function' ? getFeeStructures() : []) || [];
+ const sessStart = (parseInt(String(currentSession()).slice(0, 4)) || 2026) + '-04-01';
+ return ALL_CLASSES.map(c => {
+  const l = studs.filter(s => String(s.class) === c);
+  let fee = l.length ? Math.round(l.reduce((a, s) => a + (Number(s.decidedFees) || Number(s.annualFees) || 0), 0) / l.length) : 0;
+  if (!fee) { const f = fs.find(x => String(x.class) === c); if (f) fee = (f.items || []).filter(i => !/admission/i.test(i.head || '')).reduce((a, i) => a + (Number(i.amount) || 0), 0); }
+  const fresh = l.filter(s => String(s.admissionDate || '') >= sessStart).length;
+  return { cls: c, students: l.length, fee, intake: fresh };
+ });
 }
-function _finNum(id,label,val,opts){opts=opts||{};const sfx=opts.suffix?`<span class="text-gray-400 text-xs ml-1">${opts.suffix}</span>`:'';
- return `<label class="block"><span class="text-xs text-gray-600">${label}${sfx}</span><input type="number" id="${id}" value="${val}" ${opts.step?`step="${opts.step}"`:''} ${opts.min!=null?`min="${opts.min}"`:''} class="finInput mt-1 w-full border rounded-lg px-2.5 py-1.5 text-sm" data-key="${opts.key||id}"></label>`;}
+function _finModelAutofill(){
+ const classes = _fmLiveClasses();
+ const studs = getStudents().filter(s => !s.archived && s.createdFrom !== 'Fee register 2025-26');
+ const totalDecided = studs.reduce((a, s) => a + (Number(s.decidedFees) || 0), 0);
+ const totalBal = studs.reduce((a, s) => a + Math.max(0, Number(s.feeBalance) || 0), 0);
+ const collRate = totalDecided > 0 ? Math.round((totalDecided - totalBal) / totalDecided * 100) : 90;
+ const staff = (typeof getTeachers === 'function' ? getTeachers() : []).filter(t => !t.archived);
+ const n = studs.length;
+ const intake = {}; classes.forEach(c => { intake[c.cls] = c.intake; });
+ const costLines = _fmLiveCostLines();
+ return {
+  v: 2, years: 5, inflation: 6,
+  feeMode: 'class', classes: classes.map(c => ({ cls: c.cls, students: c.students, fee: c.fee })),
+  simple: { students: n, fee: n ? Math.round(totalDecided / n) : 15000 },
+  collRate: 90, collSoFar: Math.max(0, Math.min(100, collRate)),
+  growthMode: 'percent', churn: 8,
+  growth: [{ student: 15, fee: 8 }, { student: 10, fee: 7 }, { student: 8, fee: 6 }, { student: 6, fee: 6 }, { student: 5, fee: 5 }],
+  cohort: { retention: 92, intake, intakeGrowth: 5 },
+  newThisYear: classes.reduce((a, c) => a + c.intake, 0), admissionFee: 0,
+  incomeLines: [],
+  staff: { teaching: _sumSalary(staff.filter(t => isAcademicStaff(t))), nonTeaching: _sumSalary(staff.filter(t => !isAcademicStaff(t))), monthsPaid: 11, increment: 8 },
+  hires: [],
+  costLines: costLines.length ? costLines : [
+   { name: 'Fuel / diesel', group: 'Transport', kind: 'fixed', amount: 550000, growth: '', startYear: 0, endYear: '' },
+   { name: 'Vehicle maintenance', group: 'Transport', kind: 'fixed', amount: 150000, growth: '', startYear: 0, endYear: '' },
+   { name: 'School maintenance', group: 'Building & upkeep', kind: 'fixed', amount: 150000, growth: '', startYear: 0, endYear: '' },
+   { name: 'Electricity, supplies and other', group: 'Running costs', kind: 'fixed', amount: 250000, growth: '', startYear: 0, endYear: '' }],
+  openingCash: 0, capex: [], loans: [],
+  whatIf: { students: 0, fee: 0, coll: 0, salary: 0, costs: 0 }
+ };
+}
+// Scenarios saved by the first version of the model are converted on load.
+function _fmMigrate(m){
+ if (!m) return _finModelAutofill();
+ if (m.v === 2) { const d = _finModelAutofill(); const o = JSON.parse(JSON.stringify(m));
+  ['staff', 'cohort', 'simple', 'whatIf'].forEach(k => { o[k] = Object.assign({}, d[k], o[k] || {}); });
+  ['classes', 'growth', 'incomeLines', 'hires', 'costLines', 'capex', 'loans'].forEach(k => { if (!Array.isArray(o[k])) o[k] = d[k]; });
+  return o; }
+ const live = _finModelAutofill();
+ const lines = [];
+ const add = (name, group, amount) => { if (_fmN(amount) > 0) lines.push({ name, group, kind: 'fixed', amount: _fmN(amount), growth: '', startYear: 0, endYear: '' }); };
+ add('Fuel / diesel', 'Transport', m.fuel); add('Vehicle maintenance', 'Transport', m.maintenance); add('Permits', 'Transport', m.permits); add('Transport – other', 'Transport', m.transportMisc);
+ add('School maintenance', 'Building & upkeep', m.schoolMaintenance); add('Expenses (electricity, supplies…)', 'Running costs', m.expenses);
+ return Object.assign(live, {
+  years: _fmClamp(Math.round(_fmN(m.years, 5)), 1, 15), inflation: _fmN(m.inflation, 6),
+  feeMode: 'simple', simple: { students: _fmN(m.students), fee: _fmN(m.avgFee) }, collRate: _fmN(m.collRate, 100),
+  growth: (m.growth || []).map(g => ({ student: _fmN(g.student), fee: _fmN(g.fee) })),
+  incomeLines: _fmN(m.bookFee) > 0 ? [{ name: 'Books / extra per student', kind: 'perStudent', amount: _fmN(m.bookFee), growth: 'fee', startYear: 0, endYear: '' }] : [],
+  staff: { teaching: _fmN(m.teachingSalary), nonTeaching: _fmN(m.nonTeachingSalary), monthsPaid: _fmN(m.monthsPaid, 11), increment: _fmN(m.salaryIncrement, 8) },
+  hires: (m.addedStaff || []).map(s => Object.assign({ endYear: '' }, s)),
+  costLines: lines, newThisYear: 0, churn: 0
+ });
+}
+
+// ---------- the engine ----------
+function _fmHireMonths(m, h, y){
+ const start = Math.max(0, Math.round(_fmN(h.startYear)));
+ const reg = (h.months !== undefined && h.months !== null && h.months !== '') ? _fmN(h.months) : _fmN(m.staff.monthsPaid, 11);
+ const first = (h.firstYearMonths !== undefined && h.firstYearMonths !== null && h.firstYearMonths !== '') ? _fmN(h.firstYearMonths) : reg;
+ return y === start ? first : reg;
+}
+function _fmHireCount(h){ return Math.max(1, Math.round(_fmN(h.count, 1))); }
+function _fmRun(m, ovIn){
+ const W = Object.assign({ students: 0, fee: 0, coll: 0, salary: 0, costs: 0 }, ovIn || m.whatIf || {});
+ const Y = _fmClamp(Math.round(_fmN(m.years, 5)), 1, 15);
+ const byClass = m.feeMode !== 'simple';
+ const cls = byClass ? (m.classes || []) : [{ cls: 'All', students: _fmN(m.simple.students), fee: _fmN(m.simple.fee) }];
+ const cohort = byClass && m.growthMode === 'cohort';
+ const sF = 1 + W.students / 100;
+ let S = cls.map(c => _fmN(c.students) * sF), F = cls.map(c => _fmN(c.fee) * (1 + W.fee / 100));
+ const coll = _fmClamp(_fmN(m.collRate, 100) + W.coll, 0, 100) / 100;
+ const inc = _fmN(m.staff.increment) / 100, infl = _fmN(m.inflation) / 100;
+ const loans = (m.loans || []).map(l => {
+  const P = _fmN(l.amount), r = _fmN(l.rate) / 100, n = Math.max(1, Math.round(_fmN(l.years, 1))), start = Math.max(0, Math.round(_fmN(l.startYear)));
+  const emi = r > 0 ? P * r / (1 - Math.pow(1 + r, -n)) : P / n;
+  return { P, r, n, start, emi, bal: 0 };
+ });
+ let feeIdx = 1, cash = _fmN(m.openingCash);
+ const rows = [];
+ for (let y = 0; y <= Y; y++) {
+  let newAdm;
+  if (y > 0) {
+   const g = (m.growth || [])[y - 1] || { student: 0, fee: 0 };
+   if (cohort) {
+    const ret = _fmClamp(_fmN(m.cohort.retention, 95), 0, 100) / 100, ig = Math.pow(1 + _fmN(m.cohort.intakeGrowth) / 100, y - 1), prev = S;
+    const intakes = cls.map(c => _fmN((m.cohort.intake || {})[c.cls]) * ig * sF);
+    S = cls.map((c, k) => (k > 0 ? prev[k - 1] * ret : 0) + intakes[k]);
+    newAdm = intakes.reduce((a, b) => a + b, 0);
+   } else {
+    const prevTot = S.reduce((a, b) => a + b, 0);
+    S = S.map(v => v * (1 + _fmN(g.student) / 100));
+    newAdm = Math.max(0, S.reduce((a, b) => a + b, 0) - prevTot) + prevTot * _fmN(m.churn) / 100;
+   }
+   F = F.map(v => v * (1 + _fmN(g.fee) / 100));
+   feeIdx *= 1 + _fmN(g.fee) / 100;
+  } else newAdm = _fmN(m.newThisYear) * sF;
+  const students = S.reduce((a, b) => a + b, 0);
+  const gross = S.reduce((a, v, k) => a + v * F[k], 0);
+  const tuition = gross * coll;
+  const admission = newAdm * _fmN(m.admissionFee) * feeIdx;
+  const incomeItems = (m.incomeLines || []).filter(l => _fmActive(l, y)).map(l => {
+   const g = l.growth === 'fee' ? feeIdx : Math.pow(1 + (l.growth === '' || l.growth == null ? 0 : _fmN(l.growth)) / 100, y);
+   return { name: l.name || 'Other income', amt: _fmN(l.amount) * g * (l.kind === 'perStudent' ? students : 1) };
+  });
+  const otherIncome = incomeItems.reduce((a, i) => a + i.amt, 0);
+  const revenue = tuition + admission + otherIncome;
+  const sW = 1 + W.salary / 100;
+  const baseSal = (_fmN(m.staff.teaching) + _fmN(m.staff.nonTeaching)) * Math.pow(1 + inc, y) * _fmN(m.staff.monthsPaid, 11);
+  let hireSal = 0, hireCount = 0;
+  (m.hires || []).forEach(h => {
+   if (!_fmActive(h, y)) return;
+   const start = Math.max(0, Math.round(_fmN(h.startYear)));
+   hireSal += _fmHireCount(h) * _fmN(h.monthly) * Math.pow(1 + inc, y - start) * _fmHireMonths(m, h, y);
+   hireCount += _fmHireCount(h);
+  });
+  const salary = (baseSal + hireSal) * sW;
+  const groups = {}; const costItems = [];
+  (m.costLines || []).forEach(l => {
+   if (!_fmActive(l, y)) return;
+   const g = (l.growth === '' || l.growth == null) ? infl : _fmN(l.growth) / 100;
+   const amt = _fmN(l.amount) * Math.pow(1 + g, y) * (l.kind === 'perStudent' ? students : 1) * (1 + W.costs / 100);
+   const grp = FM_GROUPS.includes(l.group) ? l.group : 'Other';
+   groups[grp] = (groups[grp] || 0) + amt; costItems.push({ name: l.name || 'Cost', group: grp, amt });
+  });
+  const otherCost = Object.values(groups).reduce((a, b) => a + b, 0);
+  const cost = salary + otherCost;
+  const surplus = revenue - cost;
+  // cash: investments and loans
+  const capex = (m.capex || []).filter(c => Math.round(_fmN(c.year)) === y).reduce((a, c) => a + _fmN(c.amount), 0);
+  let loanIn = 0, loanPay = 0, interest = 0;
+  loans.forEach(l => {
+   if (y === l.start) { loanIn += l.P; l.bal = l.P; }
+   if (y > l.start && y <= l.start + l.n && l.bal > 0.5) {
+    const i = l.bal * l.r, pay = Math.min(l.emi, l.bal + i);
+    interest += i; loanPay += pay; l.bal = Math.max(0, l.bal + i - pay);
+   }
+  });
+  const debt = loans.reduce((a, l) => a + l.bal, 0);
+  const openCash = cash; cash = cash + surplus - capex + loanIn - loanPay;
+  rows.push({ y, label: _fmSess(y), students, newAdm, avgFee: students ? gross / students : 0, gross, tuition, admission, otherIncome, incomeItems, revenue,
+   salary, baseSal: baseSal * sW, hireSal: hireSal * sW, hireCount, groups, costItems, otherCost, cost, surplus, margin: revenue > 0 ? surplus / revenue : 0,
+   capex, loanIn, loanPay, interest, debt, openCash, closeCash: cash, classes: cls.map((c, k) => ({ cls: c.cls, students: S[k], fee: F[k] })) });
+ }
+ // break-even for this year
+ const r0 = rows[0];
+ const perStudentIncome = (m.incomeLines || []).filter(l => _fmActive(l, 0) && l.kind === 'perStudent').reduce((a, l) => a + _fmN(l.amount), 0);
+ const perStudentCost = (m.costLines || []).filter(l => _fmActive(l, 0) && l.kind === 'perStudent').reduce((a, l) => a + _fmN(l.amount) * (1 + W.costs / 100), 0);
+ const net = r0.avgFee * coll + perStudentIncome - perStudentCost;
+ const fixed = r0.cost - perStudentCost * r0.students - (r0.otherIncome - perStudentIncome * r0.students) - r0.admission;
+ const beStudents = net > 0 ? Math.ceil(fixed / net) : null;
+ const beFeePct = r0.tuition > 0 ? ((r0.cost - (r0.revenue - r0.tuition)) / r0.tuition - 1) * 100 : null;
+ const total = rows.slice(1).reduce((a, r) => a + r.surplus, 0);
+ return { rows, Y, be: { students: beStudents, feePct: beFeePct }, totalSurplus: total, endCash: rows[rows.length - 1].closeCash, W };
+}
+// Value of a chosen measure for a run
+function _fmMetric(res, metric, year){
+ if (metric === 'total') return res.totalSurplus;
+ if (metric === 'cash') return res.endCash;
+ const r = res.rows[Math.min(res.rows.length - 1, Math.max(0, year))]; return r ? r.surplus : 0;
+}
+// Goal seek: how much one lever must move (on top of the current what-ifs) to reach a target
+function _fmSolve(m, lever, target, metric, year){
+ const base = Object.assign({ students: 0, fee: 0, coll: 0, salary: 0, costs: 0 }, m.whatIf || {});
+ const f = x => _fmMetric(_fmRun(m, Object.assign({}, base, { [lever]: base[lever] + x })), metric, year) - target;
+ let lo = -95, hi = 400; const flo = f(lo), fhi = f(hi);
+ if (flo * fhi > 0) return null;
+ for (let i = 0; i < 60; i++) { const mid = (lo + hi) / 2, fm = f(mid); if ((fm > 0) === (fhi > 0)) hi = mid; else lo = mid; }
+ return (lo + hi) / 2;
+}
+
 // ===== OWNER DASHBOARD CATEGORISATION =====
 var OWNER_SECTIONS = {
  finance:    { label:'Finance',        icon:'sack-dollar',     color:'#1f8f4e', desc:'Ledger, fee dashboard, projections, fee structure & audit' },
@@ -18131,152 +18114,419 @@ function _ownerSectionPage(section){
   </div>`;
 }
 
-function renderFinancialModel(){
- if (!finModel) finModel=_finModelAutofill();
- const m=finModel;
- const baseMonthly=_finBaseMonthly(m), baseTransport=_finBaseTransport(m);
- const section=(title,inner,extra)=>`<div class="bg-white rounded-xl border p-4 space-y-2.5"><div class="flex items-center justify-between"><div class="font-bold text-gray-800">${title}</div>${extra||''}</div>${inner}</div>`;
- // Salaries: teaching + non-teaching + added staff rows
- const yrOpts = (sel) => {
-   let o = `<option value="0" ${Number(sel)===0?'selected':''}>Now</option>`;
-   for (let y=1; y<=(Math.round(m.years)||1); y++) o += `<option value="${y}" ${Number(sel)===y?'selected':''}>Yr ${y}</option>`;
-   return o;
-  };
- const staffRows=(m.addedStaff||[]).map((s,i)=>{
-   const cnt=_finStaffCount(s), mo=(s.months!==undefined&&s.months!==null&&s.months!=='')?Number(s.months):(Number(m.monthsPaid)||11);
-   const fy=(s.firstYearMonths!==undefined&&s.firstYearMonths!==null&&s.firstYearMonths!=='')?Number(s.firstYearMonths):mo;
-   const annual=cnt*(Number(s.monthly)||0)*mo;
-   const fld=(lbl,inner)=>`<div><div class="text-[10px] text-gray-500 mb-0.5">${lbl}</div>${inner}</div>`;
-   return `<div class="border rounded-lg p-2.5 mb-2 bg-white">
-    <div class="flex gap-2 items-center mb-2">
-     <input type="text" value="${(s.label||'').replace(/"/g,'&quot;')}" placeholder="Role, e.g. PGT Physics" class="finStaffLabel border rounded-lg px-2 py-1.5 text-sm" style="width:46%" data-i="${i}">
-     <select class="finStaffType border rounded-lg px-2 py-1.5 text-sm" style="flex:1" data-i="${i}">
-      ${STAFF_TYPES.map(v=>`<option value="${v}" ${((s.type||'Teaching')===v)?'selected':''}>${v}</option>`).join('')}
-     </select>
-     <button class="finStaffDel text-rose-500 hover:text-rose-700 px-1.5" data-i="${i}" title="Remove"><i class="fas fa-trash"></i></button>
-    </div>
-    <div class="grid grid-cols-5 gap-2">
-     ${fld('How many',`<input type="number" min="1" value="${cnt}" class="finStaffCount border rounded-lg px-2 py-1.5 text-sm w-full text-center" data-i="${i}">`)}
-     ${fld('Salary /mo',`<input type="number" value="${s.monthly||0}" class="finStaffSal border rounded-lg px-2 py-1.5 text-sm w-full text-right" data-i="${i}">`)}
-     ${fld('Joins',`<select class="finStaffYear border rounded-lg px-1 py-1.5 text-sm w-full" data-i="${i}">${yrOpts(s.startYear||0)}</select>`)}
-     ${fld('Months/yr',`<input type="number" min="0" max="12" value="${mo}" class="finStaffMonths border rounded-lg px-2 py-1.5 text-sm w-full text-center" data-i="${i}">`)}
-     ${fld('1st yr',`<input type="number" min="0" max="12" value="${fy}" class="finStaffFirstMonths border rounded-lg px-2 py-1.5 text-sm w-full text-center" data-i="${i}">`)}
-    </div>
-    <div class="text-xs text-gray-600 mt-1.5 text-right">${cnt>1?`${cnt} × ${_inr(s.monthly||0)} × ${mo} months = `:''}<b>${_inr(annual)}/yr</b></div>
-   </div>`;
-  }).join('');
- const salaries=section('Salaries (monthly)',
-   `<div class="grid grid-cols-2 gap-2">
-     ${_finNum('fmTeach','Teaching staff', m.teachingSalary, {key:'teachingSalary',suffix:'/mo',min:0})}
-     ${_finNum('fmNonTeach','Non-teaching staff', m.nonTeachingSalary, {key:'nonTeachingSalary',suffix:'/mo',min:0})}
-    </div>
-    <div class="text-xs text-gray-600 mt-1">Additional staff — how many, when they join, and how many months they are paid:</div>
-    <div id="finStaffList" class="space-y-1">${staffRows||'<div class="text-xs text-gray-400">none added</div>'}</div>
-    <button id="fmAddStaffBtn" class="text-xs text-indigo-600 hover:text-indigo-800 font-medium"><i class="fas fa-plus mr-1"></i>Add staff salary</button>
-    <div class="grid grid-cols-2 gap-2 mt-1">${_finNum('fmMonths','Months paid/year', m.monthsPaid, {key:'monthsPaid',min:1})}${_finNum('fmSalInc','Annual increment', m.salaryIncrement, {key:'salaryIncrement',suffix:'%/yr',step:'0.5'})}</div>
-    <div id="finSalaryBillLine" class="text-[11px] text-gray-500">Salary bill now: <b>${_inr(baseMonthly*(m.monthsPaid||11) + _finAddedAnnual(m,0))}/yr</b> (base ${_inr(baseMonthly)}/mo × ${m.monthsPaid||11} months + additional staff)${(()=>{
-      const later=(m.addedStaff||[]).filter(x=>Math.round(Number(x.startYear)||0)>0);
-      return later.length?`<br>${later.length} hire${later.length===1?'':'s'} scheduled for later years (not in today's cost)`:'';
-     })()}</div>`);
- const transport=section('Transport (per year)',
-   `<div class="grid grid-cols-2 gap-2">
-     ${_finNum('fmFuel','Fuel / diesel', m.fuel, {key:'fuel',min:0})}
-     ${_finNum('fmMaint','Vehicle maintenance', m.maintenance, {key:'maintenance',min:0})}
-     ${_finNum('fmPermit','Permits', m.permits, {key:'permits',min:0})}
-     ${_finNum('fmTMisc','Miscellaneous', m.transportMisc, {key:'transportMisc',min:0})}
-    </div><div id="finTransportTotal" class="text-[11px] text-gray-500">Transport total: <b>${_inr(baseTransport)}/yr</b></div>`);
- const others=section('School maintenance & expenses (per year)',
-   `<div class="grid grid-cols-2 gap-2">
-     ${_finNum('fmSchMaint','School maintenance', m.schoolMaintenance, {key:'schoolMaintenance',min:0})}
-     ${_finNum('fmExp','Expenses (electricity, supplies…)', m.expenses, {key:'expenses',min:0})}
-     ${_finNum('fmInfl','Cost inflation', m.inflation, {key:'inflation',suffix:'%/yr',step:'0.5'})}
-    </div>`);
- const revenue=section('Revenue',
-   `<div class="grid grid-cols-2 gap-2">
-     ${_finNum('fmStudents','Students', m.students, {key:'students',min:0})}
-     ${_finNum('fmAvgFee','Avg annual fee', m.avgFee, {key:'avgFee',min:0})}
-     ${_finNum('fmColl','Fee collection', m.collRate, {key:'collRate',suffix:'%',min:0})}
-     ${_finNum('fmBook','Books/extra per student', m.bookFee, {key:'bookFee',min:0})}
-    </div>`);
- // Per-year growth table
- const grows=(m.growth||[]).map((g,i)=>`<tr>
-    <td class="px-2 py-0.5 text-xs">Year ${i+1}</td>
-    <td class="px-1 py-0.5"><input type="number" step="0.5" value="${g.student}" class="finGrowS border rounded px-1 py-0.5 text-xs w-16 text-right" data-i="${i}"></td>
-    <td class="px-1 py-0.5"><input type="number" step="0.5" value="${g.fee}" class="finGrowF border rounded px-1 py-0.5 text-xs w-16 text-right" data-i="${i}"></td>
-   </tr>`).join('');
- const growth=section('Growth per year (editable)',
-   `<div class="grid grid-cols-2 gap-2 mb-1">${_finNum('fmYears','Projection years', m.years, {key:'years',min:1})}</div>
-    <table class="w-full text-xs"><thead><tr class="text-gray-500"><th class="text-left px-2">Year</th><th class="text-right px-1">Student growth %</th><th class="text-right px-1">Fee increase %</th></tr></thead><tbody>${grows}</tbody></table>
-    <div class="text-[11px] text-gray-400">e.g. 15% next year, then 7%, then taper — each cell is editable.</div>`);
- const inputs=`${revenue}${salaries}${transport}${others}${growth}
-   <div class="flex gap-2"><button id="fmResetBtn" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-rotate-left mr-1"></i>Reset to live data</button>
-   <button id="fmExportBtn" class="flex-1 bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg text-xs font-medium"><i class="fas fa-file-excel mr-1"></i>Export XLSX</button></div>`;
- return `<div class="space-y-3">
-   <div><h2 class="text-lg font-bold"><i class="fas fa-chart-line text-emerald-600 mr-2"></i>Financial Projection Model</h2>
-    <p class="text-sm text-gray-600">Adjust anything on the left and the projection updates instantly. <b>Save</b> a scenario to keep it — otherwise a refresh starts fresh from live data.</p></div>
-   ${(() => {
-    const saved = ensureSeedFinModel();
-    return `<div class="bg-white rounded-xl border p-2 flex flex-wrap gap-2 items-center">
-      <span class="text-xs font-semibold text-gray-700"><i class="fas fa-bookmark text-emerald-600 mr-1"></i>Saved scenarios</span>
-      <select id="fmScenarioSel" class="border rounded-lg px-2 py-1 text-xs" style="width:auto">
-       <option value="">— choose —</option>
-       ${saved.map(x=>`<option value="${x.id}" ${_finLoadedName===x.name?'selected':''}>${escapeHTML(x.name)}</option>`).join('')}
-      </select>
-      <button id="fmLoadBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1 rounded-lg text-xs font-medium"><i class="fas fa-folder-open mr-1"></i>Load</button>
-      <button id="fmSaveBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded-lg text-xs font-medium"><i class="fas fa-save mr-1"></i>Save current</button>
-      <button id="fmDeleteBtn" class="bg-rose-50 hover:bg-rose-100 text-rose-700 px-2.5 py-1 rounded-lg text-xs font-medium"><i class="fas fa-trash mr-1"></i>Delete</button>
-      ${_finLoadedName?`<span class="text-[11px] text-gray-500 ml-auto">Working on: <b>${escapeHTML(_finLoadedName)}</b></span>`:'<span class="text-[11px] text-amber-600 ml-auto">Unsaved scenario</span>'}
-     </div>`;
-   })()}
-   <div class="grid gap-4" style="grid-template-columns:1fr" id="finGrid">
-    <div class="space-y-3" id="finResults">${_finResultsHTML()}</div>
-    <div class="space-y-3" id="finInputs">${inputs}</div>
-   </div>
-   <style>@media(min-width:1280px){#finGrid{grid-template-columns:minmax(0,1fr) 430px}#finGrid>#finInputs{order:2}#finGrid>#finResults{order:1}}</style>
-   <p class="text-xs text-gray-400">Salary split auto-summed from staff records (Teaching \u20b9${(m.teachingSalary).toLocaleString('en-IN')}/mo, Non-teaching \u20b9${(m.nonTeachingSalary).toLocaleString('en-IN')}/mo). Transport/maintenance/expenses seeded from recorded expenses where available, otherwise estimated — adjust to your actuals. Editing here never changes your real data.</p>
-  </div>`;
+// ---------- screen ----------
+function _fmEsc(s){ return escapeHTML(String(s == null ? '' : s)); }
+function _fmGet(path){ return path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), finModel); }
+function _fmSet(path, v){ const ks = path.split('.'); let o = finModel; for (let i = 0; i < ks.length - 1; i++) { if (o[ks[i]] == null) o[ks[i]] = {}; o = o[ks[i]]; } o[ks[ks.length - 1]] = v; }
+function _fmIn(path, opts){
+ opts = opts || {}; const v = _fmGet(path);
+ const type = opts.text ? 'text' : 'number';
+ return `<input type="${type}" data-k="${path}" ${opts.text ? 'data-t="s"' : ''} value="${_fmEsc(v == null ? '' : v)}" ${opts.ph ? `placeholder="${_fmEsc(opts.ph)}"` : ''}
+   ${opts.step ? `step="${opts.step}"` : ''} class="fm-in ${opts.cls || ''}" ${opts.w ? `style="width:${opts.w}"` : ''} inputmode="${opts.text ? 'text' : 'decimal'}">`;
 }
-function _finRerender(){ const w=document.getElementById('finModelWrap'); if(w){ w.innerHTML=renderFinancialModel(); _attachFinancialModelEvents(); } else { const r=document.getElementById('finResults'); if(r) r.innerHTML=_finResultsHTML(); } }
-function _finRecalc(){
-  const r=document.getElementById('finResults'); if(r) r.innerHTML=_finResultsHTML();
-  // Keep the small running totals on the input side in step (they used to go stale).
-  const m=finModel;
-  const sb=document.getElementById('finSalaryBillLine');
-  if(sb){ const base=_finBaseMonthly(m), later=(m.addedStaff||[]).filter(x=>Math.round(Number(x.startYear)||0)>0);
-   sb.innerHTML=`Salary bill now: <b>${_inr(base*(m.monthsPaid||11)+_finAddedAnnual(m,0))}/yr</b> (base ${_inr(base)}/mo × ${m.monthsPaid||11} months + additional staff)`+
-    (later.length?`<br>${later.length} hire${later.length===1?'':'s'} scheduled for later years (not in today's cost)`:''); }
-  const tt=document.getElementById('finTransportTotal');
-  if(tt) tt.innerHTML=`Transport total: <b>${_inr(_finBaseTransport(m))}/yr</b>`;
+function _fmSel(path, options, opts){
+ opts = opts || {}; const v = String(_fmGet(path) == null ? '' : _fmGet(path));
+ return `<select data-k="${path}" data-t="${opts.num ? 'n' : 's'}" ${opts.rerender ? 'data-r="1"' : ''} class="fm-in ${opts.cls || ''}">${options.map(o => { const [val, lab] = Array.isArray(o) ? o : [o, o];
+   return `<option value="${_fmEsc(val)}" ${String(val) === v ? 'selected' : ''}>${_fmEsc(lab)}</option>`; }).join('')}</select>`;
+}
+function _fmField(label, inner, hint){ return `<label class="fm-f"><span class="fm-l">${label}</span>${inner}${hint ? `<span class="fm-h">${hint}</span>` : ''}</label>`; }
+function _fmYearOpts(withNone){ const Y = Math.round(_fmN(finModel.years, 5)); const o = []; if (withNone) o.push(['', 'No end']); for (let y = 0; y <= Y; y++) o.push([String(y), _fmSess(y)]); return o; }
+function _fmSeg(path, opts){ const v = String(_fmGet(path)); return `<div class="fm-seg">${opts.map(([val, lab]) => `<button type="button" data-act="seg" data-k="${path}" data-v="${val}" class="${String(val) === v ? 'on' : ''}">${lab}</button>`).join('')}</div>`; }
+function _fmMoney(n){ const a = Math.abs(n); return (n < 0 ? '−' : '') + (a >= 1e7 ? '₹' + (a / 1e7).toFixed(2) + ' Cr' : a >= 1e5 ? '₹' + (a / 1e5).toFixed(2) + ' L' : _inr(a)); }
+
+// ----- inputs -----
+function _fmInputsHTML(){
+ const m = finModel, Y = Math.round(_fmN(m.years, 5));
+ const tabs = [['students', 'Students & fees', 'user-graduate'], ['growth', 'Growth', 'arrow-trend-up'], ['staff', 'Staff', 'users'], ['costs', 'Costs', 'receipt'], ['income', 'Other income', 'hand-holding-dollar'], ['cash', 'Investments & loans', 'building-columns']];
+ let body = '';
+ if (_fmInTab === 'students') {
+  const byClass = m.feeMode !== 'simple';
+  const totS = byClass ? (m.classes || []).reduce((a, c) => a + _fmN(c.students), 0) : _fmN(m.simple.students);
+  const totG = byClass ? (m.classes || []).reduce((a, c) => a + _fmN(c.students) * _fmN(c.fee), 0) : _fmN(m.simple.students) * _fmN(m.simple.fee);
+  body = `<div class="fm-row2">${_fmField('Fees worked out', _fmSeg('feeMode', [['class', 'Class by class'], ['simple', 'One average']]))}
+    ${_fmField('Fees actually collected', _fmIn('collRate', { step: 1 }), '% of the fees charged, by the end of the year' + (m.collSoFar != null ? ` (so far this session: ${m.collSoFar}%)` : ''))}</div>
+   ${byClass ? `<table class="fm-tbl"><thead><tr><th>Class</th><th>Students</th><th>Fee per student /yr</th><th>Fees charged</th></tr></thead><tbody>
+     ${(m.classes || []).map((c, i) => `<tr><td>${_fmEsc(_fmCls(c.cls))}</td><td>${_fmIn('classes.' + i + '.students', { w: '64px' })}</td><td>${_fmIn('classes.' + i + '.fee', { w: '96px' })}</td><td class="fm-num">${_fmMoney(_fmN(c.students) * _fmN(c.fee))}</td></tr>`).join('')}
+     </tbody><tfoot><tr><td>Total</td><td class="fm-num">${Math.round(totS)}</td><td class="fm-num">${totS ? _inr(totG / totS) + ' avg' : ''}</td><td class="fm-num">${_fmMoney(totG)}</td></tr></tfoot></table>
+     <div class="fm-h">The fee is what one student is charged in a year after concessions: tuition, annual charges, books and transport, as decided.</div>`
+   : `<div class="fm-row2">${_fmField('Students', _fmIn('simple.students'))}${_fmField('Average fee per student /yr', _fmIn('simple.fee'), 'after concessions')}</div>`}
+   <div class="fm-row2">${_fmField('New admissions this year', _fmIn('newThisYear'))}${_fmField('One-time fee per new student', _fmIn('admissionFee'), 'Leave 0 if it is already inside the fee above')}</div>
+   <button type="button" data-act="live-students" class="fm-btn-s"><i class="fas fa-rotate"></i> Refill from today's student records</button>`;
+ } else if (_fmInTab === 'growth') {
+  const cohortOk = m.feeMode !== 'simple';
+  body = `<div class="fm-row2">${_fmField('Years ahead', _fmSel('years', Array.from({ length: 15 }, (_, i) => [String(i + 1), (i + 1) + (i ? ' years' : ' year')]), { num: true, rerender: true }))}
+    ${_fmField('Student numbers grow by', cohortOk ? _fmSeg('growthMode', [['percent', 'A % each year'], ['cohort', 'Promotion + admissions']]) : '<span class="fm-h" style="margin:6px 0 0">A % each year (use "Class by class" fees for promotion)</span>')}</div>
+   <div class="fm-presets"><span>Quick set:</span>${[['Cautious', 5, 5], ['Steady', 10, 7], ['Strong', 20, 8]].map(([l, s, f]) => `<button type="button" data-act="preset" data-s="${s}" data-f="${f}">${l} <small>${s}% / ${f}%</small></button>`).join('')}</div>
+   <table class="fm-tbl"><thead><tr><th>Session</th>${m.growthMode === 'cohort' && cohortOk ? '' : '<th>Students +%</th>'}<th>Fees +%</th></tr></thead><tbody>
+    ${Array.from({ length: Y }, (_, i) => `<tr><td>${_fmSess(i + 1)}</td>${m.growthMode === 'cohort' && cohortOk ? '' : `<td>${_fmIn('growth.' + i + '.student', { step: 0.5, w: '72px' })}</td>`}<td>${_fmIn('growth.' + i + '.fee', { step: 0.5, w: '72px' })}</td></tr>`).join('')}
+   </tbody></table>
+   ${m.growthMode === 'cohort' && cohortOk ? `<div class="fm-box"><b>Promotion + admissions</b><div class="fm-h" style="margin:2px 0 8px">Each year every class moves up one; this % of students stay on; new admissions join each class. Class 12 leaves.</div>
+     <div class="fm-row2">${_fmField('Students who stay on', _fmIn('cohort.retention', { step: 1 }), '% each year')}${_fmField('Admissions grow by', _fmIn('cohort.intakeGrowth', { step: 1 }), '% each year')}</div>
+     <table class="fm-tbl"><thead><tr><th>Class</th><th>New admissions /yr</th></tr></thead><tbody>${(m.classes || []).map(c => `<tr><td>${_fmEsc(_fmCls(c.cls))}</td><td>${_fmIn('cohort.intake.' + c.cls, { w: '72px' })}</td></tr>`).join('')}</tbody></table>
+     <div class="fm-h">Filled with this session's admissions in each class.</div></div>`
+   : _fmField('Students who leave each year', _fmIn('churn', { step: 1 }), '% (replaced by new admissions; counts toward the one-time fee)')}`;
+ } else if (_fmInTab === 'staff') {
+  body = `<div class="fm-row2">${_fmField('Teaching staff + Principal /month', _fmIn('staff.teaching'))}${_fmField('Support staff /month', _fmIn('staff.nonTeaching'))}</div>
+   <div class="fm-row2">${_fmField('Months paid in a year', _fmIn('staff.monthsPaid', { step: 0.5 }))}${_fmField('Yearly increment', _fmIn('staff.increment', { step: 0.5 }), '%')}</div>
+   <button type="button" data-act="live-staff" class="fm-btn-s"><i class="fas fa-rotate"></i> Refill from today's staff records</button>
+   <div class="fm-sub">New posts and changes <span class="fm-h">(a teacher to hire, a post that ends)</span></div>
+   ${(m.hires || []).map((h, i) => `<div class="fm-card">
+     <div class="fm-card-top">${_fmIn('hires.' + i + '.label', { text: 1, ph: 'Post, e.g. PGT Physics', cls: 'fm-grow' })}${_fmSel('hires.' + i + '.type', STAFF_TYPES)}<button type="button" data-act="del" data-list="hires" data-i="${i}" class="fm-x" title="Remove"><i class="fas fa-trash"></i></button></div>
+     <div class="fm-grid5">${_fmField('How many', _fmIn('hires.' + i + '.count'))}${_fmField('Salary each /mo', _fmIn('hires.' + i + '.monthly'))}${_fmField('From', _fmSel('hires.' + i + '.startYear', _fmYearOpts(), { num: true }))}${_fmField('Until', _fmSel('hires.' + i + '.endYear', _fmYearOpts(true)))}${_fmField('Months /yr', _fmIn('hires.' + i + '.months', { step: 0.5 }))}</div>
+     ${_fmField('Months paid in the first year', _fmIn('hires.' + i + '.firstYearMonths', { step: 0.5, w: '90px' }), 'e.g. 5 for someone joining in November')}
+    </div>`).join('') || '<div class="fm-h">None yet.</div>'}
+   <button type="button" data-act="add" data-list="hires" class="fm-btn-s"><i class="fas fa-plus"></i> Add a post</button>
+   <div class="fm-h">A negative salary works too: use it for someone leaving, from the year they leave.</div>`;
+ } else if (_fmInTab === 'costs') {
+  body = `${_fmField('Prices rise by (inflation)', _fmIn('inflation', { step: 0.5, w: '110px' }), '% a year, for every cost line left on "inflation"')}
+   ${(m.costLines || []).map((l, i) => _fmLineCard('costLines', l, i, true)).join('') || '<div class="fm-h">No cost lines.</div>'}
+   <div class="fm-actions"><button type="button" data-act="add" data-list="costLines" class="fm-btn-s"><i class="fas fa-plus"></i> Add a cost</button>
+   <button type="button" data-act="live-costs" class="fm-btn-s"><i class="fas fa-rotate"></i> Refill from the Ledger (last 12 months)</button></div>
+   <div class="fm-h">Salaries are on the Staff tab. "Per student" costs (exam fees, diaries, ID cards) grow with the number of students.</div>`;
+ } else if (_fmInTab === 'income') {
+  body = `<div class="fm-h" style="margin-bottom:8px">Money that is not in the fee above: a books and uniform margin, a transport fee charged separately, donations, government reimbursements.</div>
+   ${(m.incomeLines || []).map((l, i) => _fmLineCard('incomeLines', l, i, false)).join('') || '<div class="fm-h">None yet.</div>'}
+   <button type="button" data-act="add" data-list="incomeLines" class="fm-btn-s"><i class="fas fa-plus"></i> Add income</button>`;
+ } else if (_fmInTab === 'cash') {
+  body = `${_fmField('Cash in hand at the start', _fmIn('openingCash', { w: '160px' }), 'bank + cash today, for the cash-flow view')}
+   <div class="fm-sub">One-time spending <span class="fm-h">(a bus, a new floor, a lab)</span></div>
+   ${(m.capex || []).map((c, i) => `<div class="fm-card"><div class="fm-card-top">${_fmIn('capex.' + i + '.name', { text: 1, ph: 'e.g. New bus', cls: 'fm-grow' })}<button type="button" data-act="del" data-list="capex" data-i="${i}" class="fm-x"><i class="fas fa-trash"></i></button></div>
+     <div class="fm-row2">${_fmField('Amount', _fmIn('capex.' + i + '.amount'))}${_fmField('In', _fmSel('capex.' + i + '.year', _fmYearOpts(), { num: true }))}</div></div>`).join('')}
+   <button type="button" data-act="add" data-list="capex" class="fm-btn-s"><i class="fas fa-plus"></i> Add spending</button>
+   <div class="fm-sub">Loans</div>
+   ${(m.loans || []).map((l, i) => { const P = _fmN(l.amount), r = _fmN(l.rate) / 100, n = Math.max(1, Math.round(_fmN(l.years, 1))); const emi = r > 0 ? P * r / (1 - Math.pow(1 + r, -n)) : P / n;
+     return `<div class="fm-card"><div class="fm-card-top">${_fmIn('loans.' + i + '.name', { text: 1, ph: 'e.g. Bus loan', cls: 'fm-grow' })}<button type="button" data-act="del" data-list="loans" data-i="${i}" class="fm-x"><i class="fas fa-trash"></i></button></div>
+     <div class="fm-row2">${_fmField('Amount', _fmIn('loans.' + i + '.amount'))}${_fmField('Taken in', _fmSel('loans.' + i + '.startYear', _fmYearOpts(), { num: true }))}</div><div class="fm-row2">${_fmField('Interest', _fmIn('loans.' + i + '.rate', { step: 0.1 }), '% a year')}${_fmField('Years to repay', _fmIn('loans.' + i + '.years'))}</div>
+     <div class="fm-h">Repaid from the next year: about ${_inr(emi)} a year (${_inr(emi / 12)} a month).</div></div>`; }).join('')}
+   <button type="button" data-act="add" data-list="loans" class="fm-btn-s"><i class="fas fa-plus"></i> Add a loan</button>`;
  }
+ return `<div class="fm-panel"><div class="fm-intabs">${tabs.map(([k, l, ic]) => `<button type="button" data-act="intab" data-v="${k}" class="${_fmInTab === k ? 'on' : ''}"><i class="fas fa-${ic}"></i>${l}</button>`).join('')}</div>
+  <div class="fm-inbody">${body}</div></div>`;
+}
+function _fmLineCard(list, l, i, isCost){
+ const p = list + '.' + i + '.';
+ const growthOpts = isCost ? [['', 'Inflation'], ['0', 'No rise'], ['3', '3%'], ['5', '5%'], ['8', '8%'], ['10', '10%'], ['15', '15%']] : [['fee', 'Same as fees'], ['', 'No rise'], ['3', '3%'], ['5', '5%'], ['8', '8%'], ['10', '10%']];
+ const cur = String(l.growth == null ? '' : l.growth);
+ if (!growthOpts.some(o => o[0] === cur)) growthOpts.push([cur, cur + '%']);
+ return `<div class="fm-card"><div class="fm-card-top">${_fmIn(p + 'name', { text: 1, ph: isCost ? 'e.g. Electricity' : 'e.g. Books margin', cls: 'fm-grow' })}${isCost ? _fmSel(p + 'group', FM_GROUPS) : ''}
+   <button type="button" data-act="del" data-list="${list}" data-i="${i}" class="fm-x" title="Remove"><i class="fas fa-trash"></i></button></div>
+  <div class="fm-grid5">${_fmField('Amount', _fmIn(p + 'amount'))}${_fmField('For', _fmSel(p + 'kind', [['fixed', 'Whole year'], ['perStudent', 'Per student']]))}${_fmField('Rises', _fmSel(p + 'growth', growthOpts))}${_fmField('From', _fmSel(p + 'startYear', _fmYearOpts(), { num: true }))}${_fmField('Until', _fmSel(p + 'endYear', _fmYearOpts(true)))}</div></div>`;
+}
+
+// ----- results -----
+function _fmHasCash(){ const m = finModel; return _fmN(m.openingCash) !== 0 || (m.capex || []).some(c => _fmN(c.amount)) || (m.loans || []).some(l => _fmN(l.amount)); }
+function _fmKpis(res){
+ const r0 = res.rows[0], last = res.rows[res.rows.length - 1], c0 = r0.surplus >= 0 ? '#15803d' : '#b91c1c';
+ const k = (l, v, s, c) => `<div class="fm-kpi"><div class="fm-kl">${l}</div><div class="fm-kv" style="color:${c || 'var(--fm-ink)'}">${v}</div><div class="fm-ks">${s}</div></div>`;
+ return `<div class="fm-kpis">
+  ${k('Income ' + r0.label, _fmMoney(r0.revenue), Math.round(r0.students) + ' students')}
+  ${k('Cost ' + r0.label, _fmMoney(r0.cost), 'salaries ' + Math.round(r0.revenue ? r0.salary * 100 / r0.revenue : 0) + '% of income')}
+  ${k(r0.surplus >= 0 ? 'Surplus ' + r0.label : 'Deficit ' + r0.label, _fmMoney(Math.abs(r0.surplus)), (r0.margin * 100).toFixed(1) + '% margin', c0)}
+  ${k('Break-even', res.be.students != null ? res.be.students + ' students' : '—', res.be.feePct != null ? (res.be.feePct <= 0 ? 'fees could fall ' + Math.abs(res.be.feePct).toFixed(1) + '%' : 'or fees +' + res.be.feePct.toFixed(1) + '%') : '', '#b45309')}
+  ${k('By ' + last.label, _fmMoney(last.surplus), (last.surplus >= 0 ? 'surplus' : 'deficit') + ' · ' + Math.round(last.students) + ' students', last.surplus >= 0 ? '#15803d' : '#b91c1c')}
+  ${_fmHasCash() ? k('Cash at end of ' + last.label, _fmMoney(last.closeCash), 'after spending and loans', last.closeCash >= 0 ? 'var(--fm-ink)' : '#b91c1c')
+    : k('All ' + (res.rows.length - 1) + ' years together', _fmMoney(res.totalSurplus), res.totalSurplus >= 0 ? 'total surplus' : 'total deficit', res.totalSurplus >= 0 ? '#15803d' : '#b91c1c')}
+ </div>`;
+}
+function _fmWhatIfHTML(){
+ const w = finModel.whatIf || {}; const any = FM_WHATIF.some(f => _fmN(w[f.k]));
+ return `<div class="fm-whatif"><div class="fm-wi-head"><b><i class="fas fa-sliders"></i> What if…</b><span class="fm-h" style="margin:0">Move a slider to test a change on top of the plan. <button type="button" data-act="wi-reset" class="fm-link" ${any ? '' : 'style="visibility:hidden"'}>Back to the plan</button></span></div>
+  <div class="fm-wi-grid">${FM_WHATIF.map(f => { const v = _fmN(w[f.k]); return `<label class="fm-wi"><span>${f.l} <b class="${v > 0 ? 'up' : v < 0 ? 'down' : ''}" data-wiv="${f.k}">${v > 0 ? '+' : ''}${v}${f.u}</b></span>
+    <input type="range" min="${f.min}" max="${f.max}" step="${f.step}" value="${v}" data-wi="${f.k}"></label>`; }).join('')}</div></div>`;
+}
+function _fmBarsChart(rows){
+ const W = Math.max(760, rows.length * 120 + 90), H = 330, pl = 64, pb = 46, pt = 22, pr = 14;
+ const mx = Math.max(1, ...rows.map(r => Math.max(r.revenue, r.cost))), mn = Math.min(0, ...rows.map(r => r.surplus));
+ const ph = H - pb - pt, gw = (W - pl - pr) / rows.length, bw = Math.min(30, gw / 3.3);
+ const y = v => pt + ph * (1 - (v - mn) / (mx - mn));
+ let s = '';
+ for (let i = 0; i <= 4; i++) { const v = mn + (mx - mn) * i / 4, yy = y(v); s += `<line x1="${pl}" x2="${W - pr}" y1="${yy}" y2="${yy}" stroke="var(--fm-grid)"/><text x="${pl - 8}" y="${yy + 4}" text-anchor="end" font-size="11" fill="var(--fm-mute)">${(v / 1e5).toFixed(0)}L</text>`; }
+ s += `<line x1="${pl}" x2="${W - pr}" y1="${y(0)}" y2="${y(0)}" stroke="var(--fm-mute)"/>`;
+ const pts = [];
+ rows.forEach((r, i) => { const cx = pl + gw * i + gw / 2;
+  s += `<rect x="${cx - bw - 2}" y="${y(r.revenue)}" width="${bw}" height="${Math.max(0, y(0) - y(r.revenue))}" rx="3" fill="#15803d"><title>${r.label} income ${_inr(r.revenue)}</title></rect>`;
+  s += `<rect x="${cx + 2}" y="${y(r.cost)}" width="${bw}" height="${Math.max(0, y(0) - y(r.cost))}" rx="3" fill="#be123c"><title>${r.label} cost ${_inr(r.cost)}</title></rect>`;
+  s += `<text x="${cx}" y="${H - pb + 17}" text-anchor="middle" font-size="12" font-weight="600" fill="var(--fm-ink)">${r.label}</text>`;
+  s += `<text x="${cx}" y="${H - pb + 33}" text-anchor="middle" font-size="11" fill="${r.surplus >= 0 ? '#15803d' : '#be123c'}">${r.surplus >= 0 ? '+' : '−'}${(Math.abs(r.surplus) / 1e5).toFixed(1)}L</text>`;
+  pts.push([cx, y(r.surplus)]); });
+ s += `<polyline fill="none" stroke="#b45309" stroke-width="2.5" points="${pts.map(p => p.join(',')).join(' ')}"/>` + pts.map((p, i) => `<circle cx="${p[0]}" cy="${p[1]}" r="4" fill="#b45309" stroke="#fff" stroke-width="1.5"><title>${rows[i].label} surplus ${_inr(rows[i].surplus)}</title></circle>`).join('');
+ s += `<g font-size="12" fill="var(--fm-ink)"><rect x="${pl}" y="2" width="11" height="11" rx="2" fill="#15803d"/><text x="${pl + 16}" y="12">Income</text><rect x="${pl + 80}" y="2" width="11" height="11" rx="2" fill="#be123c"/><text x="${pl + 96}" y="12">Cost</text><line x1="${pl + 146}" x2="${pl + 164}" y1="8" y2="8" stroke="#b45309" stroke-width="2.5"/><text x="${pl + 170}" y="12">Surplus</text></g>`;
+ return `<div class="fm-chart"><svg viewBox="0 0 ${W} ${H}" style="width:100%;min-width:${Math.min(W, 520)}px;height:auto" role="img" aria-label="Income, cost and surplus by session">${s}</svg></div>`;
+}
+function _fmMix(r){
+ const parts = [['Salaries', r.salary, '#4f46e5']].concat(FM_GROUPS.filter(g => r.groups[g]).map((g, i) => [g, r.groups[g], ['#0891b2', '#b45309', '#64748b', '#a21caf'][i]]));
+ const tot = Math.max(1, r.cost);
+ return `<div class="fm-mix">${parts.map(([l, v, c]) => `<div class="fm-mixrow"><span class="fm-mixl">${l}</span><span class="fm-mixbar"><span style="width:${(v * 100 / tot).toFixed(1)}%;background:${c}"></span></span><span class="fm-mixv">${_fmMoney(v)} <small>${Math.round(v * 100 / tot)}%</small></span></div>`).join('')}</div>`;
+}
+function _fmInsights(res){
+ const m = finModel, r0 = res.rows[0], rows = res.rows.slice(1), out = [];
+ const add = (t, h, b) => out.push({ t, h, b });
+ if (r0.surplus >= 0) add('good', 'Running a surplus', `This session you keep ${_inr(r0.surplus)} of ${_inr(r0.revenue)} income, a ${(r0.margin * 100).toFixed(1)}% margin.`);
+ else add('bad', 'Running a deficit', `Costs are ${_inr(-r0.surplus)} more than income. ${res.be.students ? `You need ${res.be.students} students instead of ${Math.round(r0.students)}, ` : ''}${res.be.feePct != null ? `or fees about ${res.be.feePct.toFixed(1)}% higher, to break even.` : ''}`);
+ const sal = r0.revenue ? Math.round(r0.salary * 100 / r0.revenue) : 0;
+ add(sal > 70 ? 'bad' : sal > 60 ? 'warn' : 'good', sal > 70 ? 'Salaries take most of the income' : sal > 60 ? 'Salary load is high' : 'Salary load is comfortable', `Salaries are ${sal}% of income. Schools usually aim for 50–60%.`);
+ const collLoss = r0.gross - r0.tuition;
+ if (collLoss > 0) add(_fmClamp(_fmN(m.collRate) + _fmN((m.whatIf || {}).coll), 0, 100) < 85 ? 'bad' : 'warn', 'Fees not collected', `${_inr(collLoss)} of this session's fees will not come in. Collecting half of it adds ${_inr(collLoss / 2)} straight to the surplus.`);
+ const fees = (m.growth || []).slice(0, rows.length), avgFee = fees.length ? fees.reduce((a, g) => a + _fmN(g.fee), 0) / fees.length : 0;
+ if (avgFee < _fmN(m.staff.increment)) add('warn', 'Fees rise slower than salaries', `Fees go up ${avgFee.toFixed(1)}% a year on average, salaries ${_fmN(m.staff.increment)}%. The margin shrinks unless student numbers grow.`);
+ const up = rows.find(r => r.surplus >= 0), down = rows.find(r => r.surplus < 0);
+ if (r0.surplus < 0 && up) add('good', 'Turns profitable in ' + up.label, `On this plan the deficit closes in ${up.label}, with a surplus of ${_inr(up.surplus)}.`);
+ if (r0.surplus >= 0 && down) add('bad', 'Slips into deficit in ' + down.label, `Costs overtake income in ${down.label}. Look at the hiring plan or the fee rise.`);
+ const lowCash = _fmHasCash() && res.rows.find(r => r.closeCash < 0);
+ if (lowCash) add('bad', 'Cash runs out in ' + lowCash.label, `After spending and loan repayments the school would be ${_inr(-lowCash.closeCash)} short by the end of ${lowCash.label}. Spread the spending, take a longer loan, or plan the owner's contribution.`);
+ const last = res.rows[res.rows.length - 1];
+ add('info', 'By ' + last.label, `${Math.round(last.students)} students, ${_fmMoney(last.revenue)} income, ${_fmMoney(last.cost)} cost: a ${last.surplus >= 0 ? 'surplus' : 'deficit'} of ${_fmMoney(Math.abs(last.surplus))}. Over all ${rows.length} years: ${_fmMoney(res.totalSurplus)}.`);
+ const T = { good: ['#ecfdf5', '#a7f3d0', '#047857', 'circle-check'], warn: ['#fffbeb', '#fde68a', '#b45309', 'triangle-exclamation'], bad: ['#fff1f2', '#fecdd3', '#be123c', 'circle-exclamation'], info: ['#f8fafc', '#e2e8f0', '#334155', 'circle-info'] };
+ return `<div class="fm-ins">${out.map(i => { const [bg, bd, c, ic] = T[i.t]; return `<div class="fm-insc" style="background:${bg};border-color:${bd}"><div style="color:${c};font-weight:700"><i class="fas fa-${ic}"></i> ${i.h}</div><div>${i.b}</div></div>`; }).join('')}</div>`;
+}
+function _fmTable(res){
+ const rows = res.rows, m = finModel, cols = rows.map(r => `<th>${r.label}${r.y === 0 ? '<br><small>this year</small>' : ''}</th>`).join('');
+ const tr = (l, f, o) => `<tr class="${(o && o.cls) || ''}"><td>${l}</td>${rows.map(r => { const v = f(r); return `<td class="fm-num ${o && o.sign ? (v >= 0 ? 'pos' : 'neg') : ''}">${o && o.raw ? v : _fmMoney(v)}</td>`; }).join('')}</tr>`;
+ const incNames = Array.from(new Set(rows.flatMap(r => r.incomeItems.map(i => i.name))));
+ const costNames = Array.from(new Set(rows.flatMap(r => r.costItems.map(i => i.name))));
+ return `<div class="fm-tblwrap"><table class="fm-big"><thead><tr><th></th>${cols}</tr></thead><tbody>
+  ${tr('Students', r => Math.round(r.students), { raw: 1 })}
+  ${tr('New admissions', r => Math.round(r.newAdm), { raw: 1 })}
+  ${tr('Average fee', r => _inr(r.avgFee), { raw: 1 })}
+  <tr class="fm-sec"><td colspan="${rows.length + 1}">Income</td></tr>
+  ${tr('Fees charged', r => r.gross)}${tr('Fees collected', r => r.tuition)}
+  ${rows.some(r => r.admission) ? tr('One-time admission fees', r => r.admission) : ''}
+  ${incNames.map(n => tr(_fmEsc(n), r => (r.incomeItems.find(i => i.name === n) || { amt: 0 }).amt)).join('')}
+  ${tr('Total income', r => r.revenue, { cls: 'fm-tot' })}
+  <tr class="fm-sec"><td colspan="${rows.length + 1}">Costs</td></tr>
+  ${tr('Salaries (current staff)', r => r.baseSal)}${rows.some(r => r.hireSal) ? tr('Salaries (new posts)', r => r.hireSal) : ''}
+  ${costNames.map(n => tr(_fmEsc(n), r => r.costItems.filter(i => i.name === n).reduce((a, i) => a + i.amt, 0))).join('')}
+  ${tr('Total cost', r => r.cost, { cls: 'fm-tot' })}
+  ${tr('Surplus', r => r.surplus, { cls: 'fm-tot', sign: 1 })}
+  ${tr('Margin', r => (r.margin * 100).toFixed(1) + '%', { raw: 1 })}
+  ${tr('Salaries as % of income', r => (r.revenue ? Math.round(r.salary * 100 / r.revenue) : 0) + '%', { raw: 1 })}
+  ${tr('Income per student', r => _inr(r.students ? r.revenue / r.students : 0), { raw: 1 })}
+  ${tr('Cost per student', r => _inr(r.students ? r.cost / r.students : 0), { raw: 1 })}
+ </tbody></table></div>
+ ${m.feeMode !== 'simple' ? `<details class="fm-det"><summary>Students in each class, each session</summary><div class="fm-tblwrap"><table class="fm-big"><thead><tr><th></th>${cols}</tr></thead><tbody>
+   ${rows[0].classes.map((c, k) => `<tr><td>${_fmEsc(_fmCls(c.cls))}</td>${rows.map(r => `<td class="fm-num">${Math.round(r.classes[k].students)}</td>`).join('')}</tr>`).join('')}
+  </tbody></table></div></details>` : ''}`;
+}
+function _fmCashHTML(res){
+ const rows = res.rows, cols = rows.map(r => `<th>${r.label}</th>`).join('');
+ const tr = (l, f, cls) => `<tr class="${cls || ''}"><td>${l}</td>${rows.map(r => { const v = f(r); return `<td class="fm-num ${v < 0 ? 'neg' : ''}">${_fmMoney(v)}</td>`; }).join('')}</tr>`;
+ return `<div class="fm-h" style="margin-bottom:8px">How much money the school has at the end of each session, after one-time spending and loans.</div>
+  <div class="fm-tblwrap"><table class="fm-big"><thead><tr><th></th>${cols}</tr></thead><tbody>
+  ${tr('Cash at the start', r => r.openCash)}${tr('+ Surplus from running the school', r => r.surplus)}
+  ${rows.some(r => r.loanIn) ? tr('+ Loans taken', r => r.loanIn) : ''}${rows.some(r => r.capex) ? tr('− One-time spending', r => -r.capex) : ''}
+  ${rows.some(r => r.loanPay) ? tr('− Loan repayments', r => -r.loanPay) : ''}${rows.some(r => r.interest) ? tr('   of which interest', r => -r.interest, 'fm-dim') : ''}
+  ${tr('Cash at the end', r => r.closeCash, 'fm-tot')}${rows.some(r => r.debt) ? tr('Loan still to repay', r => r.debt, 'fm-dim') : ''}
+  </tbody></table></div>`;
+}
+const FM_LEVERS = [['students', 'Students', '%', [-20, -10, 0, 10, 20]], ['fee', 'Fees', '%', [-10, -5, 0, 5, 10]], ['coll', 'Collection', ' pts', [-10, -5, 0, 5, 10]], ['salary', 'Salary bill', '%', [-10, 0, 10, 20, 30]], ['costs', 'Other costs', '%', [-20, -10, 0, 10, 20]]];
+function _fmSensHTML(){
+ const m = finModel, Y = Math.round(_fmN(m.years, 5)), S = _fmSens;
+ const X = FM_LEVERS.find(l => l[0] === S.x) || FM_LEVERS[0], YY = FM_LEVERS.find(l => l[0] === S.y && l[0] !== X[0]) || FM_LEVERS.find(l => l[0] !== X[0]);
+ const base = Object.assign({ students: 0, fee: 0, coll: 0, salary: 0, costs: 0 }, m.whatIf || {});
+ const grid = YY[3].map(dy => X[3].map(dx => _fmMetric(_fmRun(m, Object.assign({}, base, { [X[0]]: base[X[0]] + dx, [YY[0]]: base[YY[0]] + dy })), S.metric, S.year)));
+ const all = grid.flat(), mx = Math.max(1, ...all.map(Math.abs));
+ const col = v => v >= 0 ? `rgba(21,128,61,${0.12 + 0.55 * Math.min(1, v / mx)})` : `rgba(190,18,60,${0.12 + 0.55 * Math.min(1, -v / mx)})`;
+ const sel = (id, val, opts) => `<select data-sens="${id}" class="fm-in" style="width:auto">${opts.map(([v, l]) => `<option value="${v}" ${String(v) === String(val) ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+ const lev = FM_LEVERS.map(l => [l[0], l[1]]);
+ const mets = [['surplus', 'Surplus in a session'], ['total', 'Total surplus, all years'], ['cash', 'Cash at the end']];
+ const fmt = (d, u) => (d > 0 ? '+' : '') + d + u;
+ return `<div class="fm-h" style="margin-bottom:8px">Every combination of two changes at once. Each box is the result if both happen together; the middle box is the plan as it stands.</div>
+  <div class="fm-sens-ctl">${_fmField('Across', sel('x', X[0], lev))}${_fmField('Down', sel('y', YY[0], lev.filter(l => l[0] !== X[0])))}${_fmField('Show', sel('metric', S.metric, mets))}${S.metric === 'surplus' ? _fmField('Session', sel('year', S.year, Array.from({ length: Y + 1 }, (_, y) => [y, _fmSess(y)]))) : ''}</div>
+  <div class="fm-tblwrap"><table class="fm-sens"><thead><tr><th>${YY[1]} ↓ · ${X[1]} →</th>${X[3].map(d => `<th>${fmt(d, X[2])}</th>`).join('')}</tr></thead>
+  <tbody>${YY[3].map((dy, i) => `<tr><th>${fmt(dy, YY[2])}</th>${grid[i].map((v, j) => `<td style="background:${col(v)}" class="${dy === 0 && X[3][j] === 0 ? 'mid' : ''}">${_fmMoney(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
+  ${_fmGoalHTML()}`;
+}
+function _fmGoalHTML(){
+ const m = finModel, Y = Math.round(_fmN(m.years, 5)), g = m.goal || { target: 0, year: Y };
+ const yr = _fmClamp(Math.round(_fmN(g.year, Y)), 0, Y), target = _fmN(g.target);
+ const ans = FM_LEVERS.map(([k, l, u]) => { const x = _fmSolve(m, k, target, 'surplus', yr); return [l, x, u]; });
+ return `<div class="fm-box" style="margin-top:14px"><b><i class="fas fa-bullseye"></i> Reach a target</b>
+  <div class="fm-row2" style="margin-top:6px">${_fmField('Surplus wanted', _fmIn('goal.target'), 'e.g. 1000000 for ₹10 lakh')}${_fmField('In', _fmSel('goal.year', _fmYearOpts(), { num: true }))}</div>
+  <div class="fm-h" style="margin:4px 0 6px">Any ONE of these gets you there (on top of the plan):</div>
+  <ul class="fm-goal">${ans.map(([l, x, u]) => `<li><span>${l}</span><b>${x == null ? 'not reachable alone' : (Math.abs(x) < 0.05 ? 'already there' : (x > 0 ? '+' : '') + x.toFixed(1) + u)}</b></li>`).join('')}</ul></div>`;
+}
+function _fmCompareHTML(){
+ const saved = getFinModels();
+ const pick = saved.filter(s => _fmCmp.includes(String(s.id)));
+ const runs = [{ name: (_finLoadedName || 'This plan') + ' (on screen)', res: _fmRun(finModel) }].concat(pick.map(s => ({ name: s.name, res: _fmRun(_fmMigrate(s.model)) })));
+ const colors = ['#4f46e5', '#15803d', '#b45309', '#be123c', '#0891b2'];
+ const Yn = Math.max(...runs.map(r => r.res.rows.length));
+ const W = 760, H = 260, pl = 60, pb = 30, pt = 14, pr = 12;
+ const allV = runs.flatMap(r => r.res.rows.map(x => x.surplus)); const mx = Math.max(1, ...allV), mn = Math.min(0, ...allV);
+ const xx = i => pl + (W - pl - pr) * (Yn > 1 ? i / (Yn - 1) : 0.5), yy = v => pt + (H - pt - pb) * (1 - (v - mn) / (mx - mn));
+ let svg = `<line x1="${pl}" x2="${W - pr}" y1="${yy(0)}" y2="${yy(0)}" stroke="var(--fm-mute)"/>`;
+ [mn, 0, mx].filter((v, i, a) => a.indexOf(v) === i).forEach(v => { svg += `<text x="${pl - 6}" y="${yy(v) + 4}" text-anchor="end" font-size="11" fill="var(--fm-mute)">${v === 0 ? '0' : (v / 1e5).toFixed(0) + 'L'}</text>`; });
+ for (let i = 0; i < Yn; i++) svg += `<text x="${xx(i)}" y="${H - 10}" text-anchor="middle" font-size="10" fill="var(--fm-mute)">${_fmSess(i)}</text>`;
+ runs.forEach((r, k) => { svg += `<polyline fill="none" stroke="${colors[k % 5]}" stroke-width="2.5" points="${r.res.rows.map((x, i) => xx(i) + ',' + yy(x.surplus)).join(' ')}"/>`; });
+ const met = [['This session surplus', r => r.rows[0].surplus], ['Final session surplus', r => r.rows[r.rows.length - 1].surplus], ['Total surplus, all years', r => r.totalSurplus], ['Cash at the end', r => r.endCash], ['Students at the end', r => Math.round(r.rows[r.rows.length - 1].students), 1], ['Break-even students now', r => r.be.students == null ? '—' : r.be.students, 1]];
+ return `<div class="fm-h" style="margin-bottom:8px">Tick saved plans to set them beside the one on screen.</div>
+  <div class="fm-cmp-pick">${saved.map(s => `<label><input type="checkbox" data-cmp="${s.id}" ${_fmCmp.includes(String(s.id)) ? 'checked' : ''}> ${_fmEsc(s.name)}</label>`).join('') || '<span class="fm-h">No saved plans yet. Use "Save" above.</span>'}</div>
+  <div class="fm-chart"><svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" role="img" aria-label="Surplus by session for each plan">${svg}</svg></div>
+  <div class="fm-legend">${runs.map((r, k) => `<span><i style="background:${colors[k % 5]}"></i>${_fmEsc(r.name)}</span>`).join('')}</div>
+  <div class="fm-tblwrap"><table class="fm-big"><thead><tr><th></th>${runs.map((r, k) => `<th style="color:${colors[k % 5]}">${_fmEsc(r.name)}</th>`).join('')}</tr></thead>
+  <tbody>${met.map(([l, f, raw]) => `<tr><td>${l}</td>${runs.map(r => { const v = f(r.res); return `<td class="fm-num ${!raw && v < 0 ? 'neg' : ''}">${raw ? v : _fmMoney(v)}</td>`; }).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
+function _fmResultsHTML(res){
+ res = res || _fmRun(finModel);
+ const tabs = [['overview', 'Overview'], ['table', 'Session by session'], ['cash', 'Cash flow'], ['sens', 'Combinations & targets'], ['compare', 'Compare plans']];
+ let body = '';
+ if (_fmTab === 'overview') {
+  const sel = _fmClamp(Math.round(_fmN((finModel.ui || {}).mixYear, 0)), 0, res.rows.length - 1);
+  body = `${_fmInsights(res)}<div class="fm-sub">Income, cost and surplus</div>${_fmBarsChart(res.rows)}
+   <div class="fm-sub">Where the money goes in <select data-k="ui.mixYear" data-t="n" class="fm-in" style="width:auto;display:inline-block;padding:2px 6px">${res.rows.map(r => `<option value="${r.y}" ${r.y === sel ? 'selected' : ''}>${r.label}</option>`).join('')}</select></div>${_fmMix(res.rows[sel])}`;
+ } else if (_fmTab === 'table') body = _fmTable(res);
+ else if (_fmTab === 'cash') body = _fmCashHTML(res);
+ else if (_fmTab === 'sens') body = _fmSensHTML();
+ else if (_fmTab === 'compare') body = _fmCompareHTML();
+ return `<div class="fm-panel"><div class="fm-tabs">${tabs.map(([k, l]) => `<button type="button" data-act="tab" data-v="${k}" class="${_fmTab === k ? 'on' : ''}">${l}</button>`).join('')}</div><div class="fm-body">${body}</div></div>`;
+}
+function _fmStyle(){
+ return `<style>
+ #finModelWrap{--fm-ink:#172033;--fm-mute:#6b7280;--fm-line:#e5e7eb;--fm-grid:#eef0f3;--fm-bg:#fff;--fm-soft:#f6f7f9;--fm-acc:#4f46e5}
+ #finModelWrap .fm-top{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--fm-bg);border:1px solid var(--fm-line);border-radius:14px;padding:10px 12px}
+ #finModelWrap .fm-top .fm-name{font-weight:700;color:var(--fm-ink);margin-right:auto;min-width:0}
+ #finModelWrap .fm-top .fm-name small{display:block;font-weight:500;color:var(--fm-mute);font-size:12px}
+ #finModelWrap .fm-btn{border:1px solid var(--fm-line);background:#fff;border-radius:10px;padding:7px 12px;font-size:13px;font-weight:600;color:var(--fm-ink);display:inline-flex;gap:6px;align-items:center;white-space:nowrap}
+ #finModelWrap .fm-jump{display:inline-flex} @media(min-width:1180px){#finModelWrap .fm-jump{display:none}}
+ #finModelWrap .fm-btn.pri{background:var(--fm-acc);border-color:var(--fm-acc);color:#fff}
+ #finModelWrap .fm-btn:hover{filter:brightness(.97)}
+ #finModelWrap .fm-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;margin-top:14px}
+ @media(min-width:1180px){#finModelWrap .fm-grid{grid-template-columns:minmax(0,1fr) 440px}}
+ #finModelWrap .fm-kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+ @media(min-width:760px){#finModelWrap .fm-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
+ @media(min-width:1400px){#finModelWrap .fm-kpis{grid-template-columns:repeat(6,minmax(0,1fr))}}
+ #finModelWrap .fm-kpi{background:#fff;border:1px solid var(--fm-line);border-radius:12px;padding:10px 12px;min-width:0}
+ #finModelWrap .fm-kl{font-size:12px;color:var(--fm-mute)} #finModelWrap .fm-kv{font-size:22px;font-weight:800;line-height:1.2;margin-top:2px;font-variant-numeric:tabular-nums}
+ #finModelWrap .fm-ks{font-size:12px;color:var(--fm-mute);margin-top:2px}
+ #finModelWrap .fm-whatif{background:#eef2ff;border:1px solid #c7d2fe;border-radius:12px;padding:10px 12px;margin-top:10px}
+ #finModelWrap .fm-wi-head{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;color:#312e81;font-size:14px}
+ #finModelWrap .fm-wi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px 16px;margin-top:6px}
+ #finModelWrap .fm-wi span{display:flex;justify-content:space-between;font-size:13px;color:var(--fm-ink)} #finModelWrap .fm-wi input{width:100%;accent-color:var(--fm-acc)}
+ #finModelWrap .fm-wi b.up{color:#15803d} #finModelWrap .fm-wi b.down{color:#be123c}
+ #finModelWrap .fm-link{color:var(--fm-acc);font-weight:700;text-decoration:underline;background:none;border:0;padding:0;font-size:13px}
+ #finModelWrap .fm-panel{background:#fff;border:1px solid var(--fm-line);border-radius:14px;margin-top:10px;overflow:hidden}
+ #finModelWrap .fm-tabs,#finModelWrap .fm-intabs{display:flex;gap:2px;overflow-x:auto;border-bottom:1px solid var(--fm-line);background:var(--fm-soft);padding:4px 4px 0}
+ #finModelWrap .fm-tabs button,#finModelWrap .fm-intabs button{border:0;background:none;padding:9px 12px;font-size:13px;font-weight:600;color:var(--fm-mute);border-radius:9px 9px 0 0;white-space:nowrap;display:inline-flex;gap:6px;align-items:center}
+ #finModelWrap .fm-tabs button.on,#finModelWrap .fm-intabs button.on{background:#fff;color:var(--fm-ink);box-shadow:0 -2px 0 var(--fm-acc) inset}
+ #finModelWrap .fm-body,#finModelWrap .fm-inbody{padding:14px}
+ #finModelWrap .fm-f{display:block;min-width:0} #finModelWrap .fm-l{display:block;font-size:12px;color:#4b5563;margin-bottom:3px;font-weight:600}
+ #finModelWrap .fm-h{display:block;font-size:12px;color:var(--fm-mute);margin-top:3px;line-height:1.4}
+ #finModelWrap .fm-in{width:100%;border:1px solid #d1d5db;border-radius:8px;padding:6px 8px;font-size:14px;background:#fff;color:var(--fm-ink);font-variant-numeric:tabular-nums}
+ #finModelWrap .fm-in:focus{outline:2px solid #a5b4fc;border-color:var(--fm-acc)}
+ #finModelWrap .fm-row2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:10px}
+ #finModelWrap .fm-grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px} #finModelWrap .fm-grid5{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+ @media(max-width:560px){#finModelWrap .fm-grid5,#finModelWrap .fm-grid4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+ #finModelWrap .fm-seg{display:flex;border:1px solid #d1d5db;border-radius:9px;overflow:hidden} #finModelWrap .fm-seg button{flex:1;border:0;background:#fff;padding:6px 8px;font-size:13px;font-weight:600;color:var(--fm-mute)}
+ #finModelWrap .fm-seg button.on{background:var(--fm-acc);color:#fff}
+ #finModelWrap .fm-tbl{width:100%;font-size:13px;border-collapse:collapse;margin:6px 0} #finModelWrap .fm-tbl th{font-size:12px;color:var(--fm-mute);text-align:left;font-weight:600;padding:4px 6px}
+ #finModelWrap .fm-tbl td{padding:3px 6px;border-top:1px solid var(--fm-grid)} #finModelWrap .fm-tbl tfoot td{font-weight:700;border-top:2px solid var(--fm-line)}
+ #finModelWrap .fm-num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+ #finModelWrap .fm-card{border:1px solid var(--fm-line);border-radius:10px;padding:10px;margin:8px 0;background:#fcfcfd}
+ #finModelWrap .fm-card-top{display:flex;gap:8px;margin-bottom:8px;align-items:center} #finModelWrap .fm-card-top .fm-in{width:auto} #finModelWrap .fm-grow{flex:1;min-width:0}
+ #finModelWrap .fm-x{color:#be123c;background:none;border:0;padding:4px 6px}
+ #finModelWrap .fm-btn-s{border:1px dashed #a5b4fc;color:var(--fm-acc);background:#fff;border-radius:9px;padding:6px 10px;font-size:13px;font-weight:600;margin:4px 6px 4px 0;display:inline-flex;gap:6px;align-items:center}
+ #finModelWrap .fm-actions{display:flex;flex-wrap:wrap}
+ #finModelWrap .fm-sub{font-weight:700;color:var(--fm-ink);margin:16px 0 6px;font-size:14px}
+ #finModelWrap .fm-box{border:1px solid var(--fm-line);background:var(--fm-soft);border-radius:10px;padding:10px 12px;margin-top:8px}
+ #finModelWrap .fm-presets{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px;color:var(--fm-mute);margin:0 0 6px}
+ #finModelWrap .fm-presets button{border:1px solid var(--fm-line);background:#fff;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:600;color:var(--fm-ink)} #finModelWrap .fm-presets small{color:var(--fm-mute);font-weight:500}
+ #finModelWrap .fm-ins{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px}
+ #finModelWrap .fm-insc{border:1px solid;border-radius:10px;padding:9px 11px;font-size:13px;line-height:1.45;color:#374151}
+ #finModelWrap .fm-chart{overflow-x:auto}
+ #finModelWrap .fm-mix{display:flex;flex-direction:column;gap:6px} #finModelWrap .fm-mixrow{display:grid;grid-template-columns:130px minmax(0,1fr) 120px;gap:8px;align-items:center;font-size:13px}
+ #finModelWrap .fm-mixbar{height:10px;background:var(--fm-grid);border-radius:99px;overflow:hidden;display:block} #finModelWrap .fm-mixbar span{display:block;height:100%}
+ #finModelWrap .fm-mixv{text-align:right;font-variant-numeric:tabular-nums} #finModelWrap .fm-mixv small{color:var(--fm-mute)}
+ #finModelWrap .fm-tblwrap{overflow-x:auto}
+ #finModelWrap .fm-big{width:100%;border-collapse:collapse;font-size:13px} #finModelWrap .fm-big th{background:var(--fm-soft);padding:7px 10px;text-align:right;white-space:nowrap;font-size:12px;color:#374151}
+ #finModelWrap .fm-big th:first-child,#finModelWrap .fm-big td:first-child{text-align:left;position:sticky;left:0;background:#fff;white-space:nowrap} #finModelWrap .fm-big th:first-child{background:var(--fm-soft)}
+ #finModelWrap .fm-big td{padding:6px 10px;border-top:1px solid var(--fm-grid)} #finModelWrap .fm-big tr.fm-tot td{font-weight:700;border-top:2px solid var(--fm-line)}
+ #finModelWrap .fm-big tr.fm-sec td{background:#fafafa;font-weight:700;color:var(--fm-mute);font-size:12px;padding-top:10px} #finModelWrap .fm-big tr.fm-dim td{color:var(--fm-mute)}
+ #finModelWrap .pos{color:#15803d} #finModelWrap .neg{color:#be123c}
+ #finModelWrap .fm-det{margin-top:10px} #finModelWrap .fm-det summary{cursor:pointer;font-weight:600;font-size:13px;color:var(--fm-acc)}
+ #finModelWrap .fm-sens-ctl{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,max-content));gap:10px;margin-bottom:10px}
+ #finModelWrap .fm-sens{border-collapse:separate;border-spacing:3px;font-size:13px} #finModelWrap .fm-sens th{font-size:12px;color:var(--fm-mute);padding:4px 8px;white-space:nowrap}
+ #finModelWrap .fm-sens td{padding:9px 10px;border-radius:7px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600;color:#111827}
+ #finModelWrap .fm-sens td.mid{outline:2.5px solid #111827}
+ #finModelWrap .fm-goal{list-style:none;margin:0;padding:0;display:grid;gap:4px} #finModelWrap .fm-goal li{display:flex;justify-content:space-between;background:#fff;border:1px solid var(--fm-line);border-radius:8px;padding:6px 10px;font-size:13px}
+ #finModelWrap .fm-cmp-pick{display:flex;flex-wrap:wrap;gap:8px 16px;margin-bottom:8px;font-size:13px} #finModelWrap .fm-cmp-pick input{width:auto}
+ #finModelWrap .fm-legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12px;margin:4px 0 10px} #finModelWrap .fm-legend i{display:inline-block;width:14px;height:4px;border-radius:2px;margin-right:6px;vertical-align:middle}
+ @media(max-width:640px){#finModelWrap .fm-kv{font-size:18px} #finModelWrap .fm-mixrow{grid-template-columns:96px minmax(0,1fr) 96px}}
+ </style>`;
+}
+function renderFinancialModel(){
+ const saved = ensureSeedFinModel();
+ if (!finModel) {   // open the most recently saved plan; "Start from today's data" makes a fresh one
+  const last = saved.slice().sort((a, b) => String(b.savedAt || '').localeCompare(String(a.savedAt || '')))[0];
+  if (last) { finModel = _fmMigrate(last.model); _finLoadedName = last.name; } else finModel = _fmMigrate(null);
+ }
+ return `${_fmStyle()}
+ <div class="fm-top">
+  <div class="fm-name"><i class="fas fa-chart-line" style="color:var(--fm-acc)"></i> ${_finLoadedName ? _fmEsc(_finLoadedName) : 'New plan (not saved)'}<small>Change any number in the plan and everything updates at once.</small></div>
+  <a href="#fmInputs" class="fm-btn fm-jump" onclick="document.getElementById('fmInputs').scrollIntoView({behavior:'smooth'});return false;"><i class="fas fa-pen"></i>Edit the plan</a>
+  <select id="fmScenarioSel" class="fm-in" style="width:auto;max-width:200px"><option value="">Open a saved plan…</option>${saved.map(x => `<option value="${x.id}" ${_finLoadedName === x.name ? 'selected' : ''}>${_fmEsc(x.name)}</option>`).join('')}</select>
+  <button type="button" data-act="save" class="fm-btn pri"><i class="fas fa-floppy-disk"></i>Save</button>
+  <button type="button" data-act="saveas" class="fm-btn"><i class="fas fa-copy"></i>Save as new</button>
+  <button type="button" data-act="live" class="fm-btn"><i class="fas fa-rotate-left"></i>Start from today's data</button>
+  <button type="button" data-act="xlsx" class="fm-btn"><i class="fas fa-file-excel" style="color:#15803d"></i>Excel</button>
+  ${_finLoadedName ? `<button type="button" data-act="delete" class="fm-btn" style="color:#be123c"><i class="fas fa-trash"></i>Delete</button>` : ''}
+ </div>
+ <div class="fm-grid"><div><div id="fmKpi">${_fmKpis(_fmRun(finModel))}</div><div id="fmWI">${_fmWhatIfHTML()}</div><div id="fmResults">${_fmResultsHTML()}</div></div><div id="fmInputs">${_fmInputsHTML()}</div></div>`;
+}
+function _finRerender(){ const w = document.getElementById('finModelWrap'); if (w) { w.innerHTML = renderFinancialModel(); _attachFinancialModelEvents(); } }
+function _finRecalc(){ const r = document.getElementById('fmResults'); if (!r) return; const res = _fmRun(finModel); const k = document.getElementById('fmKpi'); if (k) k.innerHTML = _fmKpis(res);
+ const sx = r.querySelector('.fm-tblwrap'), left = sx ? sx.scrollLeft : 0; r.innerHTML = _fmResultsHTML(res); const nx = r.querySelector('.fm-tblwrap'); if (nx) nx.scrollLeft = left; }
+function _fmWIRerender(){ const p = document.getElementById('fmWI'); if (p) p.innerHTML = _fmWhatIfHTML(); }
+function _fmInputsRerender(){ const p = document.getElementById('fmInputs'); if (p) p.innerHTML = _fmInputsHTML(); }
+function _fmNewLine(list){
+ const Y = 0;
+ if (list === 'hires') return { label: '', type: 'Teaching', count: 1, monthly: 0, startYear: 1, endYear: '', months: _fmN(finModel.staff.monthsPaid, 11), firstYearMonths: '' };
+ if (list === 'costLines') return { name: '', group: 'Running costs', kind: 'fixed', amount: 0, growth: '', startYear: Y, endYear: '' };
+ if (list === 'incomeLines') return { name: '', kind: 'perStudent', amount: 0, growth: 'fee', startYear: Y, endYear: '' };
+ if (list === 'capex') return { name: '', amount: 0, year: 1 };
+ if (list === 'loans') return { name: '', amount: 0, rate: 10, years: 5, startYear: 1 };
+ return {};
+}
 function _attachFinancialModelEvents(){
- document.querySelectorAll('.finInput').forEach(inp=>inp.addEventListener('input',()=>{
-  const key=inp.dataset.key; let v=parseFloat(inp.value); if(isNaN(v)) v=0; finModel[key]=v;
-  if(key==='years'){ const y=Math.max(1,Math.min(15,Math.round(v))); const g=finModel.growth||[]; if(y>g.length){for(let i=g.length;i<y;i++)g.push({student:5,fee:5});} else {g.length=y;} finModel.growth=g; _finRerender(); }
-  else _finRecalc();
- }));
- document.querySelectorAll('.finGrowS').forEach(inp=>inp.addEventListener('input',()=>{ const i=+inp.dataset.i; let v=parseFloat(inp.value); if(isNaN(v))v=0; finModel.growth[i].student=v; _finRecalc(); }));
- document.querySelectorAll('.finGrowF').forEach(inp=>inp.addEventListener('input',()=>{ const i=+inp.dataset.i; let v=parseFloat(inp.value); if(isNaN(v))v=0; finModel.growth[i].fee=v; _finRecalc(); }));
- document.querySelectorAll('.finStaffLabel').forEach(inp=>inp.addEventListener('input',()=>{ finModel.addedStaff[+inp.dataset.i].label=inp.value; }));
- document.querySelectorAll('.finStaffSal').forEach(inp=>inp.addEventListener('input',()=>{ let v=parseFloat(inp.value); if(isNaN(v))v=0; finModel.addedStaff[+inp.dataset.i].monthly=v; _finRecalc(); }));
- document.querySelectorAll('.finStaffType').forEach(sel=>sel.addEventListener('change',()=>{ finModel.addedStaff[+sel.dataset.i].type=sel.value; _finRecalc(); }));
- document.querySelectorAll('.finStaffYear').forEach(sel=>sel.addEventListener('change',()=>{ finModel.addedStaff[+sel.dataset.i].startYear=parseInt(sel.value)||0; _finRerender(); }));
- document.querySelectorAll('.finStaffCount').forEach(inp=>inp.addEventListener('input',()=>{ let v=parseInt(inp.value); if(isNaN(v)||v<1)v=1; finModel.addedStaff[+inp.dataset.i].count=v; _finRerender(); }));
- document.querySelectorAll('.finStaffMonths').forEach(inp=>inp.addEventListener('input',()=>{ let v=parseFloat(inp.value); if(isNaN(v)||v<0)v=0; if(v>12)v=12; finModel.addedStaff[+inp.dataset.i].months=v; _finRerender(); }));
- document.querySelectorAll('.finStaffFirstMonths').forEach(inp=>inp.addEventListener('input',()=>{ let v=parseFloat(inp.value); if(isNaN(v)||v<0)v=0; if(v>12)v=12; finModel.addedStaff[+inp.dataset.i].firstYearMonths=v; _finRerender(); }));
- document.querySelectorAll('.finStaffDel').forEach(b=>b.addEventListener('click',()=>{ finModel.addedStaff.splice(+b.dataset.i,1); _finRerender(); }));
- document.getElementById('fmAddStaffBtn')?.addEventListener('click',()=>{ (finModel.addedStaff=finModel.addedStaff||[]).push({label:'',monthly:0,type:'Teaching',startYear:0,count:1}); _finRerender(); });
- document.getElementById('fmResetBtn')?.addEventListener('click',()=>{ finModel=_finModelAutofill(); _finRerender(); });
- document.getElementById('fmSaveBtn')?.addEventListener('click',()=>_finSaveCurrent());
- document.getElementById('fmLoadBtn')?.addEventListener('click',()=>{ const v=document.getElementById('fmScenarioSel')?.value; if(!v){alert('Pick a saved scenario first.');return;} _finLoad(v); });
- document.getElementById('fmDeleteBtn')?.addEventListener('click',()=>{ const v=document.getElementById('fmScenarioSel')?.value; if(!v){alert('Pick a saved scenario first.');return;} _finDelete(v); });
- document.getElementById('fmExportBtn')?.addEventListener('click', exportFinModelExcel);
- document.getElementById('_fmOldExport')?.addEventListener('click',()=>{
-  const {current,rows,be}=_finCompute(finModel);
-  let csv='Period,Students,Avg Fee,Revenue,Salary,Transport,School Maintenance,Expenses,Total Cost,Surplus,Margin %\n';
-  const line=(lbl,r)=>`${lbl},${r.students},${Math.round(r.avgFee)},${Math.round(r.revenue)},${Math.round(r.salary)},${Math.round(r.transport)},${Math.round(r.schoolMaint)},${Math.round(r.expenses)},${Math.round(r.cost)},${Math.round(r.surplus)},${(r.margin*100).toFixed(1)}\n`;
-  csv+=line('Now (current)',current); rows.forEach(r=>csv+=line('Year '+r.year,r));
-  csv+=`\nBreak-even students,${be.students}\nBreak-even avg fee,${Math.round(be.avgFee)}\n`;
-  const blob=new Blob([csv],{type:'text/csv'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='MDBV_Financial_Model_'+new Date().toISOString().slice(0,10)+'.csv'; a.click();
+ const w = document.getElementById('finModelWrap'); if (!w || w._fmBound) return; w._fmBound = true;
+ const onVal = (el, final) => {
+  const k = el.dataset.k; if (!k) return;
+  let v = el.value;
+  if (el.dataset.t === 's') { /* text or text select */ if (el.tagName === 'SELECT' && v !== '' && !isNaN(Number(v)) && !/growth|endYear/.test(k)) v = Number(v); }
+  else if (el.dataset.t === 'n') v = Number(v) || 0;
+  else { if (v === '' && !final) return; v = v === '' ? 0 : Number(v); if (!isFinite(v)) return; }
+  if (final && el.tagName === 'INPUT' && String(_fmGet(k)) === String(v)) return;
+  _fmSet(k, v);
+  if (k === 'years') { const Y = _fmClamp(Math.round(v), 1, 15), g = finModel.growth || []; while (g.length < Y) g.push(g.length ? Object.assign({}, g[g.length - 1]) : { student: 5, fee: 5 }); finModel.growth = g; }
+  if (el.dataset.r === '1' || k === 'years') { _fmInputsRerender(); }
+  _finRecalc();
+ };
+ w.addEventListener('input', e => { const el = e.target;
+  if (el.dataset && el.dataset.wi) { finModel.whatIf = finModel.whatIf || {}; finModel.whatIf[el.dataset.wi] = Number(el.value) || 0; clearTimeout(w._wiT); w._wiT = setTimeout(_finRecalc, 60);
+   const f = FM_WHATIF.find(x => x.k === el.dataset.wi); const b = w.querySelector(`[data-wiv="${el.dataset.wi}"]`); if (b && f) { const v = Number(el.value) || 0; b.textContent = (v > 0 ? '+' : '') + v + f.u; b.className = v > 0 ? 'up' : v < 0 ? 'down' : ''; }
+   const rl = w.querySelector('[data-act="wi-reset"]'); if (rl) rl.style.visibility = FM_WHATIF.some(x => _fmN(finModel.whatIf[x.k])) ? 'visible' : 'hidden'; return; }
+  if (el.dataset && el.dataset.k && el.tagName === 'INPUT') onVal(el, false); });
+ w.addEventListener('change', e => { const el = e.target;
+  if (el.id === 'fmScenarioSel') { if (el.value) _finLoad(el.value); return; }
+  if (el.dataset && el.dataset.sens) { const v = el.value; _fmSens[el.dataset.sens] = (el.dataset.sens === 'year') ? Number(v) : v; if (el.dataset.sens === 'x' && _fmSens.y === v) _fmSens.y = FM_LEVERS.find(l => l[0] !== v)[0]; _finRecalc(); return; }
+  if (el.dataset && el.dataset.cmp) { const id = el.dataset.cmp; _fmCmp = el.checked ? _fmCmp.concat([id]) : _fmCmp.filter(x => x !== id); _finRecalc(); return; }
+  if (el.dataset && el.dataset.k) onVal(el, true); });
+ w.addEventListener('click', e => { const b = e.target.closest('[data-act]'); if (!b || !w.contains(b)) return;
+  const a = b.dataset.act;
+  if (a === 'tab') { _fmTab = b.dataset.v; _finRecalc(); }
+  else if (a === 'intab') { _fmInTab = b.dataset.v; _fmInputsRerender(); }
+  else if (a === 'seg') { _fmSet(b.dataset.k, b.dataset.v); if (b.dataset.k === 'feeMode' && b.dataset.v === 'simple') finModel.growthMode = 'percent'; _fmInputsRerender(); _finRecalc(); }
+  else if (a === 'add') { const l = b.dataset.list; (finModel[l] = finModel[l] || []).push(_fmNewLine(l)); _fmInputsRerender(); _finRecalc(); }
+  else if (a === 'del') { const l = b.dataset.list; finModel[l].splice(Number(b.dataset.i), 1); _fmInputsRerender(); _finRecalc(); }
+  else if (a === 'preset') { const s = Number(b.dataset.s), f = Number(b.dataset.f); finModel.growth = (finModel.growth || []).map(() => ({ student: s, fee: f })); _fmInputsRerender(); _finRecalc(); }
+  else if (a === 'wi-reset') { finModel.whatIf = { students: 0, fee: 0, coll: 0, salary: 0, costs: 0 }; _fmWIRerender(); _finRecalc(); }
+  else if (a === 'live-students') { const live = _finModelAutofill(); finModel.classes = live.classes; finModel.simple = live.simple; finModel.collSoFar = live.collSoFar; finModel.newThisYear = live.newThisYear; finModel.cohort.intake = live.cohort.intake; _fmInputsRerender(); _finRecalc(); showToast('Students and fees refilled from today\'s records'); }
+  else if (a === 'live-staff') { const live = _finModelAutofill(); finModel.staff.teaching = live.staff.teaching; finModel.staff.nonTeaching = live.staff.nonTeaching; _fmInputsRerender(); _finRecalc(); showToast('Salaries refilled from staff records'); }
+  else if (a === 'live-costs') { if (!confirm('Replace the cost lines with the Ledger totals of the last 12 months?')) return; finModel.costLines = _fmLiveCostLines(); _fmInputsRerender(); _finRecalc(); }
+  else if (a === 'live') { if (!confirm('Start a new plan from today\'s students, staff and Ledger? (Saved plans are not changed.)')) return; finModel = _finModelAutofill(); _finLoadedName = ''; _finRerender(); }
+  else if (a === 'save') _finSaveCurrent(_finLoadedName || '', !!_finLoadedName);
+  else if (a === 'saveas') _finSaveCurrent('', false);
+  else if (a === 'delete') { const rec = getFinModels().find(x => x.name === _finLoadedName); if (rec) _finDelete(rec.id); }
+  else if (a === 'xlsx') exportFinModelExcel();
  });
 }
 
@@ -18354,154 +18604,94 @@ function renderFeeDashboard(){
 }
 // Printable class-wise fee register: every student with decided fee, paid and unpaid,
 // with per-class subtotals and a grand total. Meant for checking against the hard-copy register.
-// ===== SAVED FINANCIAL MODELS =====
+// ===== SAVED FINANCIAL PLANS =====
 function getFinModels(){ const v = get('finModels'); return Array.isArray(v) ? v : []; }
 function saveFinModels(d){ DB.setAll('finModels', d); }
-var _finLoadedName = '';
-// The scenario captured from the owner's first planning session, so it survives a refresh.
+// The plan captured from the owner's first planning session (version 1 format; converted when opened).
 function _seedFinModel1(){
- const base = _finModelAutofill();
- return Object.assign(base, {
-  teachingSalary: 123500, nonTeachingSalary: 70000, monthsPaid: 11, salaryIncrement: 8,
-  fuel: 609485, maintenance: 150000, permits: 100000, transportMisc: 20000,
-  schoolMaintenance: 319430, expenses: 37465, inflation: 5, years: 5,
+ return { students: 268, avgFee: 14850, collRate: 90, bookFee: 1500, teachingSalary: 123500, nonTeachingSalary: 70000, monthsPaid: 11, salaryIncrement: 8,
+  fuel: 609485, maintenance: 150000, permits: 100000, transportMisc: 20000, schoolMaintenance: 319430, expenses: 37465, inflation: 5, years: 5,
   growth: [{student:30,fee:5},{student:15,fee:5},{student:12,fee:5},{student:12,fee:5},{student:10,fee:5}],
   addedStaff: [
-   {label:'Principal',  type:'Principal',    monthly:40000, startYear:0, count:1, months:7,  firstYearMonths:7},
-   {label:'Computer',   type:'Teaching',     monthly:6000,  startYear:0, count:1, months:6,  firstYearMonths:6},
-   {label:'PGT',        type:'Teaching',     monthly:12000, startYear:0, count:1, months:5,  firstYearMonths:5},
-   {label:'Gaurd',      type:'Non-Teaching', monthly:8000,  startYear:0, count:1, months:9,  firstYearMonths:9},
-   {label:'TGT',        type:'Teaching',     monthly:10000, startYear:0, count:1, months:6,  firstYearMonths:6},
-   {label:'PGT',        type:'Teaching',     monthly:18000, startYear:3, count:1, months:11, firstYearMonths:11},
-   {label:'Physics',    type:'Teaching',     monthly:18000, startYear:1, count:1, months:11, firstYearMonths:11},
-   {label:'Chemistry',  type:'Teaching',     monthly:9000,  startYear:1, count:1, months:11, firstYearMonths:11},
-   {label:'TGT',        type:'Teaching',     monthly:10000, startYear:3, count:1, months:11, firstYearMonths:11}
-  ]
- });
+   {label:'Principal', type:'Principal', monthly:40000, startYear:0, count:1, months:7, firstYearMonths:7},
+   {label:'Computer', type:'Teaching', monthly:6000, startYear:0, count:1, months:6, firstYearMonths:6},
+   {label:'PGT', type:'Teaching', monthly:12000, startYear:0, count:1, months:5, firstYearMonths:5},
+   {label:'Gaurd', type:'Non-Teaching', monthly:8000, startYear:0, count:1, months:9, firstYearMonths:9},
+   {label:'TGT', type:'Teaching', monthly:10000, startYear:0, count:1, months:6, firstYearMonths:6},
+   {label:'PGT', type:'Teaching', monthly:18000, startYear:3, count:1, months:11, firstYearMonths:11},
+   {label:'Physics', type:'Teaching', monthly:18000, startYear:1, count:1, months:11, firstYearMonths:11},
+   {label:'Chemistry', type:'Teaching', monthly:9000, startYear:1, count:1, months:11, firstYearMonths:11},
+   {label:'TGT', type:'Teaching', monthly:10000, startYear:3, count:1, months:11, firstYearMonths:11}] };
 }
 function ensureSeedFinModel(){
  const all = getFinModels();
  if (all.length) return all;
- const seeded = [{ id: 1, name: 'Financial Model 1', model: _seedFinModel1(),
-   savedAt: new Date().toISOString(), savedBy: 'Owner' }];
- try { saveFinModels(seeded); } catch(e){}
+ const seeded = [{ id: 1, name: 'Financial Model 1', model: _seedFinModel1(), savedAt: new Date().toISOString(), savedBy: 'Owner' }];
+ try { saveFinModels(seeded); } catch (e) {}
  return seeded;
 }
-function _finSaveCurrent(nameOverride){
+function _finSaveCurrent(name, overwrite){
  const all = getFinModels();
- const suggested = nameOverride || _finLoadedName || ('Model ' + (all.length + 1));
- const name = (prompt('Save this scenario as:', suggested) || '').trim();
- if (!name) return;
+ if (!overwrite) { name = (prompt('Save this plan as:', name || ('Plan ' + (all.length + 1))) || '').trim(); if (!name) return; }
  const existing = all.find(x => x.name.toLowerCase() === name.toLowerCase());
+ const copy = JSON.parse(JSON.stringify(finModel));
  if (existing) {
-  if (!confirm(`"${name}" already exists. Overwrite it?`)) return;
-  existing.model = JSON.parse(JSON.stringify(finModel));
-  existing.savedAt = new Date().toISOString();
-  existing.savedBy = currentUser?.name || '';
- } else {
-  all.push({ id: Date.now(), name, model: JSON.parse(JSON.stringify(finModel)),
-    savedAt: new Date().toISOString(), savedBy: currentUser?.name || '' });
- }
- try { saveFinModels(all); } catch(e){ alert('Could not save: ' + e.message); return; }
- _finLoadedName = name;
- showToast('Saved "' + name + '"');
- _finRerender();
+  if (!overwrite && !confirm(`"${name}" already exists. Replace it?`)) return;
+  existing.model = copy; existing.savedAt = new Date().toISOString(); existing.savedBy = currentUser?.name || '';
+ } else all.push({ id: Date.now(), name, model: copy, savedAt: new Date().toISOString(), savedBy: currentUser?.name || '' });
+ try { saveFinModels(all); } catch (e) { alert('Could not save: ' + e.message); return; }
+ _finLoadedName = name; showToast('Saved "' + name + '"'); _finRerender();
 }
 function _finLoad(id){
- const rec = getFinModels().find(x => String(x.id) === String(id));
- if (!rec) return;
- finModel = JSON.parse(JSON.stringify(rec.model));
- _finLoadedName = rec.name;
- showToast('Loaded "' + rec.name + '"');
- _finRerender();
+ const rec = getFinModels().find(x => String(x.id) === String(id)); if (!rec) return;
+ finModel = _fmMigrate(rec.model); _finLoadedName = rec.name; showToast('Opened "' + rec.name + '"'); _finRerender();
 }
 function _finDelete(id){
- const all = getFinModels();
- const rec = all.find(x => String(x.id) === String(id));
- if (!rec) return;
- if (!confirm(`Delete the saved scenario "${rec.name}"? This cannot be undone.`)) return;
+ const all = getFinModels(), rec = all.find(x => String(x.id) === String(id)); if (!rec) return;
+ if (!confirm(`Delete the saved plan "${rec.name}"? This cannot be undone.`)) return;
  saveFinModels(all.filter(x => String(x.id) !== String(id)));
  if (_finLoadedName === rec.name) _finLoadedName = '';
- showToast('Deleted "' + rec.name + '"');
- _finRerender();
+ _fmCmp = _fmCmp.filter(x => x !== String(id));
+ showToast('Deleted "' + rec.name + '"'); _finRerender();
 }
-// Full workbook: the inputs, every added-staff line, the growth assumptions, the
-// year-by-year projection, and the formulas used to get there.
 function exportFinModelExcel(){
- const m = finModel, { current, rows, be } = _finCompute(m);
- const n = v => Math.round(Number(v)||0);
- const inputs = [
-  ['MDBV — FINANCIAL PROJECTION MODEL'], [String(SCHOOL_INFO.name||'')],
-  ['Scenario', _finLoadedName || '(unsaved)'], ['Session', currentSession()],
-  ['Exported', new Date().toLocaleString('en-IN')], [],
-  ['REVENUE INPUTS'],
-  ['Students (current)', n(m.students)],
-  ['Average annual fee', n(m.avgFee)],
-  ['Fee collection %', n(m.collRate)],
-  ['Books / extra per student', n(m.bookFee)], [],
-  ['SALARY INPUTS (monthly)'],
-  ['Teaching staff', n(m.teachingSalary)],
-  ['Non-teaching staff', n(m.nonTeachingSalary)],
-  ['Base salary bill /month', n(_finBaseMonthly(m))],
-  ['Months paid per year', n(m.monthsPaid)],
-  ['Annual increment %', n(m.salaryIncrement)],
-  ['Additional staff cost (now) /year', n(_finAddedAnnual(m,0))],
-  ['TOTAL salary bill (now) /year', n(_finBaseMonthly(m)*n(m.monthsPaid) + _finAddedAnnual(m,0))], [],
-  ['TRANSPORT (per year)'],
-  ['Fuel / diesel', n(m.fuel)], ['Vehicle maintenance', n(m.maintenance)],
-  ['Permits', n(m.permits)], ['Miscellaneous', n(m.transportMisc)],
-  ['Transport total', n(_finBaseTransport(m))], [],
-  ['OTHER COSTS (per year)'],
-  ['School maintenance', n(m.schoolMaintenance)],
-  ['Expenses (electricity, supplies…)', n(m.expenses)],
-  ['Cost inflation %', n(m.inflation)], [],
-  ['BREAK-EVEN (at current settings)'],
-  ['Students needed', be.students],
-  ['or average fee needed', n(be.avgFee)]
- ];
- const staff = [['Role / name','Type','How many','Salary each /mo','Joins','Months/yr','Months in 1st yr','Cost in first full year']]
-  .concat((m.addedStaff||[]).map(st => {
-   const cnt=_finStaffCount(st), mo=_finStaffMonths(m,st,(Number(st.startYear)||0)+1);
-   return [st.label||'', st.type||'Teaching', cnt, n(st.monthly),
-     (Number(st.startYear)||0)===0?'Now':('Year '+st.startYear),
-     mo, _finStaffMonths(m,st,Number(st.startYear)||0), n(cnt*(Number(st.monthly)||0)*mo)];
-  }));
- const growth = [['Year','Student growth %','Fee increase %']]
-  .concat((m.growth||[]).map((g,i)=>['Year '+(i+1), Number(g.student)||0, Number(g.fee)||0]));
- const proj = [['Period','Students','Avg fee','Tuition','Books','REVENUE','Salary','Transport','School maintenance','Expenses','TOTAL COST','SURPLUS','Margin %','Extra staff on payroll']];
- const line = (lbl,r,hires)=>[lbl, r.students, n(r.avgFee), n(r.tuition), n(r.books), n(r.revenue),
-   n(r.salary), n(r.transport), n(r.schoolMaint), n(r.expenses), n(r.cost), n(r.surplus),
-   Number((r.margin*100).toFixed(1)), hires];
- proj.push(line('Now (current)', current, _finAddedCount(m,0)));
- rows.forEach((r,i)=>proj.push(line('Year '+r.year, r, _finAddedCount(m,i+1))));
- const notes = [
-  ['HOW EACH FIGURE IS CALCULATED'], [],
-  ['Tuition','Students x Average annual fee x Fee collection %'],
-  ['Books','Students x Books/extra per student'],
-  ['Revenue','Tuition + Books'],
-  ['Salary','(Base salary bill/month x (1+increment)^year x Months paid) + additional staff'],
-  ['Additional staff','How many x Salary each x (1+increment)^(year - joining year) x Months that year'],
-  ['','A line costs nothing until its joining year. Its first year uses "Months in 1st yr".'],
-  ['Transport','(Fuel + Vehicle maintenance + Permits + Misc) x (1+inflation)^year'],
-  ['School maintenance','School maintenance x (1+inflation)^year'],
-  ['Expenses','Expenses x (1+inflation)^year'],
-  ['Total cost','Salary + Transport + School maintenance + Expenses'],
-  ['Surplus','Revenue - Total cost'],
-  ['Margin %','Surplus / Revenue'],
-  ['Students each year','Previous year students x (1 + that year\u2019s student growth %)'],
-  ['Average fee each year','Previous year fee x (1 + that year\u2019s fee increase %)'],
-  ['Break-even students','Total cost / (Average fee x collection % + Books per student)'],
-  [], ['Note','"Now (current)" applies no growth or inflation — it is today\u2019s position.']
- ];
+ if (typeof XLSX === 'undefined') { alert('The Excel tool has not loaded yet. Try again in a moment.'); return; }
+ const m = finModel, res = _fmRun(m), rows = res.rows, n = v => Math.round(_fmN(v));
+ const head = ['', ...rows.map(r => r.label + (r.y === 0 ? ' (this year)' : ''))];
+ const line = (l, f) => [l, ...rows.map(r => f(r))];
+ const incNames = Array.from(new Set(rows.flatMap(r => r.incomeItems.map(i => i.name))));
+ const costNames = Array.from(new Set(rows.flatMap(r => r.costItems.map(i => i.name))));
+ const proj = [['MDBV FINANCIAL PLAN — ' + (_finLoadedName || 'unsaved plan')], ['Exported ' + new Date().toLocaleString('en-IN')], [], head,
+  line('Students', r => Math.round(r.students)), line('New admissions', r => Math.round(r.newAdm)), line('Average fee', r => n(r.avgFee)), [],
+  ['INCOME'], line('Fees charged', r => n(r.gross)), line('Fees collected', r => n(r.tuition)), line('One-time admission fees', r => n(r.admission)),
+  ...incNames.map(nm => line(nm, r => n((r.incomeItems.find(i => i.name === nm) || { amt: 0 }).amt))), line('TOTAL INCOME', r => n(r.revenue)), [],
+  ['COSTS'], line('Salaries (current staff)', r => n(r.baseSal)), line('Salaries (new posts)', r => n(r.hireSal)),
+  ...costNames.map(nm => line(nm, r => n(r.costItems.filter(i => i.name === nm).reduce((a, i) => a + i.amt, 0)))), line('TOTAL COST', r => n(r.cost)), [],
+  line('SURPLUS', r => n(r.surplus)), line('Margin %', r => Number((r.margin * 100).toFixed(1))), line('Salaries % of income', r => r.revenue ? Math.round(r.salary * 100 / r.revenue) : 0), [],
+  ['CASH'], line('Cash at the start', r => n(r.openCash)), line('Loans taken', r => n(r.loanIn)), line('One-time spending', r => -n(r.capex)), line('Loan repayments', r => -n(r.loanPay)),
+  line('Cash at the end', r => n(r.closeCash)), line('Loan still to repay', r => n(r.debt))];
+ const w = m.whatIf || {};
+ const inputs = [['INPUTS'], ['Fees worked out', m.feeMode === 'simple' ? 'One average' : 'Class by class'], ['Fees collected %', m.collRate], ['New admissions this year', m.newThisYear], ['One-time fee per new student', m.admissionFee],
+  ['Growth', m.growthMode === 'cohort' ? 'Promotion + admissions' : 'A % each year'], ['Students leaving each year %', m.churn], ['Stay-on rate % (promotion)', m.cohort.retention], ['Admissions grow % (promotion)', m.cohort.intakeGrowth],
+  ['Teaching + Principal salaries /month', m.staff.teaching], ['Support staff salaries /month', m.staff.nonTeaching], ['Months paid', m.staff.monthsPaid], ['Yearly increment %', m.staff.increment],
+  ['Inflation %', m.inflation], ['Cash in hand at start', m.openingCash], [],
+  ['WHAT-IF SLIDERS IN USE'], ...FM_WHATIF.map(f => [f.l, (_fmN(w[f.k]) > 0 ? '+' : '') + _fmN(w[f.k]) + f.u]), [],
+  ['GROWTH BY SESSION', 'Students +%', 'Fees +%'], ...(m.growth || []).slice(0, res.Y).map((g, i) => [_fmSess(i + 1), g.student, g.fee])];
+ const classes = [['Class', 'Students now', 'Fee per student', 'New admissions /yr (promotion)'], ...(m.classes || []).map(c => [_fmCls(c.cls), _fmN(c.students), _fmN(c.fee), _fmN((m.cohort.intake || {})[c.cls])])];
+ const byClass = [['Students by class', ...rows.map(r => r.label)], ...rows[0].classes.map((c, k) => [_fmCls(c.cls), ...rows.map(r => Math.round(r.classes[k].students))])];
+ const hires = [['Post', 'Type', 'How many', 'Salary each /mo', 'From', 'Until', 'Months /yr', 'Months first year'], ...(m.hires || []).map(h => [h.label, h.type, _fmHireCount(h), _fmN(h.monthly), _fmSess(_fmN(h.startYear)), h.endYear === '' || h.endYear == null ? '' : _fmSess(_fmN(h.endYear)), h.months, h.firstYearMonths])];
+ const lines = (arr, isCost) => [['Name', isCost ? 'Group' : '', 'Amount', 'For', 'Rises', 'From', 'Until'], ...(arr || []).map(l => [l.name, isCost ? l.group : '', _fmN(l.amount), l.kind === 'perStudent' ? 'Per student' : 'Whole year',
+  l.growth === 'fee' ? 'Same as fees' : (l.growth === '' || l.growth == null) ? (isCost ? 'Inflation' : 'No rise') : l.growth + '%', _fmSess(_fmN(l.startYear)), l.endYear === '' || l.endYear == null ? '' : _fmSess(_fmN(l.endYear))])];
+ const cash = [['One-time spending', 'Amount', 'In'], ...(m.capex || []).map(c => [c.name, _fmN(c.amount), _fmSess(_fmN(c.year))]), [], ['Loan', 'Amount', 'Interest %', 'Years', 'Taken in'], ...(m.loans || []).map(l => [l.name, _fmN(l.amount), _fmN(l.rate), _fmN(l.years), _fmSess(_fmN(l.startYear))])];
+ const sensRows = []; FM_LEVERS.forEach(([k, l, u, steps]) => sensRows.push([l, ...steps.map(d => (d > 0 ? '+' : '') + d + u + ': ' + n(_fmMetric(_fmRun(m, Object.assign({}, w, { [k]: _fmN(w[k]) + d })), 'total', 0)))]));
  try {
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(inputs), 'Inputs');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(staff), 'Additional Staff');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(growth), 'Growth');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(proj), 'Projection');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(notes), 'Formulas');
-  XLSX.writeFile(wb, 'MDBV_Financial_Model_' + (_finLoadedName||'scenario').replace(/[^\w]+/g,'_') + '_' + new Date().toISOString().slice(0,10) + '.xlsx');
- } catch(e){ alert('Could not build the workbook: ' + e.message); }
+  const add = (aoa, name) => XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), name);
+  add(proj, 'Plan'); add(inputs, 'Inputs'); if (m.feeMode !== 'simple') { add(classes, 'Classes'); add(byClass, 'Students by class'); }
+  add(hires, 'New posts'); add(lines(m.costLines, true), 'Cost lines'); add(lines(m.incomeLines, false), 'Other income'); add(cash, 'Spending & loans');
+  add([['Total surplus over all years if one thing changes'], [], ...sensRows], 'What if');
+  XLSX.writeFile(wb, 'MDBV_Financial_Plan_' + (_finLoadedName || 'plan').replace(/[^\w]+/g, '_') + '_' + new Date().toISOString().slice(0, 10) + '.xlsx');
+ } catch (e) { alert('Could not build the workbook: ' + e.message); }
 }
 
 // ===== FACULTY GAP ANALYSIS =====
