@@ -5,7 +5,7 @@
 
 <html lang="en">
 <head>
-<meta name="mdbv-build" content="2026-11-28.18">
+<meta name="mdbv-build" content="2026-11-28.19">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -949,7 +949,7 @@
           </div>
           <div>
             <div class="font-display text-xl font-semibold">Murti Devi Balika Vidyapeeth</div>
-            <div class="text-xs uppercase tracking-widest opacity-60">Educating girls since 2022</div>
+            <div class="text-xs uppercase tracking-widest opacity-60">CBSE school since 2022</div>
           </div>
         </div>
         <p class="text-xs opacity-70 mb-3">Managed by <b>M.D.D.G. Makhar Educational &amp; Social Welfare Trust</b></p>
@@ -974,7 +974,7 @@
         <h4 class="font-display text-base mb-4 text-saffron">Reach Us</h4>
         <ul class="text-sm space-y-3 opacity-80">
           <li class="flex gap-3"><i class="fas fa-map-marker-alt text-saffron mt-1"></i><span>Meerut-Baraut Road<br>Binauli, Baghpat<br>UP 250345, India</span></li>
-          <li class="flex gap-3"><i class="fas fa-phone text-saffron mt-1"></i><span><a href="tel:+919557260700" class="hover:text-saffron">+91 95572 60700</a><br><a href="tel:0123457260700" class="hover:text-saffron">01234-57260700</a></span></li>
+          <li class="flex gap-3"><i class="fas fa-phone text-saffron mt-1"></i><span><a href="tel:+919557260700" class="hover:text-saffron">+91 95572 60700</a></span></li>
           <li class="flex gap-3"><i class="fab fa-whatsapp text-saffron mt-1"></i><span><a href="https://wa.me/919286590709?text=%E0%A4%A8%E0%A4%AE%E0%A4%B8%E0%A5%8D%E0%A4%A4%E0%A5%87" target="_blank" rel="noopener" class="hover:text-saffron">+91 92865 90709</a><br><span class="text-xs opacity-70">WhatsApp messages only</span></span></li>
           <li class="flex gap-3"><i class="fas fa-envelope text-saffron mt-1"></i><a href="mailto:mdbvidyapeeth@gmail.com" class="hover:text-saffron break-all">mdbvidyapeeth@gmail.com</a></li>
         </ul>
@@ -1476,7 +1476,7 @@ function renderHome() {
           <a href="#" class="w-badge" onclick="showPage('admissions'); return false;">प्रवेश 2027-28 शुरू &nbsp;|&nbsp; Admissions open for 2027-28</a>
           <h1 class="w-hi w-h1" lang="hi">भरोसे की पढ़ाई<span class="w-h1-sub">प्री-नर्सरी से 12वीं तक</span></h1>
           <p class="w-h1-en">Trusted schooling from <span class="w-nowrap">Pre-Nursery</span> to Class 12.</p>
-          <p class="w-lead">Boys and girls study together up to Class 8. Classes 9 to 12 are only for girls. A CBSE school on Meerut–Baraut Road in Binauli, open since 2022, with smart classes, science and computer labs, a shooting academy and GPS-tracked buses.</p>
+          <p class="w-lead">Started in 2022 as a girls' school. From this session, boys and girls study together up to Class 8, and Classes 9 to 12 stay only for girls. A CBSE school on Meerut–Baraut Road in Binauli, with smart classes, science and computer labs, a shooting academy and GPS-tracked buses.</p>
           <div class="w-actions">
             <a href="#" class="w-btn w-btn-apply" onclick="showPage('admissions'); return false;"><i class="fas fa-pen-to-square"></i>Apply for 2027-28</a>
             <a href="${WA}" target="_blank" rel="noopener" class="w-btn w-btn-wa"><i class="fab fa-whatsapp"></i>WhatsApp us</a>
@@ -1964,7 +1964,7 @@ function renderDisclosure() {
             <tr><td>5</td><td>Complete Address</td><td>Meerut-Baraut Road, Binauli, Baghpat, UP - 250345</td></tr>
             <tr><td>6</td><td>Principal Name & Qualification</td><td>${SCHOOL_INFO.principal.name} — ${SCHOOL_INFO.principal.qualification}</td></tr>
             <tr><td>7</td><td>School Email ID</td><td>${SCHOOL_INFO.email}</td></tr>
-            <tr><td>8</td><td>Contact Details</td><td>${SCHOOL_INFO.phoneAlt} / ${SCHOOL_INFO.phone} · WhatsApp ${SCHOOL_INFO.whatsappShow}</td></tr>
+            <tr><td>8</td><td>Contact Details</td><td>${SCHOOL_INFO.phone} · WhatsApp ${SCHOOL_INFO.whatsappShow}</td></tr>
           </table>
         </div>
 
@@ -2119,7 +2119,7 @@ function renderContact() {
           <div>
             <div class="w-12 h-12 bg-burgundy text-cream flex items-center justify-center mb-4"><i class="fas fa-phone"></i></div>
             <h3 class="font-display text-2xl text-ink mb-2">Phone</h3>
-            <p class="text-ink-soft">${SCHOOL_INFO.phone}<br>${SCHOOL_INFO.phoneAlt}</p>
+            <p class="text-ink-soft">${SCHOOL_INFO.phone}</p>
           </div>
           <div>
             <div class="w-12 h-12 text-cream flex items-center justify-center mb-4" style="background:#128C4A"><i class="fab fa-whatsapp text-xl"></i></div>
@@ -2350,7 +2350,6 @@ const SCHOOL_INFO = {
 
   // Contact
   phone:       '+91 95572 60700',
-  phoneAlt:    '01234-57260700',
   email:       'mdbvidyapeeth@gmail.com',
   // School WhatsApp (Cloud API number — messages only, no calls)
   whatsapp:    '919286590709',
