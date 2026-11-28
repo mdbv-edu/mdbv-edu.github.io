@@ -5,7 +5,7 @@
 
 <html lang="en">
 <head>
-<meta name="mdbv-build" content="2026-11-28.16">
+<meta name="mdbv-build" content="2026-11-28.17">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -4299,7 +4299,18 @@ function _attachHomeworkOversightEvents(){
  }));
 }
 function saveComplaints(d){ DB.setAll('complaints', d); }
-function saveTeachers(d){ DB.setAll('teachers', d); }
+// Saving the staff list can never silently drop archived (left) staff: a screen that worked on the
+// current staff only would otherwise erase everyone who has left. Only the owner's "Delete permanently"
+// removes a record (it names the id in _staffDeleteOk first).
+let _staffDeleteOk = new Set();
+function saveTeachers(d){
+ const list = Array.isArray(d) ? d : [];
+ const have = new Set(list.map(x => String(x && x.id)));
+ const keep = (DB.getAll('teachers') || []).filter(t => t && !have.has(String(t.id)) && t.archived && !_staffDeleteOk.has(String(t.id)));
+ if (keep.length) console.warn('[MDBV] kept', keep.length, 'archived staff that a save left out');
+ _staffDeleteOk = new Set();
+ DB.setAll('teachers', keep.length ? list.concat(keep) : list);
+}
 function saveExamMarks(d){ DB.setAll('examMarks', d); }
 function saveAttendanceRecords(d){ DB.setObject('attendanceRecords', d); }
 
@@ -26055,6 +26066,7 @@ function attachTeachersTabEvents(){
   if (!t) return;
   const h = staffHistory(t.id);
   if (!confirm(`PERMANENTLY delete ${t.name}?\n\nThis erases the staff record. ${h.paymentCount} salary payment(s) totalling Rs.${h.totalPaid.toLocaleString('en-IN')} will stay in the ledger but lose their link.\n\nUse Archive instead to keep the full history.\n\nDelete anyway?`)) return;
+  _staffDeleteOk = new Set([String(parseInt(b.dataset.id))]);
   saveTeachers(getTeachers().filter(x => x.id !== parseInt(b.dataset.id)));
   refresh();
  }));
@@ -27580,7 +27592,7 @@ function attachUsersTabEvents(){
  // Reconcile logins with staff: every teaching-role login gets a Staff record (if missing).
  document.getElementById('syncStaffBtn')?.addEventListener('click', () => {
   const users = getUsers();
-  const teachers = getActiveTeachers();
+  const teachers = getTeachers();   // the FULL list (see saveTeachers)
   let created = 0, linked = 0;
   users.forEach(u => {
    if (!isTeacherRole(u.role)) return;
@@ -27648,7 +27660,7 @@ function attachUsersTabEvents(){
   // A user with any teaching role must have a matching Staff (teacher) record so they appear on
   // the Staff page and can be assigned classes. If none is linked, create or reuse one by name.
   if (isTeacherRole(role)) {
-   const teachers = getActiveTeachers();
+   const teachers = getTeachers();   // the FULL list — saving only current staff would erase everyone archived
    let tRec = data.teacherId ? teachers.find(t => t.id === data.teacherId) : null;
    if (!tRec) tRec = teachers.find(t => (t.name||'').trim().toLowerCase() === name.toLowerCase());
    if (!tRec) {
