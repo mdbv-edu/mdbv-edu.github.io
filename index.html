@@ -5,7 +5,7 @@
 
 <html lang="en">
 <head>
-<meta name="mdbv-build" content="2026-11-28.11">
+<meta name="mdbv-build" content="2026-11-28.10">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -1374,7 +1374,7 @@ async function submitChangePassword() {
    if (!res || !res.ok) { showErr((res && res.error) || 'Could not change the password. Try again.'); return; }
    currentUser.defaultPw = false;
    const us = getUsers(); const mine = us.find(u => u.id === currentUser.id);
-   if (mine && DB._sessionKind === 'staff' && (isOwnerLevel() || isAdminLevel())) { mine.defaultPw = false; mine.password = ''; set('users', us); }   // the server already records it; only managers may write logins
+   if (mine && DB._sessionKind === 'staff') { mine.defaultPw = false; mine.password = ''; set('users', us); }
    closeChangePasswordModal(); showToast('Your password has been updated'); return;
   }
   // Re-read the live user record from storage (currentUser may be stale)
